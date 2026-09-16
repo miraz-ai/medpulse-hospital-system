@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <defs>
+    <linearGradient id="medGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0284c7" />
+      <stop offset="100%" stop-color="#0d9488" />
+    </linearGradient>
+  </defs>
+  <rect width="48" height="48" rx="12" fill="url(#medGrad)" />
+  <!-- Heart with ECG Pulse Line -->
+  <path d="M24 37.5 C24 37.5 12 30 12 21 C12 16.5 15.5 13 20 13 C22.5 13 24 14.5 24 14.5 C24 14.5 25.5 13 28 13 C32.5 13 36 16.5 36 21 C36 30 24 37.5 24 37.5 Z" fill="#0f172a" opacity="0.25"/>
+  <path d="M15 23 L19.5 23 L22 17 L25.5 28 L28.5 20 L30.5 23 L33 23" fill="none" stroke="#ffffff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
