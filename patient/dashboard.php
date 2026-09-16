@@ -34,8 +34,8 @@ if (!isset($_SESSION['user_id']) || empty($_SESSION['user_id']) || !isset($_SESS
         );
     }
     session_destroy();
-    header("Location: login.php?error=unauthorized");
-    exit;
+    header("Location: ../login.php");
+    exit();
 }
 
 // 2. Inactivity Timeout (Auto-logout after 30 minutes of idle time)
@@ -55,8 +55,8 @@ if (isset($_SESSION['last_activity']) && (time() - $_SESSION['last_activity'] > 
         );
     }
     session_destroy();
-    header("Location: login.php?error=unauthorized");
-    exit;
+    header("Location: ../login.php");
+    exit();
 }
 $_SESSION['last_activity'] = time();
 
@@ -66,7 +66,7 @@ header("Cache-Control: post-check=0, pre-check=0", false);
 header("Pragma: no-cache");
 
 // 3. Dynamic Patient Data Retrieval via Parameterized PDO Query
-require_once __DIR__ . '/config/db.php';
+require_once __DIR__ . '/../config/db.php';
 
 try {
     $stmt = $pdo->prepare("
@@ -87,8 +87,8 @@ try {
             setcookie(session_name(), '', time() - 3600, $params["path"], $params["domain"], $params["secure"], $params["httponly"]);
         }
         session_destroy();
-        header("Location: login.php?error=unauthorized");
-        exit;
+        header("Location: ../login.php");
+        exit();
     }
 
     $patientName    = $patient['full_name'];
@@ -140,7 +140,7 @@ if ($hour < 12) {
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   
   <!-- External Custom CSS -->
-  <link rel="stylesheet" href="assets/css/patient_dashboard.css">
+  <link rel="stylesheet" href="../assets/css/patient_dashboard.css">
 </head>
 <body>
 
@@ -150,7 +150,7 @@ if ($hour < 12) {
       <svg class="ui-ico" viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
     </button>
     <a href="#" class="mobile-brand">
-      <img src="assets/images/logo.png" alt="MedPulse">
+      <img src="../assets/images/logo.png" alt="MedPulse">
     </a>
     <div style="width: 38px;"></div>
   </header>
@@ -161,7 +161,7 @@ if ($hour < 12) {
   <!-- Left Sidebar (Clean Compact 8pt Golden Spacing) -->
   <aside class="left-bar" id="appSidebar">
     <a href="#" class="brand-header-link">
-      <img src="assets/images/logo.png" alt="MedPulse Hospital & Specialty Care">
+      <img src="../assets/images/logo.png" alt="MedPulse Hospital & Specialty Care">
     </a>
 
     <div class="nav-label">Clinical Care</div>
@@ -255,7 +255,7 @@ if ($hour < 12) {
     </ul>
 
     <div class="sidebar-footer">
-      <a href="logout.php" class="btn-signout">
+      <a href="../logout.php" class="btn-signout">
         <svg class="ui-ico" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
         Sign Out
       </a>

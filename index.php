@@ -52,7 +52,7 @@
 
     <!-- Sign In Panel -->
     <div class="form-pane signin-pane m-show" id="signInSection">
-      <form id="loginForm" onsubmit="handleAuthSubmit(event, 'backend/login_action.php')">
+      <form id="loginForm" action="backend/login_action.php" method="POST">
         <div class="brand">
           <div class="brand-logo"><i class="fa-solid fa-heart-pulse"></i></div>
           <span class="brand-name">MedPulse</span>

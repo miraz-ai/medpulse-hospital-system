@@ -28,8 +28,8 @@ if (!isset($pendingCount) && isset($pdo)) {
   <button class="mobile-hamburger" id="menuToggle" aria-label="Toggle Navigation">
     <svg class="ui-ico" viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
   </button>
-  <a href="admin_dashboard.php" class="mobile-brand">
-    <img src="assets/images/logo.png" alt="MedPulse">
+  <a href="dashboard.php" class="mobile-brand">
+    <img src="../assets/images/logo.png" alt="MedPulse">
   </a>
   <div style="width: 38px;"></div>
 </header>
@@ -39,15 +39,15 @@ if (!isset($pendingCount) && isset($pdo)) {
 
 <!-- Left Sidebar (Fixed 260px Width, Native Layout Parity) -->
 <aside class="left-bar" id="appSidebar">
-  <a href="admin_dashboard.php" class="brand-header-link">
-    <img src="assets/images/logo.png" alt="MedPulse Hospital & Specialty Care">
+  <a href="dashboard.php" class="brand-header-link">
+    <img src="../assets/images/logo.png" alt="MedPulse Hospital & Specialty Care">
   </a>
 
   <!-- 1. Hospital Ops -->
   <div class="nav-label">Hospital Ops</div>
   <ul class="nav-menu">
-    <li class="nav-item <?= ($currentRoute === 'admin_dashboard.php') ? 'active' : '' ?>">
-      <a href="admin_dashboard.php">
+    <li class="nav-item <?= ($currentRoute === 'dashboard.php') ? 'active' : '' ?>">
+      <a href="dashboard.php">
         <div class="nav-item-inner">
           <svg class="ui-ico" viewBox="0 0 24 24"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
           Executive Overview
@@ -152,7 +152,7 @@ if (!isset($pendingCount) && isset($pdo)) {
 
   <!-- 4. Sidebar Footer -->
   <div class="sidebar-footer">
-    <a href="logout.php" class="btn-signout">
+    <a href="../logout.php" class="btn-signout">
       <svg class="ui-ico" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
       Sign Out
     </a>

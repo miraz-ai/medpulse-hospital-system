@@ -4,7 +4,7 @@
  * Standalone Doctors Roster Management Console
  */
 
-require_once __DIR__ . '/includes/admin_auth.php';
+require_once __DIR__ . '/../includes/admin_auth.php';
 
 try {
     // Fetch active and suspended doctors
@@ -43,12 +43,12 @@ try {
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   
   <!-- Single Source of Truth External CSS -->
-  <link rel="stylesheet" href="assets/css/patient_dashboard.css">
+  <link rel="stylesheet" href="../assets/css/patient_dashboard.css">
 </head>
 <body>
 
   <!-- Centralized Admin Sidebar Partial (Dynamic Active Route Highlighting) -->
-  <?php require_once __DIR__ . '/includes/admin_sidebar.php'; ?>
+  <?php require_once __DIR__ . '/../includes/admin_sidebar.php'; ?>
 
   <!-- Central Primary Workspace Container (Starts cleanly past sidebar) -->
   <main class="viewport-full">
@@ -63,11 +63,11 @@ try {
         <p>Comprehensive roster of clinical specialists, BMDC licensing records, and active consultation credentials</p>
       </div>
       <div class="banner-actions">
-        <a href="admin_dashboard.php#pendingApprovalSection" class="btn-action-telemed" style="text-decoration: none;">
+        <a href="dashboard.php#pendingApprovalSection" class="btn-action-telemed" style="text-decoration: none;">
           <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
           Verification Queue
         </a>
-        <button class="btn-action-gradient" onclick="window.location.href='index.php'">
+        <button class="btn-action-gradient" onclick="window.location.href='../index.php'">
           <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24" style="stroke: white;"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
           + Add Physician
         </button>
@@ -226,7 +226,7 @@ try {
         formData.append('action', action);
         formData.append('csrf_token', csrfToken);
 
-        const response = await fetch('backend/admin_actions.php', {
+        const response = await fetch('../backend/admin_actions.php', {
           method: 'POST',
           body: formData
         });

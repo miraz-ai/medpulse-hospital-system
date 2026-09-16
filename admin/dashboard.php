@@ -4,7 +4,7 @@
  * Executive Command Center & Role Control
  */
 
-require_once __DIR__ . '/includes/admin_auth.php';
+require_once __DIR__ . '/../includes/admin_auth.php';
 
 try {
     // 1. Pending Approvals Queue (Doctors & Staff awaiting administrative review)
@@ -45,12 +45,12 @@ try {
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   
   <!-- Single Source of Truth External CSS -->
-  <link rel="stylesheet" href="assets/css/patient_dashboard.css">
+  <link rel="stylesheet" href="../assets/css/patient_dashboard.css">
 </head>
 <body>
 
   <!-- Centralized Admin Sidebar Partial (Dynamic Active Route Highlighting) -->
-  <?php require_once __DIR__ . '/includes/admin_sidebar.php'; ?>
+  <?php require_once __DIR__ . '/../includes/admin_sidebar.php'; ?>
 
   <!-- Central Primary Workspace Container (Starts cleanly past sidebar) -->
   <main class="viewport-full">
@@ -305,7 +305,7 @@ try {
         formData.append('action', action);
         formData.append('csrf_token', csrfToken);
 
-        const response = await fetch('backend/admin_actions.php', {
+        const response = await fetch('../backend/admin_actions.php', {
           method: 'POST',
           body: formData
         });

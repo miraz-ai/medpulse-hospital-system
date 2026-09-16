@@ -26,13 +26,16 @@ if (session_status() === PHP_SESSION_NONE) {
 // 2. If user is already authenticated, route them to their respective dashboard
 if (isset($_SESSION['user_id']) && !empty($_SESSION['user_id']) && isset($_SESSION['role'])) {
     if ($_SESSION['role'] === 'Patient') {
-        header("Location: patient_dashboard.php");
+        header("Location: patient/dashboard.php");
         exit;
     } elseif ($_SESSION['role'] === 'Admin') {
-        header("Location: admin_dashboard.php");
+        header("Location: admin/dashboard.php");
         exit;
-    } elseif (in_array($_SESSION['role'], ['Doctor', 'Staff'], true)) {
-        header("Location: dashboard.php");
+    } elseif ($_SESSION['role'] === 'Doctor') {
+        header("Location: doctor/dashboard.php");
+        exit;
+    } elseif ($_SESSION['role'] === 'Staff') {
+        header("Location: staff/dashboard.php");
         exit;
     }
 }
@@ -124,16 +127,19 @@ try {
 
     // 6. Role-Based Redirection Flow
     if ($user['role'] === 'Patient') {
-        header("Location: patient_dashboard.php");
+        header("Location: patient/dashboard.php");
         exit;
     } elseif ($user['role'] === 'Admin') {
-        header("Location: admin_dashboard.php");
+        header("Location: admin/dashboard.php");
         exit;
-    } elseif (in_array($user['role'], ['Doctor', 'Staff'], true)) {
-        header("Location: dashboard.php");
+    } elseif ($user['role'] === 'Doctor') {
+        header("Location: doctor/dashboard.php");
+        exit;
+    } elseif ($user['role'] === 'Staff') {
+        header("Location: staff/dashboard.php");
         exit;
     } else {
-        header("Location: patient_dashboard.php");
+        header("Location: patient/dashboard.php");
         exit;
     }
 

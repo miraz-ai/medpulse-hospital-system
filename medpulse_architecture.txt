@@ -1,0 +1,39 @@
+MedPulse/
+├── assets/                  (css, js, images)
+├── backend/                 (admin_actions.php, auth APIs, form handlers)
+├── config/                  (db.php, constants.php)
+├── database/                (01_users.sql ... 10_seed_data.sql)
+├── includes/                (reusable headers, footers, sidebars)
+│   ├── admin_sidebar.php
+│   ├── patient_sidebar.php
+│   └── doctor_sidebar.php
+│
+├── admin/                   <-- Admin Portal Files
+│   ├── dashboard.php
+│   ├── manage_doctors.php
+│   ├── manage_patients.php
+│   ├── manage_staff.php
+│   ├── bed_management.php
+│   ├── billing_management.php
+│   ├── verification_queue.php
+│   ├── audit_logs.php
+│   └── settings.php
+│
+├── doctor/                  <-- Doctor Portal Files
+│   ├── dashboard.php
+│   ├── my_appointments.php
+│   └── digital_rx.php
+│
+├── patient/                 <-- Patient Portal Files
+│   ├── dashboard.php
+│   ├── book_appointment.php
+│   ├── live_bed_census.php
+│   └── my_invoices.php
+│
+├── staff/                   <-- Reception/Staff Portal Files
+│   └── dashboard.php
+│
+├── index.php                (Public Landing Page)
+├── login.php                (Central Login Screen)
+├── logout.php
+└── README.md

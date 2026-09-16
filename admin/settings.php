@@ -4,7 +4,7 @@
  * Standalone System Configurations & Hospital Infrastructure Console
  */
 
-require_once __DIR__ . '/includes/admin_auth.php';
+require_once __DIR__ . '/../includes/admin_auth.php';
 
 $saveSuccess = false;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -31,12 +31,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   
   <!-- Single Source of Truth External CSS -->
-  <link rel="stylesheet" href="assets/css/patient_dashboard.css">
+  <link rel="stylesheet" href="../assets/css/patient_dashboard.css">
 </head>
 <body>
 
   <!-- Centralized Admin Sidebar Partial (Dynamic Active Route Highlighting) -->
-  <?php require_once __DIR__ . '/includes/admin_sidebar.php'; ?>
+  <?php require_once __DIR__ . '/../includes/admin_sidebar.php'; ?>
 
   <!-- Central Primary Workspace Container (Starts cleanly past sidebar) -->
   <main class="viewport-full">

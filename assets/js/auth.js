@@ -170,7 +170,13 @@ async function handleAuthSubmit(e, endpoint) {
     if (data.status === 'success') {
       showAlert(data.message, 'success');
       if (data.redirect) {
-        setTimeout(() => window.location.href = data.redirect, 1200);
+        setTimeout(() => {
+          let target = data.redirect;
+          if (target.startsWith('../')) {
+            target = target.substring(3);
+          }
+          window.location.href = target;
+        }, 1200);
       } else {
         clearAllForms();
         setTimeout(() => {
