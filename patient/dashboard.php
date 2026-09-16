@@ -70,8 +70,7 @@ require_once __DIR__ . '/../config/db.php';
 
 try {
     $stmt = $pdo->prepare("
-        SELECT user_id, full_name, email, phone, gender, role, status,
-               blood_group, age, date_of_birth, assigned_doctor, prescriptions
+        SELECT *
         FROM users 
         WHERE user_id = :id AND role = 'Patient' 
         LIMIT 1
@@ -95,8 +94,48 @@ try {
     $patientEmail   = $patient['email'];
     $bloodGroup     = !empty($patient['blood_group']) ? $patient['blood_group'] : 'B+';
     $gender         = !empty($patient['gender']) ? $patient['gender'] : 'Male';
-    $assignedDoctor = !empty($patient['assigned_doctor']) ? $patient['assigned_doctor'] : 'Dr. Satoru Gojo';
     $prescriptions  = !empty($patient['prescriptions']) ? $patient['prescriptions'] : null;
+
+    // Relational Assigned Doctor Lookup:
+    // 1. Prioritize active inpatient attending physician from bed allocations
+    // 2. Next, check upcoming or active outpatient consultation appointment
+    // 3. Fallback placeholder 'Unassigned' (with safe null-coalescing guard)
+    $assignedDoctor = $patient['assigned_doctor'] ?? null;
+    if (empty($assignedDoctor)) {
+        try {
+            $docStmt = $pdo->prepare("
+                SELECT u.full_name 
+                FROM bed_allocations ba 
+                JOIN users u ON ba.attending_doctor_id = u.user_id 
+                WHERE ba.patient_id = :id AND ba.status = 'Active' 
+                ORDER BY ba.admitted_at DESC 
+                LIMIT 1
+            ");
+            $docStmt->execute([':id' => $patient['user_id']]);
+            $assignedDoctor = $docStmt->fetchColumn();
+        } catch (PDOException $e) {
+            $assignedDoctor = null;
+        }
+    }
+
+    if (empty($assignedDoctor)) {
+        try {
+            $docStmt = $pdo->prepare("
+                SELECT u.full_name 
+                FROM appointments a 
+                JOIN users u ON a.doctor_id = u.user_id 
+                WHERE a.patient_id = :id AND a.status IN ('Scheduled', 'In-Consultation') 
+                ORDER BY a.appointment_date ASC, a.appointment_time ASC 
+                LIMIT 1
+            ");
+            $docStmt->execute([':id' => $patient['user_id']]);
+            $assignedDoctor = $docStmt->fetchColumn();
+        } catch (PDOException $e) {
+            $assignedDoctor = null;
+        }
+    }
+
+    $assignedDoctor = !empty($assignedDoctor) ? $assignedDoctor : 'Unassigned';
 
     // Calculate dynamic age if date_of_birth exists, else fallback to age column or default
     if (!empty($patient['date_of_birth'])) {
@@ -549,6 +588,15 @@ if ($hour < 12) {
         <label>Heart Rate</label>
         <strong>74 bpm</strong>
         <div class="vital-progress"><div class="vital-progress-bar bar-normal"></div></div>
+      </div>
+    </div>
+
+    <!-- Attending / Assigned Specialist -->
+    <div style="margin: 1.15rem 0 1rem; padding: 0.85rem 1rem; background: var(--surface-card); border: 1px solid var(--border-subtle); border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.03);">
+      <span style="display: block; font-size: 0.7rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 5px;">Primary Attending Doctor</span>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <svg class="ui-ico ui-ico-sm" style="stroke: var(--brand-primary); width: 18px; height: 18px; flex-shrink: 0;" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><polyline points="16 11 18 13 22 9"></polyline></svg>
+        <strong style="font-size: 0.88rem; color: var(--text-heading);"><?= htmlspecialchars($assignedDoctor, ENT_QUOTES, 'UTF-8') ?></strong>
       </div>
     </div>
 
