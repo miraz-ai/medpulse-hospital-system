@@ -537,6 +537,25 @@ try {
         $dbError = "Unable to retrieve real-time bed records. Please check database connectivity.";
     }
 }
+
+if (!function_exists('getDoctorPastelBadgeClass')) {
+    function getDoctorPastelBadgeClass(?string $specialty, int $doctorId = 0): string {
+        $spec = strtolower(trim((string)$specialty));
+        if (preg_match('/cardio|emerg|anesthe|critical|icu/i', $spec)) {
+            return 'doc-badge-rose';
+        } elseif (preg_match('/med|general|diabet|pediatr|nephro|pulmon/i', $spec)) {
+            return 'doc-badge-sky';
+        } elseif (preg_match('/surg|ortho|trauma|plastic|uro/i', $spec)) {
+            return 'doc-badge-amber';
+        } elseif (preg_match('/neuro|special|derma|psych|onc/i', $spec)) {
+            return 'doc-badge-purple';
+        } elseif ($spec !== '') {
+            return 'doc-badge-teal';
+        }
+        $variants = ['doc-badge-rose', 'doc-badge-sky', 'doc-badge-amber', 'doc-badge-purple', 'doc-badge-teal'];
+        return $variants[abs($doctorId) % 5];
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -824,9 +843,33 @@ try {
                           <span class="lead-doctor-name"><?= htmlspecialchars($leadDoctor, ENT_QUOTES, 'UTF-8') ?></span>
                         </span>
                         <?php if ($extraCount > 0): ?>
-                          <span class="extra-docs-badge" title="<?= htmlspecialchars($extraTooltip, ENT_QUOTES, 'UTF-8') ?>">
-                            +<?= $extraCount ?> more
-                          </span>
+                          <div class="care-team-popover-wrapper">
+                            <button type="button" 
+                                    class="extra-docs-badge btn-care-team-popover" 
+                                    aria-haspopup="true" 
+                                    aria-expanded="false" 
+                                    title="Click to view assigned care team">
+                              +<?= $extraCount ?> more
+                            </button>
+                            <div class="care-team-popover-card" role="tooltip" style="display: none;">
+                              <div class="care-team-popover-header">
+                                <span>Assigned Care Team</span>
+                                <span class="popover-badge-pill"><?= $extraCount ?> additional</span>
+                              </div>
+                              <div class="care-team-popover-list">
+                                <?php foreach ($extraDocs as $ed): ?>
+                                  <?php
+                                    $docSpec = !empty($ed['specialty']) ? $ed['specialty'] : 'Consulting Physician';
+                                    $specBadge = getDoctorPastelBadgeClass($docSpec, (int)$ed['doctor_id']);
+                                  ?>
+                                  <div class="care-team-popover-item">
+                                    <span class="popover-doc-name"><?= htmlspecialchars($ed['doctor_name'], ENT_QUOTES, 'UTF-8') ?></span>
+                                    <span class="popover-doc-spec <?= $specBadge ?>"><?= htmlspecialchars($docSpec, ENT_QUOTES, 'UTF-8') ?></span>
+                                  </div>
+                                <?php endforeach; ?>
+                              </div>
+                            </div>
+                          </div>
                         <?php endif; ?>
                       </div>
                     </div>

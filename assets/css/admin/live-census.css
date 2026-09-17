@@ -221,6 +221,11 @@
   flex-direction: column;
   justify-content: space-between;
   min-height: 175px;
+  overflow: visible;
+}
+
+.bed-slot-card.has-active-popover {
+  z-index: 50;
 }
 
 .bed-slot-card:hover {
@@ -331,6 +336,7 @@
 .bed-card-body {
   margin-bottom: 12px;
   flex: 1;
+  overflow: visible;
 }
 
 .bed-patient-info {
@@ -339,6 +345,8 @@
   border-radius: 8px;
   padding: 8px 10px;
   margin-bottom: 6px;
+  overflow: visible;
+  position: relative;
 }
 
 .patient-name {
@@ -362,6 +370,7 @@
   margin-top: 3px;
   display: flex;
   align-items: center;
+  overflow: visible;
 }
 
 .attending-doctor-team {
@@ -371,6 +380,8 @@
   gap: 6px;
   width: 100%;
   min-width: 0;
+  overflow: visible;
+  position: relative;
 }
 
 .attending-doctor {
@@ -394,27 +405,166 @@
   vertical-align: middle;
 }
 
+/* --- Care Team Interactive Popover --- */
+.care-team-popover-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
 .extra-docs-badge {
   display: inline-flex;
   align-items: center;
-  padding: 1px 6px;
+  padding: 2px 7px;
   border-radius: 9999px;
-  font-size: 0.67rem;
+  font-size: 0.68rem;
   font-weight: 700;
   background: #f0fdfa;
   color: #0d9488;
   border: 1px solid #99f6e4;
   white-space: nowrap;
-  cursor: help;
+  cursor: pointer;
   flex-shrink: 0;
   line-height: 1.35;
-  transition: all 0.15s ease;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  outline: none;
+  font-family: inherit;
 }
 
-.extra-docs-badge:hover {
+.extra-docs-badge:hover,
+.extra-docs-badge.is-active {
   background: #ccfbf1;
   border-color: #5eead4;
   color: #0f766e;
+  box-shadow: 0 1px 4px rgba(15, 118, 110, 0.2);
+  transform: translateY(-1px);
+}
+
+.extra-docs-badge:focus-visible {
+  box-shadow: 0 0 0 2px rgba(13, 148, 136, 0.35);
+}
+
+.care-team-popover-card {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 250px;
+  max-width: 270px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 12px 28px -4px rgba(15, 23, 42, 0.18), 0 8px 12px -6px rgba(15, 23, 42, 0.12);
+  padding: 10px 12px;
+  z-index: 50;
+  animation: careTeamPopIn 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+  text-align: left;
+}
+
+@keyframes careTeamPopIn {
+  from {
+    opacity: 0;
+    transform: translateY(-5px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.care-team-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 7px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #64748b; /* gray-500 */
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.popover-badge-pill {
+  font-size: 0.65rem;
+  font-weight: 700;
+  background: #f1f5f9;
+  color: #475569;
+  padding: 1px 6px;
+  border-radius: 99px;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.care-team-popover-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.care-team-popover-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: #f8fafc;
+  border: 1px solid #f1f5f9;
+  transition: background 0.15s ease;
+}
+
+.care-team-popover-item:hover {
+  background: #f1f5f9;
+}
+
+.popover-doc-name {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.25;
+}
+
+.popover-doc-spec {
+  display: inline-block;
+  align-self: flex-start;
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  line-height: 1.2;
+}
+
+/* Dynamic Soft Pastel Doctor Badges for Live Census */
+.doc-badge-rose {
+  background: #fff1f2 !important;
+  color: #be123c !important;
+  border: 1px solid #fecdd3 !important;
+}
+
+.doc-badge-sky {
+  background: #f0f9ff !important;
+  color: #0369a1 !important;
+  border: 1px solid #bae6fd !important;
+}
+
+.doc-badge-amber {
+  background: #fffbeb !important;
+  color: #b45309 !important;
+  border: 1px solid #fde68a !important;
+}
+
+.doc-badge-purple {
+  background: #faf5ff !important;
+  color: #7e22ce !important;
+  border: 1px solid #e9d5ff !important;
+}
+
+.doc-badge-teal {
+  background: #f0fdfa !important;
+  color: #0f766e !important;
+  border: 1px solid #99f6e4 !important;
 }
 
 .bed-vacant-msg {

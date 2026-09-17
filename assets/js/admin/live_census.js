@@ -235,9 +235,66 @@
   }
 
   // ------------------------------------------------------------------
+  // Interactive Care Team Popover Mini-Cards
+  // ------------------------------------------------------------------
+  function closeAllCareTeamPopovers() {
+    document.querySelectorAll('.care-team-popover-card').forEach(card => {
+      card.style.display = 'none';
+      card.classList.remove('is-open');
+    });
+    document.querySelectorAll('.btn-care-team-popover').forEach(btn => {
+      btn.setAttribute('aria-expanded', 'false');
+      btn.classList.remove('is-active');
+    });
+    document.querySelectorAll('.bed-slot-card.has-active-popover').forEach(card => {
+      card.classList.remove('has-active-popover');
+    });
+  }
+
+  function initCareTeamPopovers() {
+    document.querySelectorAll('.care-team-popover-wrapper').forEach(wrapper => {
+      const btn = wrapper.querySelector('.btn-care-team-popover');
+      const popover = wrapper.querySelector('.care-team-popover-card');
+      const bedCard = wrapper.closest('.bed-slot-card');
+
+      if (!btn || !popover) return;
+
+      btn.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const isCurrentlyOpen = (popover.style.display === 'block' || popover.classList.contains('is-open'));
+
+        // Close all popovers first
+        closeAllCareTeamPopovers();
+
+        if (!isCurrentlyOpen) {
+          popover.style.display = 'block';
+          popover.classList.add('is-open');
+          btn.setAttribute('aria-expanded', 'true');
+          btn.classList.add('is-active');
+          if (bedCard) bedCard.classList.add('has-active-popover');
+        }
+      });
+
+      // Prevent clicks inside the popover from bubbling up to document and closing it
+      popover.addEventListener('click', function (e) {
+        e.stopPropagation();
+      });
+    });
+
+    // Close on click outside
+    document.addEventListener('click', function () {
+      closeAllCareTeamPopovers();
+    });
+  }
+
+  // ------------------------------------------------------------------
   // Backdrop click to close modals
   // ------------------------------------------------------------------
   document.addEventListener('DOMContentLoaded', () => {
+    initCareTeamPopovers();
+
     document.getElementById('allocateModalOverlay')?.addEventListener('click', function (e) {
       if (e.target === this) window.closeAllocateModal();
     });
@@ -250,6 +307,7 @@
       if (e.key === 'Escape') {
         closeAllocateModal();
         closeDischargeModal();
+        closeAllCareTeamPopovers();
       }
     });
   });
