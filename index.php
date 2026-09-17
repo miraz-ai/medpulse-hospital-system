@@ -79,8 +79,8 @@
         <div class="field-box password-input-group password-field-wrapper" style="position: relative; width: 100%;">
           <input type="password" name="password" id="password" class="form-control password-input" style="width: 100%; padding-right: 42px; padding-left: 42px;" placeholder="Password" required />
           <i class="fa-solid fa-lock f-icon" style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); pointer-events: none; z-index: 4;"></i>
-          <button type="button" class="toggle-password-btn" onclick="togglePassword(this)" aria-label="Toggle password visibility" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: #94a3b8; display: flex; align-items: center; justify-content: center; padding: 0; width: 28px; height: 28px; z-index: 5;">
-            <i class="fas fa-eye eye-icon" style="pointer-events: none;"></i>
+          <button type="button" class="toggle-password-btn" aria-label="Toggle password visibility" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: #94a3b8; display: flex; align-items: center; justify-content: center; padding: 0; width: 28px; height: 28px; z-index: 5;">
+            <i class="fa-solid fa-eye eye-icon" style="pointer-events: none;"></i>
           </button>
         </div>
 
@@ -138,8 +138,8 @@
         <div class="field-box password-input-group password-field-wrapper" style="position: relative; width: 100%;">
           <input type="password" id="regPassInput" name="password" class="form-control password-input" style="width: 100%; padding-right: 42px; padding-left: 42px;" placeholder="Create Strong Password" oninput="checkStrength(this.value)" required />
           <i class="fa-solid fa-shield-halved f-icon" style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); pointer-events: none; z-index: 4;"></i>
-          <button type="button" class="toggle-password-btn" onclick="togglePassword(this)" aria-label="Toggle password visibility" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: #94a3b8; display: flex; align-items: center; justify-content: center; padding: 0; width: 28px; height: 28px; z-index: 5;">
-            <i class="fas fa-eye eye-icon" style="pointer-events: none;"></i>
+          <button type="button" class="toggle-password-btn" aria-label="Toggle password visibility" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: #94a3b8; display: flex; align-items: center; justify-content: center; padding: 0; width: 28px; height: 28px; z-index: 5;">
+            <i class="fa-solid fa-eye eye-icon" style="pointer-events: none;"></i>
           </button>
         </div>
 
@@ -177,29 +177,6 @@
 
   </div>
 
-  <script>
-    function togglePassword(btn) {
-      if (!btn) return;
-      const wrapper = btn.closest('.password-input-group, .password-field-wrapper, .field-box');
-      if (!wrapper) return;
-      const input = wrapper.querySelector('.password-input') || wrapper.querySelector('input');
-      const icon = btn.querySelector('.eye-icon') || btn.querySelector('i');
-      if (!input) return;
-
-      const isPassword = input.getAttribute('type') === 'password';
-      input.setAttribute('type', isPassword ? 'text' : 'password');
-
-      if (icon) {
-        if (isPassword) {
-          icon.classList.remove('fa-eye');
-          icon.classList.add('fa-eye-slash');
-        } else {
-          icon.classList.remove('fa-eye-slash');
-          icon.classList.add('fa-eye');
-        }
-      }
-    }
-  </script>
   <script src="assets/js/auth.js?v=<?= time() ?>"></script>
 </body>
 </html>
