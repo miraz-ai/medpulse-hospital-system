@@ -1,0 +1,35 @@
+MedPulse/
+├── assets/
+│   ├── css/
+│   │   ├── style.css                  # গ্লোবাল বেস স্টাইল (বডি, ফন্ট, কমন ইউটিলিটি)
+│   │   ├── admin/                     # অ্যাডমিন পোর্টালে ব্যবহৃত সব CSS
+│   │   │   ├── dashboard.css
+│   │   │   ├── live-census.css
+│   │   │   └── audit-logs.css
+│   │   ├── doctor/                    # ডক্টর পোর্টালের স্টাইল
+│   │   ├── patient/                   # পেশেন্ট পোর্টালের স্টাইল
+│   │   └── staff/                     # স্টাফ পোর্টালের স্টাইল
+│   ├── js/
+│   │   ├── admin/                     # অ্যাডমিন পোর্টালের ডেডিকেটেড JS
+│   │   │   ├── live-ticker.js
+│   │   │   ├── dashboard.js
+│   │   │   └── live_census.js
+│   │   ├── doctor/                    # ডক্টরের প্রেসক্রিপশন, অ্যাপয়েন্টমেন্ট JS
+│   │   ├── patient/                   # পেশেন্টের পোর্টাল JS
+│   │   └── auth.js                    # অথেন্টিকেশন হ্যান্ডলার
+│   └── images/
+├── backend/                           # ফর্ম প্রসেসিং ও ডাটাবেস হ্যান্ডলার (POST রিকোয়েস্ট)
+│   ├── admin_actions.php
+│   ├── doctor_actions.php
+│   └── auth_actions.php
+├── config/
+│   └── db.php                         # PDO ডাটাবেস কানেকশন
+├── database/                          # ক্রমানুসারে সাজানো SQL ফাইল (01_ to 10_)
+├── includes/                          # পুনঃব্যবহারযোগ্য কম্পোনেন্ট
+│   ├── admin_sidebar.php
+│   ├── admin_auth.php
+│   └── doctor_sidebar.php
+├── admin/                             # অ্যাডমিনের সমস্ত দৃশ্যমান ভিউ পেজ (Views)
+├── doctor/                            # ডক্টরের ভিউ পেজ
+├── patient/                           # পেশেন্টের ভিউ পেজ
+└── staff/                             # ক্লিনিক্যাল স্টাফ ভিউ পেজ
