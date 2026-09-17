@@ -135,6 +135,27 @@ try {
     $_SESSION["status"]        = $user["status"];
     $_SESSION["last_activity"] = time();
 
+    // Doctor profile resolution
+    if ($user["role"] === "Doctor") {
+        $docStmt = $pdo->prepare("SELECT doctor_id FROM doctor_profiles WHERE user_id = ? LIMIT 1");
+        $docStmt->execute([(int)$user["user_id"]]);
+        $docProfileId = $docStmt->fetchColumn();
+
+        if (!$docProfileId) {
+            // Provision baseline doctor profile if missing
+            $bmdcCandidate = 'BMDC-A-' . mt_rand(20000, 99999);
+            $insProfile = $pdo->prepare("
+                INSERT INTO doctor_profiles 
+                    (user_id, specialty, bmdc_license_number, consultation_fee, room_number, available_days, shift_timings)
+                VALUES 
+                    (?, 'General Surgery & Critical Care', ?, 1200.00, 'Room-302', 'Mon,Tue,Wed,Thu,Fri', '09:00 AM - 05:00 PM')
+            ");
+            $insProfile->execute([(int)$user["user_id"], $bmdcCandidate]);
+            $docProfileId = (int)$pdo->lastInsertId();
+        }
+        $_SESSION["doctor_id"] = (int)$docProfileId;
+    }
+
     // Strict Role-Based Redirection Flow
     if ($user["role"] === "Admin") {
         header("Location: ../admin/dashboard.php");

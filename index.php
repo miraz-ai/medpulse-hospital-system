@@ -99,14 +99,25 @@
         <p class="desc">Create patient or clinical personnel credentials</p>
 
         <div class="role-selector">
-          <input type="radio" id="r-pat" name="register_role" value="Patient" checked>
+          <input type="radio" id="r-pat" name="register_role" value="Patient" checked onchange="toggleDoctorFields(this.value)">
           <label for="r-pat"><i class="fa-solid fa-user-injured"></i> Patient</label>
 
-          <input type="radio" id="r-doc" name="register_role" value="Doctor">
+          <input type="radio" id="r-doc" name="register_role" value="Doctor" onchange="toggleDoctorFields(this.value)">
           <label for="r-doc"><i class="fa-solid fa-user-doctor"></i> Doctor</label>
 
-          <input type="radio" id="r-stf" name="register_role" value="Staff">
+          <input type="radio" id="r-stf" name="register_role" value="Staff" onchange="toggleDoctorFields(this.value)">
           <label for="r-stf"><i class="fa-solid fa-hospital-user"></i> Staff</label>
+        </div>
+
+        <div id="doctorExtraFields" style="display: none;">
+          <div class="field-box">
+            <input type="text" name="specialty" placeholder="Specialty (e.g. General Surgery & Critical Care)" />
+            <i class="fa-solid fa-stethoscope f-icon"></i>
+          </div>
+          <div class="field-box">
+            <input type="text" name="bmdc_reg" placeholder="BMDC Reg No. (e.g. A-72819)" />
+            <i class="fa-solid fa-id-card f-icon"></i>
+          </div>
         </div>
 
         <div class="field-box">

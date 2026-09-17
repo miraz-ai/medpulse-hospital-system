@@ -134,7 +134,10 @@ try {
 $hour = (int)date('H');
 $greeting = $hour < 12 ? 'Good Morning' : ($hour < 17 ? 'Good Afternoon' : 'Good Evening');
 
-$doctorName  = htmlspecialchars($doctor['full_name'],      ENT_QUOTES, 'UTF-8');
+$rawDocName  = $doctor['full_name'] ?? 'Doctor';
+$cleanDocName = preg_replace('/^(?:(?:dr\.?|doctor)\s+)+/i', '', trim($rawDocName));
+$displayName = 'Dr. ' . $cleanDocName;
+$doctorName  = htmlspecialchars($displayName, ENT_QUOTES, 'UTF-8');
 $specialty   = htmlspecialchars($doctor['specialty'] ?? 'General Practice', ENT_QUOTES, 'UTF-8');
 $licenseNum  = htmlspecialchars($doctor['bmdc_license_number'] ?? '—', ENT_QUOTES, 'UTF-8');
 ?>
@@ -152,6 +155,8 @@ $licenseNum  = htmlspecialchars($doctor['bmdc_license_number'] ?? '—', ENT_QUO
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="../assets/css/patient_dashboard.css">
 
   <style>
     /* ── Design System ────────────────────────────────────────────────── */
@@ -443,7 +448,9 @@ $licenseNum  = htmlspecialchars($doctor['bmdc_license_number'] ?? '—', ENT_QUO
   </style>
 </head>
 <body>
-<div class="page-wrap">
+<?php require_once __DIR__ . '/../includes/doctor_sidebar.php'; ?>
+
+<main class="viewport-full">
 
   <!-- ── Page Header ────────────────────────────────────────────────────── -->
   <div class="page-header">
@@ -465,11 +472,11 @@ $licenseNum  = htmlspecialchars($doctor['bmdc_license_number'] ?? '—', ENT_QUO
   <!-- ── Doctor Identity Card ───────────────────────────────────────────── -->
   <div class="doctor-id-card">
     <div class="doctor-avatar">
-      <?= strtoupper(substr(trim($doctor['full_name']), 0, 2)) ?>
+      <?= strtoupper(substr(trim($cleanDocName), 0, 2)) ?>
     </div>
     <div class="doctor-id-info">
       <div class="greeting"><?= $greeting ?>, Doctor</div>
-      <h2>Dr. <?= $doctorName ?></h2>
+      <h2><?= $doctorName ?></h2>
       <div class="doctor-id-meta">
         <span>
           <svg viewBox="0 0 24 24" class="ui-ico"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
@@ -661,6 +668,6 @@ $licenseNum  = htmlspecialchars($doctor['bmdc_license_number'] ?? '—', ENT_QUO
     For disbursement queries or discrepancies, contact the Accounts Department at Ext.&nbsp;220.
   </p>
 
-</div>
+</main>
 </body>
 </html>

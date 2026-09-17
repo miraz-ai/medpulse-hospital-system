@@ -24,8 +24,8 @@ if (!in_array($role, $allowed_roles, true)) {
 }
 
 // 2. Status Assignment Logic
-// Patients are active immediately; clinical personnel (Doctor, Staff) require administrative approval
-$status = ($role === 'Patient') ? 'active' : 'pending';
+// Patients and Doctors are active immediately; Staff requires administrative approval
+$status = in_array($role, ['Patient', 'Doctor'], true) ? 'active' : 'pending';
 
 // 3. Mandatory Fields Check
 if ($name === '' || $raw_email === '' || $raw_phone === '' || $gender === '' || $password === '') {
@@ -106,6 +106,12 @@ try {
     // 9. Password Hashing with BCrypt (cost => 12)
     $hashedPassword = password_hash($password, PASSWORD_BCRYPT, ['cost' => 12]);
 
+    // Clean Doctor Name formatting if signing up as doctor
+    if ($role === 'Doctor') {
+        $cleanName = preg_replace('/^(?:(?:dr\.?|doctor)\s+)+/i', '', $name);
+        $name = 'Dr. ' . $cleanName;
+    }
+
     // 10. Database Persistence with Role & Status
     $insert = $pdo->prepare("
         INSERT INTO users (full_name, email, phone, gender, role, status, password_hash)
@@ -120,11 +126,102 @@ try {
         'status' => $status,
         'hash'   => $hashedPassword
     ]);
+    $newUserId = (int)$pdo->lastInsertId();
 
-    // 11. Role-based Response & Redirection Pipeline
+    // 11. Linked Doctor Profile Provisioning & Immediate Session Auth
+    if ($role === 'Doctor') {
+        $specialty = trim($_POST['specialty'] ?? '') ?: 'General Surgery & Critical Care';
+        $consultationFee = isset($_POST['consultation_fee']) && is_numeric($_POST['consultation_fee'])
+            ? (float)$_POST['consultation_fee']
+            : 1200.00;
+        $roomNumber = trim($_POST['room_number'] ?? '') ?: ('Room-' . mt_rand(201, 508));
+        $availableDays = 'Mon,Tue,Wed,Thu,Fri';
+        $shiftTimings = '09:00 AM - 05:00 PM';
+
+        // BMDC License handling
+        $bmdcLicense = trim($_POST['bmdc_license_number'] ?? $_POST['bmdc_reg'] ?? '');
+        if (empty($bmdcLicense)) {
+            // Generate guaranteed unique BMDC license
+            do {
+                $candidate = 'BMDC-A-' . mt_rand(20000, 99999);
+                $bCheck = $pdo->prepare("SELECT 1 FROM doctor_profiles WHERE bmdc_license_number = ? LIMIT 1");
+                $bCheck->execute([$candidate]);
+            } while ($bCheck->fetchColumn());
+            $bmdcLicense = $candidate;
+        }
+
+        // Insert into doctor_profiles
+        $docProfileStmt = $pdo->prepare("
+            INSERT INTO doctor_profiles 
+                (user_id, specialty, bmdc_license_number, consultation_fee, room_number, available_days, shift_timings)
+            VALUES 
+                (:uid, :specialty, :bmdc, :fee, :room, :days, :shift)
+        ");
+        $docProfileStmt->execute([
+            ':uid'       => $newUserId,
+            ':specialty' => $specialty,
+            ':bmdc'      => $bmdcLicense,
+            ':fee'       => $consultationFee,
+            ':room'      => $roomNumber,
+            ':days'      => $availableDays,
+            ':shift'     => $shiftTimings,
+        ]);
+        $doctorProfileId = (int)$pdo->lastInsertId();
+
+        // Also populate users.department and users.license_id
+        $updUser = $pdo->prepare("UPDATE users SET department = :dept, license_id = :lic WHERE user_id = :uid");
+        $updUser->execute([
+            ':dept' => $specialty,
+            ':lic'  => $bmdcLicense,
+            ':uid'  => $newUserId,
+        ]);
+
+        // Establish Authenticated Session
+        session_regenerate_id(true);
+        $_SESSION['user_id']       = $newUserId;
+        $_SESSION['full_name']     = $name;
+        $_SESSION['email']         = $email;
+        $_SESSION['phone']         = $phone;
+        $_SESSION['gender']        = $gender;
+        $_SESSION['role']          = 'Doctor';
+        $_SESSION['status']        = 'active';
+        $_SESSION['doctor_id']     = $doctorProfileId;
+        $_SESSION['last_activity'] = time();
+
+        // Audit Log Entry
+        try {
+            $ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+            $auditStmt = $pdo->prepare("
+                INSERT INTO audit_logs 
+                    (actor_id, actor_role, action, action_name, description, category, target_entity, ip_address)
+                VALUES 
+                    (:actor, 'Doctor', 'REGISTRATION', 'REGISTRATION', :desc, 'SECURITY', 'DOCTOR_PORTAL', :ip)
+            ");
+            $auditStmt->execute([
+                ':actor' => $newUserId,
+                ':desc'  => "Doctor account registered: {$name} ({$specialty}, {$bmdcLicense})",
+                ':ip'    => $ip,
+            ]);
+        } catch (Throwable $e) {
+            // Non-blocking audit log
+        }
+
+        echo json_encode([
+            'status'   => 'success',
+            'success'  => true,
+            'pending'  => false,
+            'role'     => 'Doctor',
+            'message'  => "Doctor registration complete! Welcome {$name}. Redirecting to your Clinical Workspace...",
+            'redirect' => 'doctor/dashboard.php'
+        ]);
+        exit;
+    }
+
+    // 12. Role-based Response & Redirection Pipeline for other roles
     if ($status === 'pending') {
         echo json_encode([
             'status'   => 'success',
+            'success'  => true,
             'pending'  => true,
             'role'     => $role,
             'message'  => "Registration received! Your {$role} account is awaiting administrative approval before activation.",
@@ -133,6 +230,7 @@ try {
     } else {
         echo json_encode([
             'status'   => 'success',
+            'success'  => true,
             'pending'  => false,
             'role'     => $role,
             'message'  => 'Registration successful! Switch to login to access your portal.',

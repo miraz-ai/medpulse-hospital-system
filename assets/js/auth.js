@@ -265,3 +265,10 @@ function showAlert(msg, type, duration = 4500) {
     alertBanner.style.display = 'none';
   }, duration);
 }
+
+function toggleDoctorFields(role) {
+  const docFields = document.getElementById('doctorExtraFields');
+  if (docFields) {
+    docFields.style.display = (role === 'Doctor') ? 'block' : 'none';
+  }
+}
