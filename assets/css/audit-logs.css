@@ -1,0 +1,372 @@
+/* ==========================================================================
+   MedPulse Enterprise Dashboard - Dedicated Audit Logs & Security
+   ========================================================================== */
+
+/* --- Telemetry Header Card --- */
+.audit-telemetry-banner {
+  background: linear-gradient(90deg, #f0fdfa 0%, #f8fafc 100%);
+  border: 1px solid #ccfbf1;
+  border-left: 4px solid #0d9488;
+  border-radius: 12px;
+  padding: 20px 24px;
+  margin-bottom: 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  box-shadow: 0 4px 6px -1px rgba(13, 148, 136, 0.05);
+}
+
+.audit-header-content {
+  flex: 1;
+}
+
+.audit-header-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.audit-header-title h1 {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+}
+
+.audit-header-desc {
+  font-size: 0.85rem;
+  color: #64748b;
+  line-height: 1.45;
+  max-width: 680px;
+}
+
+/* Header Metric Chips */
+.audit-metric-chips {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.audit-metric-chip {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  transition: transform 0.2s ease, border-color 0.2s ease;
+}
+
+.audit-metric-chip:hover {
+  transform: translateY(-1px);
+  border-color: #0d9488;
+}
+
+.audit-chip-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.chip-icon-teal {
+  background: #f0fdfa;
+  color: #0d9488;
+  border: 1px solid #ccfbf1;
+}
+
+.chip-icon-amber {
+  background: #fffbeb;
+  color: #d97706;
+  border: 1px solid #fde68a;
+}
+
+.chip-icon-blue {
+  background: #eff6ff;
+  color: #2563eb;
+  border: 1px solid #bfdbfe;
+}
+
+.audit-chip-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.audit-chip-val {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1.1;
+}
+
+.audit-chip-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-top: 2px;
+}
+
+/* --- Interactive Filter Bar --- */
+.audit-filter-bar {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 10px 16px;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.audit-filter-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.filter-pill-tab {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 9999px;
+  padding: 6px 14px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  outline: none;
+}
+
+.filter-pill-tab:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+  border-color: #cbd5e1;
+}
+
+.filter-pill-tab.active {
+  background: #0d9488;
+  color: #ffffff;
+  border-color: #0d9488;
+  box-shadow: 0 2px 6px rgba(13, 148, 136, 0.25);
+}
+
+.tab-badge-count {
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  padding: 1px 6px;
+  font-size: 0.7rem;
+}
+
+.filter-pill-tab.active .tab-badge-count {
+  background: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+}
+
+/* Search Box */
+.audit-search-wrapper {
+  position: relative;
+  min-width: 260px;
+}
+
+.audit-search-input {
+  width: 100%;
+  padding: 8px 12px 8px 34px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  color: #1e293b;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.audit-search-input:focus {
+  background: #ffffff;
+  border-color: #0d9488;
+  box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.12);
+}
+
+.audit-search-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  stroke: #94a3b8;
+  pointer-events: none;
+}
+
+/* --- Audit Data Table & Rows --- */
+.audit-table-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
+}
+
+.audit-table-responsive {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.audit-telemetry-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 0.85rem;
+}
+
+.audit-telemetry-table th {
+  background: #f8fafc;
+  padding: 12px 18px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.audit-telemetry-table td {
+  padding: 14px 18px;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: middle;
+  color: #334155;
+}
+
+.audit-event-row {
+  transition: background-color 0.2s ease, transform 0.2s ease;
+}
+
+.audit-event-row:hover {
+  background-color: #f8fafc;
+}
+
+.audit-event-row:last-child td {
+  border-bottom: none;
+}
+
+/* --- Category Badges --- */
+.audit-category-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.badge-cat-verification {
+  background: #dcfce7;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+}
+
+.badge-cat-admission {
+  background: #e0f2fe;
+  color: #0369a1;
+  border: 1px solid #bae6fd;
+}
+
+.badge-cat-security {
+  background: #fef3c7;
+  color: #b45309;
+  border: 1px solid #fde68a;
+}
+
+.badge-cat-system {
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+}
+
+/* Action text & target */
+.audit-action-main {
+  font-weight: 600;
+  color: #0f172a;
+  margin-bottom: 2px;
+}
+
+.audit-ip-chip {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.78rem;
+  background: #f1f5f9;
+  color: #475569;
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid #e2e8f0;
+  display: inline-block;
+}
+
+.audit-time-text {
+  font-size: 0.78rem;
+  color: #64748b;
+  white-space: nowrap;
+}
+
+/* Empty State */
+.audit-empty-results {
+  display: none;
+  padding: 48px 24px;
+  text-align: center;
+}
+
+.audit-empty-icon {
+  width: 44px;
+  height: 44px;
+  stroke: #94a3b8;
+  margin-bottom: 12px;
+}
+
+.audit-empty-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin-bottom: 4px;
+}
+
+.audit-empty-subtext {
+  font-size: 0.82rem;
+  color: #64748b;
+}
+
+/* Responsive adjustments */
+@media (max-width: 900px) {
+  .audit-telemetry-banner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .audit-metric-chips {
+    width: 100%;
+  }
+  .audit-filter-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .audit-search-wrapper {
+    width: 100%;
+  }
+}

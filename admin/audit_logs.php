@@ -1,89 +1,92 @@
 <?php
 /**
  * MedPulse Enterprise Hospital Management System
- * Audit Security Logs & Compliance Monitoring Console
+ * Dedicated Audit Logs & Security Telemetry Console
  */
 
 require_once __DIR__ . '/../includes/admin_auth.php';
 
-// Clinical Telemetry & Security Audit Trail Events
-$auditLogs = [
+// Retrieve live pending count for telemetry metric chip
+try {
+    $pCountStmt = $pdo->query("SELECT COUNT(*) FROM users WHERE status = 'pending' AND role IN ('Doctor', 'Staff')");
+    $pendingCount = (int)$pCountStmt->fetchColumn();
+} catch (Throwable $e) {
+    $pendingCount = 0;
+}
+
+// 6-Row Clinical Telemetry & Security Audit Dataset
+$telemetryEvents = [
     [
-        'timestamp'   => date('d M Y, h:i A', strtotime('-4 minutes')),
-        'actor_name'  => $adminName ?? 'Miraz',
-        'actor_role'  => 'Admin',
-        'action'      => 'Doctor Credential Verified',
-        'target'      => 'Dr. Ayesha Siddiqua (BMDC-A-94120)',
-        'ip_address'  => '192.168.1.10',
-        'device'      => 'Firefox 128 (Linux x86_64)',
-        'level'       => 'INFO',
-        'badge_class' => 'status-badge-active'
+        'id'        => 'TLM-9401',
+        'action'    => 'Dr. Ayesha Siddiqua credentials approved by Miraz',
+        'category'  => 'VERIFICATION',
+        'ip'        => '192.168.1.14',
+        'time'      => '2m ago',
+        'exact_time'=> date('h:i:s A', strtotime('-2 minutes')),
+        'actor'     => 'Miraz (Admin)',
+        'level'     => 'Verified',
+        'badge_cls' => 'badge-cat-verification',
+        'tag'       => 'Staff Verification'
     ],
     [
-        'timestamp'   => date('d M Y, h:i A', strtotime('-18 minutes')),
-        'actor_name'  => 'Gateway Security Bot',
-        'actor_role'  => 'System',
-        'action'      => 'Failed Password Lockout Triggered',
-        'target'      => 'auth.endpoint (01700000000)',
-        'ip_address'  => '103.145.74.22',
-        'device'      => 'Python-Requests / Automated Probe',
-        'level'       => 'CRITICAL',
-        'badge_class' => 'status-badge-suspended'
+        'id'        => 'TLM-9402',
+        'action'    => 'Emergency intake: Patient #4881 assigned to Ward 3B',
+        'category'  => 'ADMISSION',
+        'ip'        => '192.168.1.8',
+        'time'      => '6m ago',
+        'exact_time'=> date('h:i:s A', strtotime('-6 minutes')),
+        'actor'     => 'Station 3B Intake',
+        'level'     => 'Admitted',
+        'badge_cls' => 'badge-cat-admission',
+        'tag'       => 'Clinical/Admission'
     ],
     [
-        'timestamp'   => date('d M Y, h:i A', strtotime('-45 minutes')),
-        'actor_name'  => 'Dr. Rafiqul Islam',
-        'actor_role'  => 'Doctor',
-        'action'      => 'ICU Patient Telemetry Downloaded',
-        'target'      => 'Patient #0001 (Agatsuma Zenitsu)',
-        'ip_address'  => '192.168.1.42',
-        'device'      => 'Chrome 128 (Windows NT 10.0)',
-        'level'       => 'INFO',
-        'badge_class' => 'status-badge-active'
+        'id'        => 'TLM-9403',
+        'action'    => 'Pharmacy batch #409 narcotics locker accessed',
+        'category'  => 'SECURITY',
+        'ip'        => '192.168.1.22',
+        'time'      => '15m ago',
+        'exact_time'=> date('h:i:s A', strtotime('-15 minutes')),
+        'actor'     => 'Chief Pharmacist',
+        'level'     => 'Secured Access',
+        'badge_cls' => 'badge-cat-security',
+        'tag'       => 'Pharmacy'
     ],
     [
-        'timestamp'   => date('d M Y, h:i A', strtotime('-1 hour 15 minutes')),
-        'actor_name'  => 'Ms. Shinobu',
-        'actor_role'  => 'Staff',
-        'action'      => 'Central Ward Bed Allocation Updated',
-        'target'      => 'Bed ICU-03 assigned to ADM-1082',
-        'ip_address'  => '192.168.1.58',
-        'device'      => 'Safari 17 (iPadOS Tablet)',
-        'level'       => 'INFO',
-        'badge_class' => 'status-badge-active'
+        'id'        => 'TLM-9404',
+        'action'    => 'Database schema migration & integrity check verified',
+        'category'  => 'SYSTEM',
+        'ip'        => '127.0.0.1',
+        'time'      => '1h ago',
+        'exact_time'=> date('h:i:s A', strtotime('-1 hour')),
+        'actor'     => 'Core Daemon',
+        'level'     => 'System Integrity',
+        'badge_cls' => 'badge-cat-system',
+        'tag'       => 'System Security'
     ],
     [
-        'timestamp'   => date('d M Y, h:i A', strtotime('-2 hours 30 minutes')),
-        'actor_name'  => 'Dr. Satoru Gojo',
-        'actor_role'  => 'Doctor',
-        'action'      => 'Prescription Synchronized to EMR',
-        'target'      => 'EMR File #10492',
-        'ip_address'  => '192.168.1.33',
-        'device'      => 'Chrome 128 (macOS Sonoma)',
-        'level'       => 'INFO',
-        'badge_class' => 'status-badge-active'
+        'id'        => 'TLM-9405',
+        'action'    => 'New staff registration request: Dr. Rahman',
+        'category'  => 'VERIFICATION',
+        'ip'        => '192.168.1.30',
+        'time'      => '2h ago',
+        'exact_time'=> date('h:i:s A', strtotime('-2 hours')),
+        'actor'     => 'Portal Gateway',
+        'level'     => 'Pending Review',
+        'badge_cls' => 'badge-cat-verification',
+        'tag'       => 'Staff Verification'
     ],
     [
-        'timestamp'   => date('d M Y, h:i A', strtotime('-3 hours 10 minutes')),
-        'actor_name'  => 'Unknown Client',
-        'actor_role'  => 'System',
-        'action'      => 'Repeated Identifier Mismatch on Doctor Portal',
-        'target'      => 'dr.unknown@medpulse.test',
-        'ip_address'  => '185.220.101.5',
-        'device'      => 'Tor Exit Node / Edge Gateway',
-        'level'       => 'WARNING',
-        'badge_class' => 'status-badge-pending'
-    ],
-    [
-        'timestamp'   => date('d M Y, h:i A', strtotime('-5 hours 00 minutes')),
-        'actor_name'  => 'Central Treasury Engine',
-        'actor_role'  => 'System',
-        'action'      => 'Inpatient Invoice Reconciled & Stored',
-        'target'      => 'Invoice INV-2026-081 (৳ 45,000)',
-        'ip_address'  => '127.0.0.1',
-        'device'      => 'Automated Cron Dispatcher',
-        'level'       => 'INFO',
-        'badge_class' => 'status-badge-active'
+        'id'        => 'TLM-9406',
+        'action'    => 'Automated telemetry heartbeat check: System Normal (72 BPM)',
+        'category'  => 'SYSTEM',
+        'ip'        => 'Internal Bus',
+        'time'      => '3h ago',
+        'exact_time'=> date('h:i:s A', strtotime('-3 hours')),
+        'actor'     => 'ECG Pulse Daemon',
+        'level'     => 'Optimal',
+        'badge_cls' => 'badge-cat-system',
+        'tag'       => 'System Security'
     ]
 ];
 ?>
@@ -92,8 +95,8 @@ $auditLogs = [
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="csrf-token" content="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
-  <title>MedPulse | Audit Security Logs & Compliance</title>
+  <meta name="csrf-token" content="<?= htmlspecialchars($csrfToken ?? '', ENT_QUOTES, 'UTF-8') ?>">
+  <title>MedPulse | Audit Logs & Security Telemetry</title>
   
   <!-- Hospital Favicon -->
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='0%25' y2='100%25'><stop offset='0%25' stop-color='%230284c7'/><stop offset='100%25' stop-color='%230d9488'/></linearGradient></defs><rect width='64' height='64' rx='18' fill='url(%23g)'/><path d='M32 46s-14-9.5-14-19a9 9 0 0 1 14-7.5A9 9 0 0 1 46 27c0 9.5-14 19-14 19z' fill='rgba(255,255,255,0.2)'/><path d='M19 32h6l3-6 5 13 4-8 3 3h5' fill='none' stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'/></svg>">
@@ -105,179 +108,242 @@ $auditLogs = [
   
   <!-- Single Source of Truth External CSS -->
   <link rel="stylesheet" href="../assets/css/patient_dashboard.css">
+  <link rel="stylesheet" href="../assets/css/audit-logs.css?v=<?= time() ?>">
 </head>
 <body>
 
-  <!-- Centralized Admin Sidebar Partial (Dynamic Active Route Highlighting) -->
+  <!-- Centralized Admin Sidebar Partial -->
   <?php require_once __DIR__ . '/../includes/admin_sidebar.php'; ?>
 
-  <!-- Central Primary Workspace Container (Starts cleanly past sidebar) -->
+  <!-- Central Primary Workspace Container -->
   <main class="viewport-full">
 
-    <!-- Top Banner -->
-    <div class="welcome-banner">
-      <div class="welcome-text">
-        <h1>
-          Audit Security Logs & Compliance Monitoring
-          <svg class="ui-ico" style="stroke: var(--brand-primary); width: 24px; height: 24px;" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-        </h1>
-        <p>Immutable clinical trail tracking, authentication attempts, role modifications, and patient data access logs.</p>
-      </div>
-      <div class="banner-actions">
-        <button class="btn-action-telemed" onclick="showToast('Audit trail package encrypted and prepared for download.', 'success')">
-          <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-          Export Audit Trail (CSV/PDF)
-        </button>
-        <button class="btn-action-gradient" onclick="showToast('Immutable audit stream synchronized.', 'success')">
-          <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24" style="stroke: white;"><polyline points="20 6 9 17 4 12"></polyline></svg>
-          Live Stream Sync
-        </button>
-      </div>
-    </div>
-
-    <!-- 3-Metric Summary Cards -->
-    <div class="stat-cards-grid" style="margin-bottom: 1.75rem;">
-      <!-- Card 1: Total Events Logged Today -->
-      <div class="stat-card-executive">
-        <div class="stat-card-head">
-          <span>Total Events Today</span>
-          <svg class="ui-ico" style="stroke: var(--brand-primary);" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+    <!-- Telemetry Header Card with Metric Summary Chips -->
+    <div class="audit-telemetry-banner">
+      <div class="audit-header-content">
+        <div class="audit-header-title">
+          <svg class="ui-ico" style="stroke: #0d9488; width: 26px; height: 26px;" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+          <h1>Clinical Telemetry & Security Audit</h1>
         </div>
-        <div class="stat-card-number">142</div>
-        <div class="stat-card-badge badge-blue">
-          <svg class="ui-ico ui-ico-sm" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
-          100% Immutably Logged
-        </div>
+        <p class="audit-header-desc">
+          Immutable audit trail capturing patient admissions, personnel approvals, controlled dispensary access, and systemic telemetry checkpoints across MedPulse.
+        </p>
       </div>
 
-      <!-- Card 2: Suspicious Attempts -->
-      <div class="stat-card-executive">
-        <div class="stat-card-head">
-          <span>Suspicious Attempts</span>
-          <svg class="ui-ico" style="stroke: var(--status-amber);" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+      <!-- Metric Summary Chips -->
+      <div class="audit-metric-chips">
+        <!-- Chip 1: Total Telemetry Events -->
+        <div class="audit-metric-chip">
+          <div class="audit-chip-icon chip-icon-teal">
+            <svg class="ui-ico ui-ico-sm" style="stroke: currentColor;" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
+          </div>
+          <div class="audit-chip-info">
+            <span class="audit-chip-val" id="totalEventsCount"><?= count($telemetryEvents) ?></span>
+            <span class="audit-chip-label">Telemetry Events</span>
+          </div>
         </div>
-        <div class="stat-card-number" style="color: var(--status-amber);">03</div>
-        <div class="stat-card-badge badge-amber">
-          <span>Rate Limiting Engaged</span>
-        </div>
-      </div>
 
-      <!-- Card 3: Database Backup Status -->
-      <div class="stat-card-executive">
-        <div class="stat-card-head">
-          <span>Database Backup Status</span>
-          <svg class="ui-ico" style="stroke: var(--status-green);" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        <!-- Chip 2: Security Checkpoints -->
+        <div class="audit-metric-chip">
+          <div class="audit-chip-icon chip-icon-blue">
+            <svg class="ui-ico ui-ico-sm" style="stroke: currentColor;" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+          </div>
+          <div class="audit-chip-info">
+            <span class="audit-chip-val">18/18</span>
+            <span class="audit-chip-label">Checkpoints OK</span>
+          </div>
         </div>
-        <div class="stat-card-number" style="color: var(--status-green); font-size: 1.45rem; display: flex; align-items: center; gap: 8px;">
-          <svg class="ui-ico" style="stroke: var(--status-green); width: 28px; height: 28px;" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
-          Encrypted
-        </div>
-        <div class="stat-card-badge badge-green">
-          <span>Synced at 00:00 UTC</span>
+
+        <!-- Chip 3: Pending Approvals -->
+        <div class="audit-metric-chip">
+          <div class="audit-chip-icon chip-icon-amber">
+            <svg class="ui-ico ui-ico-sm" style="stroke: currentColor;" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+          </div>
+          <div class="audit-chip-info">
+            <span class="audit-chip-val"><?= (int)$pendingCount ?></span>
+            <span class="audit-chip-label">Pending Approvals</span>
+          </div>
         </div>
       </div>
     </div>
 
-    <!-- Audit Telemetry Stream Table -->
-    <section class="admin-stack-card">
-      <div class="admin-stack-header">
-        <div class="admin-stack-title-group">
-          <h3>
-            <svg class="ui-ico" style="stroke: var(--brand-primary); width: 22px; height: 22px;" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-            Live Immutable Telemetry Stream
-          </h3>
-          <p>Real-time audit records recording every clinical record mutation, login transaction, and security event</p>
-        </div>
-        <span class="role-pill role-pill-doctor" style="font-size: 0.76rem;">
-          SYSTEM AUDIT TRAIL
-        </span>
+    <!-- Filter Bar with Pill-Style Tabs & Live Search -->
+    <div class="audit-filter-bar">
+      <div class="audit-filter-tabs" role="tablist">
+        <button class="filter-pill-tab active" data-filter="all">
+          <span>All Events</span>
+          <span class="tab-badge-count" id="badgeCountAll"><?= count($telemetryEvents) ?></span>
+        </button>
+        <button class="filter-pill-tab" data-filter="Clinical/Admission">
+          <svg class="ui-ico ui-ico-sm" style="width: 14px; height: 14px;" viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"></path></svg>
+          <span>Clinical/Admission</span>
+        </button>
+        <button class="filter-pill-tab" data-filter="Staff Verification">
+          <svg class="ui-ico ui-ico-sm" style="width: 14px; height: 14px;" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+          <span>Staff Verification</span>
+        </button>
+        <button class="filter-pill-tab" data-filter="Pharmacy">
+          <svg class="ui-ico ui-ico-sm" style="width: 14px; height: 14px;" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+          <span>Pharmacy</span>
+        </button>
+        <button class="filter-pill-tab" data-filter="System Security">
+          <svg class="ui-ico ui-ico-sm" style="width: 14px; height: 14px;" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+          <span>System Security</span>
+        </button>
       </div>
 
-      <div class="admin-table-wrap">
-        <table class="admin-data-table">
+      <!-- Live Search Box -->
+      <div class="audit-search-wrapper">
+        <svg class="ui-ico audit-search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <input 
+          type="text" 
+          id="auditSearchInput" 
+          class="audit-search-input" 
+          placeholder="Filter by keyword, actor, or IP..." 
+          aria-label="Search audit events"
+        />
+      </div>
+    </div>
+
+    <!-- Audit Data Table Card -->
+    <div class="audit-table-card">
+      <div class="audit-table-responsive">
+        <table class="audit-telemetry-table" id="auditTable">
           <thead>
             <tr>
-              <th>Timestamp</th>
-              <th>Actor / User</th>
-              <th>Action Performed</th>
-              <th>Target / Resource</th>
-              <th>IP Address & Device</th>
-              <th style="text-align: right;">Security Level</th>
+              <th style="width: 45%;">Event / Action Performed</th>
+              <th style="width: 16%;">Category</th>
+              <th style="width: 16%;">Origin IP / Node</th>
+              <th style="width: 13%;">Timestamp</th>
+              <th style="width: 10%; text-align: right;">Status</th>
             </tr>
           </thead>
-          <tbody>
-            <?php foreach ($auditLogs as $log): ?>
-              <tr>
-                <td style="font-size: 0.8rem; color: var(--text-muted); white-space: nowrap;">
-                  <?= htmlspecialchars($log['timestamp'], ENT_QUOTES, 'UTF-8') ?>
-                </td>
+          <tbody id="auditTableBody">
+            <?php foreach ($telemetryEvents as $item): ?>
+              <tr 
+                class="audit-event-row" 
+                data-category="<?= htmlspecialchars($item['category'], ENT_QUOTES, 'UTF-8') ?>"
+                data-tag="<?= htmlspecialchars($item['tag'], ENT_QUOTES, 'UTF-8') ?>"
+                data-search="<?= htmlspecialchars(strtolower($item['action'] . ' ' . $item['category'] . ' ' . $item['actor'] . ' ' . $item['ip'] . ' ' . $item['tag']), ENT_QUOTES, 'UTF-8') ?>"
+              >
                 <td>
-                  <div class="user-cell-flex">
-                    <div class="user-avatar-initials" style="<?= $log['actor_role'] === 'System' ? 'background: #f1f5f9; color: #475569;' : '' ?>">
-                      <?= htmlspecialchars(strtoupper(substr($log['actor_name'], 0, 2)), ENT_QUOTES, 'UTF-8') ?>
-                    </div>
-                    <div>
-                      <strong style="font-size: 0.9rem; color: var(--text-heading);">
-                        <?= htmlspecialchars($log['actor_name'], ENT_QUOTES, 'UTF-8') ?>
-                      </strong>
-                      <div style="margin-top: 2px;">
-                        <?php if ($log['actor_role'] === 'Admin'): ?>
-                          <span class="role-pill role-pill-staff" style="padding: 1px 6px; font-size: 0.65rem;">Admin</span>
-                        <?php elseif ($log['actor_role'] === 'Doctor'): ?>
-                          <span class="role-pill role-pill-doctor" style="padding: 1px 6px; font-size: 0.65rem;">Doctor</span>
-                        <?php elseif ($log['actor_role'] === 'Staff'): ?>
-                          <span class="role-pill role-pill-staff" style="padding: 1px 6px; font-size: 0.65rem;">Staff</span>
-                        <?php else: ?>
-                          <span style="font-size: 0.65rem; background: #e2e8f0; color: #475569; padding: 1px 6px; border-radius: 999px; font-weight: 700;">System</span>
-                        <?php endif; ?>
-                      </div>
-                    </div>
+                  <div class="audit-action-main"><?= htmlspecialchars($item['action'], ENT_QUOTES, 'UTF-8') ?></div>
+                  <div style="font-size: 0.75rem; color: #64748b; display: flex; align-items: center; gap: 6px;">
+                    <span style="font-weight: 600; color: #475569;">Actor:</span>
+                    <span><?= htmlspecialchars($item['actor'], ENT_QUOTES, 'UTF-8') ?></span>
+                    <span>&bull;</span>
+                    <span style="color: #94a3b8;"><?= htmlspecialchars($item['id'], ENT_QUOTES, 'UTF-8') ?></span>
                   </div>
                 </td>
                 <td>
-                  <strong style="color: var(--text-heading); font-size: 0.88rem;">
-                    <?= htmlspecialchars($log['action'], ENT_QUOTES, 'UTF-8') ?>
-                  </strong>
-                </td>
-                <td>
-                  <span class="license-chip">
-                    <?= htmlspecialchars($log['target'], ENT_QUOTES, 'UTF-8') ?>
+                  <span class="audit-category-badge <?= $item['badge_cls'] ?>">
+                    <?= htmlspecialchars($item['category'], ENT_QUOTES, 'UTF-8') ?>
                   </span>
                 </td>
                 <td>
-                  <div style="font-weight: 600; font-size: 0.82rem; color: var(--text-heading);">
-                    <?= htmlspecialchars($log['ip_address'], ENT_QUOTES, 'UTF-8') ?>
-                  </div>
-                  <div style="font-size: 0.72rem; color: var(--text-muted); max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                    <?= htmlspecialchars($log['device'], ENT_QUOTES, 'UTF-8') ?>
+                  <span class="audit-ip-chip"><?= htmlspecialchars($item['ip'], ENT_QUOTES, 'UTF-8') ?></span>
+                </td>
+                <td>
+                  <div class="audit-time-text" title="<?= htmlspecialchars($item['exact_time'], ENT_QUOTES, 'UTF-8') ?>">
+                    <?= htmlspecialchars($item['time'], ENT_QUOTES, 'UTF-8') ?>
                   </div>
                 </td>
                 <td style="text-align: right;">
-                  <?php if ($log['level'] === 'INFO'): ?>
-                    <span class="status-badge-active" style="background: var(--status-blue-bg); color: var(--status-blue); border-color: #bfdbfe;">
-                      <svg class="ui-ico ui-ico-sm" style="width: 10px; height: 10px;" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle></svg>
-                      INFO
-                    </span>
-                  <?php elseif ($log['level'] === 'WARNING'): ?>
-                    <span class="status-badge-pending">
-                      <svg class="ui-ico ui-ico-sm" style="width: 10px; height: 10px;" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle></svg>
-                      WARNING
-                    </span>
-                  <?php else: ?>
-                    <span class="status-badge-suspended">
-                      <svg class="ui-ico ui-ico-sm" style="width: 10px; height: 10px;" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle></svg>
-                      CRITICAL
-                    </span>
-                  <?php endif; ?>
+                  <span style="font-size: 0.74rem; font-weight: 700; color: #0d9488; background: #f0fdfa; border: 1px solid #ccfbf1; padding: 3px 8px; border-radius: 6px; white-space: nowrap;">
+                    <?= htmlspecialchars($item['level'], ENT_QUOTES, 'UTF-8') ?>
+                  </span>
                 </td>
               </tr>
             <?php endforeach; ?>
           </tbody>
         </table>
       </div>
-    </section>
+
+      <!-- Empty Results Container -->
+      <div class="audit-empty-results" id="emptyAuditResults">
+        <svg class="ui-ico audit-empty-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <div class="audit-empty-title">No matching audit events found</div>
+        <div class="audit-empty-subtext">Try adjusting your search query or selecting a different category tab.</div>
+      </div>
+    </div>
 
   </main>
+
+  <!-- Interactive Filter & Live Search Handler -->
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const filterTabs = document.querySelectorAll('.filter-pill-tab');
+      const searchInput = document.getElementById('auditSearchInput');
+      const tableRows = document.querySelectorAll('.audit-event-row');
+      const emptyState = document.getElementById('emptyAuditResults');
+      const tableElement = document.getElementById('auditTable');
+
+      let currentFilter = 'all';
+      let currentQuery = '';
+
+      function applyFilters() {
+        let visibleCount = 0;
+        const normalizedQuery = currentQuery.trim().toLowerCase();
+
+        tableRows.forEach(row => {
+          const rowCategory = row.getAttribute('data-category') || '';
+          const rowTag = row.getAttribute('data-tag') || '';
+          const rowSearchText = row.getAttribute('data-search') || '';
+
+          // Check category tab match
+          let categoryMatch = false;
+          if (currentFilter === 'all') {
+            categoryMatch = true;
+          } else if (currentFilter === 'Clinical/Admission') {
+            categoryMatch = (rowCategory === 'ADMISSION' || rowTag.includes('Admission'));
+          } else if (currentFilter === 'Staff Verification') {
+            categoryMatch = (rowCategory === 'VERIFICATION' || rowTag.includes('Verification'));
+          } else if (currentFilter === 'Pharmacy') {
+            categoryMatch = (rowTag.includes('Pharmacy') || rowSearchText.includes('pharmacy') || rowSearchText.includes('batch'));
+          } else if (currentFilter === 'System Security') {
+            categoryMatch = (rowCategory === 'SYSTEM' || rowCategory === 'SECURITY' || rowTag.includes('System'));
+          }
+
+          // Check keyword search match
+          const queryMatch = !normalizedQuery || rowSearchText.includes(normalizedQuery);
+
+          if (categoryMatch && queryMatch) {
+            row.style.display = '';
+            visibleCount++;
+          } else {
+            row.style.display = 'none';
+          }
+        });
+
+        // Toggle table header vs empty state
+        if (visibleCount === 0) {
+          if (tableElement) tableElement.style.display = 'none';
+          if (emptyState) emptyState.style.display = 'block';
+        } else {
+          if (tableElement) tableElement.style.display = 'table';
+          if (emptyState) emptyState.style.display = 'none';
+        }
+      }
+
+      // Tab switching event
+      filterTabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+          filterTabs.forEach(t => t.classList.remove('active'));
+          tab.classList.add('active');
+          currentFilter = tab.getAttribute('data-filter') || 'all';
+          applyFilters();
+        });
+      });
+
+      // Live search input event
+      if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+          currentQuery = e.target.value;
+          applyFilters();
+        });
+      }
+    });
+  </script>
 
 </body>
 </html>
