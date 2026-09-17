@@ -43,5 +43,11 @@ SOURCE 09_audit_logs.sql;
 -- 10. Verified Mock Seed Data Ingestion
 SOURCE 10_seed_data.sql;
 
+-- 11. Inpatient & Real-Time Event System Schema Migration
+SOURCE 11_inpatient_realtime_schema.sql;
+
+-- 12. Doctor Payout & Inpatient Billing Linkage Migration
+SOURCE 12_doctor_payout_and_billing_linkage.sql;
+
 -- Re-enable foreign key constraints
 SET FOREIGN_KEY_CHECKS = 1;
