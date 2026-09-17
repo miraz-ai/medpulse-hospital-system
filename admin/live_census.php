@@ -7,6 +7,290 @@
 
 require_once __DIR__ . '/../includes/admin_auth.php';
 
+// =============================================================================
+// BED LIFECYCLE ACTION HANDLER (JSON API)
+// Handles POST requests for: allocate_bed | discharge_patient | mark_bed_ready
+//                             get_dropdowns | get_stats
+// Returns JSON and exits — page render is skipped for all POST/AJAX calls.
+// =============================================================================
+if ($_SERVER['REQUEST_METHOD'] === 'POST' || (isset($_GET['_action']) && in_array($_GET['_action'], ['get_dropdowns', 'get_stats']))) {
+    header('Content-Type: application/json; charset=utf-8');
+
+    $action = $_POST['_action'] ?? $_GET['_action'] ?? '';
+
+    // -------------------------------------------------------------------------
+    // Helper: push a structured telemetry event into audit_logs
+    // -------------------------------------------------------------------------
+    function pushAuditLog(PDO $pdo, int $actorId, string $actionKey, string $description, string $category, string $actionName, string $targetEntity, string $ip): void {
+        $stmt = $pdo->prepare("
+            INSERT INTO audit_logs 
+                (actor_id, actor_role, action, description, category, action_name, target_entity, ip_address, security_level)
+            VALUES 
+                (:actor_id, 'Admin', :action, :description, :category, :action_name, :target_entity, :ip, 'INFO')
+        ");
+        $stmt->execute([
+            ':actor_id'     => $actorId,
+            ':action'       => $actionKey,
+            ':description'  => $description,
+            ':category'     => $category,
+            ':action_name'  => $actionName,
+            ':target_entity'=> $targetEntity,
+            ':ip'           => $ip,
+        ]);
+    }
+
+    // -------------------------------------------------------------------------
+    // Endpoint: get_stats — live aggregate counts for metric chip refresh
+    // -------------------------------------------------------------------------
+    if ($action === 'get_stats') {
+        try {
+            $row = $pdo->query("
+                SELECT
+                    COUNT(*) AS total_beds,
+                    SUM(status = 'Occupied')    AS occupied_beds,
+                    SUM(status = 'Available')   AS available_beds,
+                    SUM(status = 'Maintenance') AS maintenance_beds
+                FROM hospital_beds
+            ")->fetch(PDO::FETCH_ASSOC);
+            echo json_encode(['success' => true, 'stats' => $row]);
+        } catch (Throwable $e) {
+            echo json_encode(['success' => false, 'message' => 'Stats query failed.']);
+        }
+        exit;
+    }
+
+    // -------------------------------------------------------------------------
+    // Endpoint: get_dropdowns — patient list + active doctor list for modal
+    // -------------------------------------------------------------------------
+    if ($action === 'get_dropdowns') {
+        try {
+            $patients = $pdo->query("
+                SELECT user_id, full_name FROM users
+                WHERE role = 'patient'
+                ORDER BY full_name ASC
+            ")->fetchAll(PDO::FETCH_ASSOC);
+
+            $doctors = $pdo->query("
+                SELECT user_id, full_name FROM users
+                WHERE role = 'doctor' AND status = 'active'
+                ORDER BY full_name ASC
+            ")->fetchAll(PDO::FETCH_ASSOC);
+
+            echo json_encode(['success' => true, 'patients' => $patients, 'doctors' => $doctors]);
+        } catch (Throwable $e) {
+            echo json_encode(['success' => false, 'message' => 'Could not load dropdown data.']);
+        }
+        exit;
+    }
+
+    // -------------------------------------------------------------------------
+    // All mutating actions require CSRF validation
+    // -------------------------------------------------------------------------
+    $submittedToken = trim($_POST['csrf_token'] ?? '');
+    if (!hash_equals($_SESSION['csrf_token'] ?? '', $submittedToken)) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'Security token mismatch. Please refresh and try again.']);
+        exit;
+    }
+
+    $actorId = (int)($_SESSION['user_id'] ?? 0);
+    $clientIp = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+
+    // -------------------------------------------------------------------------
+    // Action: allocate_bed
+    // -------------------------------------------------------------------------
+    if ($action === 'allocate_bed') {
+        $bedId    = (int)($_POST['bed_id']    ?? 0);
+        $patId    = (int)($_POST['patient_id'] ?? 0);
+        $docId    = (int)($_POST['doctor_id']  ?? 0) ?: null;
+        $notes    = trim($_POST['notes'] ?? '');
+
+        if (!$bedId || !$patId) {
+            echo json_encode(['success' => false, 'message' => 'Bed and patient are required.']);
+            exit;
+        }
+
+        try {
+            // Fetch bed and doctor/patient names for the audit description
+            $bedRow = $pdo->prepare("SELECT bed_number, status FROM hospital_beds WHERE bed_id = :id LIMIT 1");
+            $bedRow->execute([':id' => $bedId]);
+            $bed = $bedRow->fetch(PDO::FETCH_ASSOC);
+
+            if (!$bed || $bed['status'] !== 'Available') {
+                echo json_encode(['success' => false, 'message' => 'Bed is no longer available. Please refresh.']);
+                exit;
+            }
+
+            $patRow = $pdo->prepare("SELECT full_name FROM users WHERE user_id = :id AND role = 'patient' LIMIT 1");
+            $patRow->execute([':id' => $patId]);
+            $patient = $patRow->fetch(PDO::FETCH_ASSOC);
+            $patName = $patient['full_name'] ?? "Patient #$patId";
+
+            $docName = 'Unassigned';
+            if ($docId) {
+                $docRow = $pdo->prepare("SELECT full_name FROM users WHERE user_id = :id AND role = 'doctor' LIMIT 1");
+                $docRow->execute([':id' => $docId]);
+                $doc = $docRow->fetch(PDO::FETCH_ASSOC);
+                $docName = $doc['full_name'] ?? "Dr. #$docId";
+            }
+
+            $pdo->beginTransaction();
+
+            // 1. Mark bed as Occupied
+            $upd = $pdo->prepare("UPDATE hospital_beds SET status = 'Occupied' WHERE bed_id = :bid AND status = 'Available'");
+            $upd->execute([':bid' => $bedId]);
+            if ($upd->rowCount() === 0) {
+                $pdo->rollBack();
+                echo json_encode(['success' => false, 'message' => 'Bed status changed concurrently. Please refresh.']);
+                exit;
+            }
+
+            // 2. Insert allocation record
+            $ins = $pdo->prepare("
+                INSERT INTO bed_allocations (bed_id, patient_id, attending_doctor_id, admitted_at, status)
+                VALUES (:bid, :pid, :did, NOW(), 'Active')
+            ");
+            $ins->execute([':bid' => $bedId, ':pid' => $patId, ':did' => $docId]);
+
+            // 3. Audit log
+            $auditDesc = "Patient {$patName} (#{$patId}) allocated to Bed {$bed['bed_number']} under {$docName}.";
+            if (!empty($notes)) {
+                $auditDesc .= " Notes: " . mb_substr($notes, 0, 120);
+            }
+            pushAuditLog(
+                $pdo, $actorId,
+                'BED_ALLOCATION', $auditDesc,
+                'ADMISSION', 'Bed Allocation',
+                $bed['bed_number'], $clientIp
+            );
+
+            $pdo->commit();
+
+            echo json_encode([
+                'success' => true,
+                'message' => "✓ {$patName} successfully allocated to Bed {$bed['bed_number']}.",
+            ]);
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            error_log("Allocate Bed Error: " . $e->getMessage());
+            echo json_encode(['success' => false, 'message' => 'Allocation failed due to a server error. Please try again.']);
+        }
+        exit;
+    }
+
+    // -------------------------------------------------------------------------
+    // Action: discharge_patient
+    // -------------------------------------------------------------------------
+    if ($action === 'discharge_patient') {
+        $bedId = (int)($_POST['bed_id'] ?? 0);
+        if (!$bedId) {
+            echo json_encode(['success' => false, 'message' => 'Bed ID is required.']);
+            exit;
+        }
+
+        try {
+            $bedRow = $pdo->prepare("SELECT bed_number, status FROM hospital_beds WHERE bed_id = :id LIMIT 1");
+            $bedRow->execute([':id' => $bedId]);
+            $bed = $bedRow->fetch(PDO::FETCH_ASSOC);
+
+            if (!$bed || $bed['status'] !== 'Occupied') {
+                echo json_encode(['success' => false, 'message' => 'Bed is not currently occupied. Please refresh.']);
+                exit;
+            }
+
+            $pdo->beginTransaction();
+
+            // 1. Move bed to Maintenance (UV-C Sanitization protocol)
+            $upd = $pdo->prepare("UPDATE hospital_beds SET status = 'Maintenance' WHERE bed_id = :bid AND status = 'Occupied'");
+            $upd->execute([':bid' => $bedId]);
+
+            // 2. Close active allocation record
+            $close = $pdo->prepare("
+                UPDATE bed_allocations
+                SET discharged_at = NOW(), status = 'Discharged'
+                WHERE bed_id = :bid AND status = 'Active'
+            ");
+            $close->execute([':bid' => $bedId]);
+
+            // 3. Audit log
+            pushAuditLog(
+                $pdo, $actorId,
+                'PATIENT_DISCHARGE',
+                "Patient discharged from Bed {$bed['bed_number']}. Bed moved to UV-C Sanitization protocol.",
+                'ADMISSION', 'Patient Discharge',
+                $bed['bed_number'], $clientIp
+            );
+
+            $pdo->commit();
+            echo json_encode([
+                'success' => true,
+                'message' => "✓ Patient discharged from Bed {$bed['bed_number']}. Sanitization protocol activated.",
+            ]);
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            error_log("Discharge Error: " . $e->getMessage());
+            echo json_encode(['success' => false, 'message' => 'Discharge failed due to a server error.']);
+        }
+        exit;
+    }
+
+    // -------------------------------------------------------------------------
+    // Action: mark_bed_ready
+    // -------------------------------------------------------------------------
+    if ($action === 'mark_bed_ready') {
+        $bedId = (int)($_POST['bed_id'] ?? 0);
+        if (!$bedId) {
+            echo json_encode(['success' => false, 'message' => 'Bed ID is required.']);
+            exit;
+        }
+
+        try {
+            $bedRow = $pdo->prepare("SELECT bed_number, status FROM hospital_beds WHERE bed_id = :id LIMIT 1");
+            $bedRow->execute([':id' => $bedId]);
+            $bed = $bedRow->fetch(PDO::FETCH_ASSOC);
+
+            if (!$bed || $bed['status'] !== 'Maintenance') {
+                echo json_encode(['success' => false, 'message' => 'Bed is not in maintenance. Please refresh.']);
+                exit;
+            }
+
+            $pdo->beginTransaction();
+
+            // 1. Clear sanitization — bed returns to Available
+            $upd = $pdo->prepare("UPDATE hospital_beds SET status = 'Available' WHERE bed_id = :bid AND status = 'Maintenance'");
+            $upd->execute([':bid' => $bedId]);
+
+            // 2. Audit log
+            pushAuditLog(
+                $pdo, $actorId,
+                'BED_SANITIZED',
+                "Sanitization protocol cleared for Bed {$bed['bed_number']}. Ready for intake.",
+                'SYSTEM', 'Bed Sanitized',
+                $bed['bed_number'], $clientIp
+            );
+
+            $pdo->commit();
+            echo json_encode([
+                'success' => true,
+                'message' => "✓ Bed {$bed['bed_number']} sanitization cleared. Ready for patient intake.",
+            ]);
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            error_log("Mark Ready Error: " . $e->getMessage());
+            echo json_encode(['success' => false, 'message' => 'Mark Ready failed due to a server error.']);
+        }
+        exit;
+    }
+
+    // Unknown action fallback
+    http_response_code(400);
+    echo json_encode(['success' => false, 'message' => 'Unknown action.']);
+    exit;
+}
+// =============================================================================
+// END OF ACTION HANDLER — below is the standard GET page render
+// =============================================================================
+
 $dbError = null;
 
 // 1. Query live hospital capacity aggregates from database (500 Bed Capacity)
@@ -472,7 +756,7 @@ try {
                 <button 
                   type="button" 
                   class="btn-bed-action btn-bed-primary"
-                  onclick="showToast('Initiating patient admission assignment for <?= htmlspecialchars($slot['bed_number'], ENT_QUOTES, 'UTF-8') ?>', 'success')"
+                  onclick="openAllocateModal(<?= (int)$slot['bed_id'] ?>, '<?= htmlspecialchars($slot['bed_number'], ENT_QUOTES, 'UTF-8') ?>')"
                 >
                   <svg class="ui-ico ui-ico-sm" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                   Allocate Patient
@@ -481,7 +765,7 @@ try {
                 <button 
                   type="button" 
                   class="btn-bed-action btn-bed-primary"
-                  onclick="showToast('Loading cardiac & vitals telemetry for <?= htmlspecialchars($slot['bed_number'], ENT_QUOTES, 'UTF-8') ?> (<?= htmlspecialchars($patientDisplayName, ENT_QUOTES, 'UTF-8') ?>)', 'success')"
+                  onclick="censusToast('Vitals telemetry display coming soon for <?= htmlspecialchars($slot['bed_number'], ENT_QUOTES, 'UTF-8') ?>.', 'info')"
                 >
                   <svg class="ui-ico ui-ico-sm" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
                   Telemetry
@@ -489,7 +773,7 @@ try {
                 <button 
                   type="button" 
                   class="btn-bed-action btn-bed-secondary"
-                  onclick="showToast('Discharge process initialized for <?= htmlspecialchars($patientDisplayName, ENT_QUOTES, 'UTF-8') ?>', 'success')"
+                  onclick="openDischargeConfirm(<?= (int)$slot['bed_id'] ?>, '<?= htmlspecialchars($slot['bed_number'], ENT_QUOTES, 'UTF-8') ?>', '<?= htmlspecialchars($patientDisplayName, ENT_QUOTES, 'UTF-8') ?>')"
                 >
                   Discharge
                 </button>
@@ -497,7 +781,7 @@ try {
                 <button 
                   type="button" 
                   class="btn-bed-action btn-bed-secondary"
-                  onclick="showToast('<?= htmlspecialchars($slot['bed_number'], ENT_QUOTES, 'UTF-8') ?> marked as Sanitized & Ready.', 'success')"
+                  onclick="markBedReady(this, <?= (int)$slot['bed_id'] ?>, '<?= htmlspecialchars($slot['bed_number'], ENT_QUOTES, 'UTF-8') ?>')"
                 >
                   Mark Ready
                 </button>
@@ -545,6 +829,371 @@ try {
     <?php endif; ?>
 
   </main>
+
+  <!-- ========================================================
+       CENSUS TOAST NOTIFICATION CONTAINER
+       ======================================================== -->
+  <div id="censusToastContainer" class="census-toast-container" aria-live="polite" aria-atomic="false"></div>
+
+  <!-- ========================================================
+       ALLOCATE PATIENT MODAL
+       ======================================================== -->
+  <div id="allocateModalOverlay" class="census-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="allocModalTitle" style="display:none;">
+    <div class="census-modal-card">
+      <div class="census-modal-header">
+        <div class="census-modal-title-group">
+          <svg class="ui-ico" style="width: 20px; height: 20px; stroke: #ffffff;" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><line x1="19" y1="8" x2="19" y2="14"></line><line x1="22" y1="11" x2="16" y2="11"></line></svg>
+          <h2 class="census-modal-title" id="allocModalTitle">Allocate Patient to Bed</h2>
+        </div>
+        <button type="button" class="census-modal-close" onclick="closeAllocateModal()" aria-label="Close">
+          <svg class="ui-ico" style="width: 18px; height: 18px;" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+
+      <form id="allocateForm" class="census-modal-body" onsubmit="submitAllocation(event)">
+        <input type="hidden" name="_action" value="allocate_bed">
+        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
+        <input type="hidden" id="allocBedId" name="bed_id" value="">
+
+        <!-- Target Bed (readonly display) -->
+        <div class="census-form-group">
+          <label class="census-form-label" for="allocBedDisplay">
+            <svg class="ui-ico" style="width: 14px; height: 14px;" viewBox="0 0 24 24"><path d="M2 4v16"></path><path d="M2 8h18a2 2 0 0 1 2 2v10"></path><path d="M2 17h20"></path></svg>
+            Target Bed
+          </label>
+          <input type="text" id="allocBedDisplay" class="census-form-control census-form-readonly" readonly placeholder="—">
+        </div>
+
+        <!-- Patient Select -->
+        <div class="census-form-group">
+          <label class="census-form-label" for="allocPatientId">
+            <svg class="ui-ico" style="width: 14px; height: 14px;" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle></svg>
+            Patient <span class="census-required">*</span>
+          </label>
+          <select id="allocPatientId" name="patient_id" class="census-form-select" required>
+            <option value="">— Loading patients… —</option>
+          </select>
+        </div>
+
+        <!-- Attending Physician Select -->
+        <div class="census-form-group">
+          <label class="census-form-label" for="allocDoctorId">
+            <svg class="ui-ico" style="width: 14px; height: 14px;" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
+            Attending Physician
+          </label>
+          <select id="allocDoctorId" name="doctor_id" class="census-form-select">
+            <option value="">— Loading physicians… —</option>
+          </select>
+        </div>
+
+        <!-- Admission Notes -->
+        <div class="census-form-group">
+          <label class="census-form-label" for="allocNotes">
+            <svg class="ui-ico" style="width: 14px; height: 14px;" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+            Admission Notes / Diagnosis
+          </label>
+          <textarea id="allocNotes" name="notes" class="census-form-control census-form-textarea" rows="3" placeholder="Chief complaint, primary diagnosis, or special care notes…" maxlength="255"></textarea>
+        </div>
+
+        <div class="census-modal-actions">
+          <button type="button" class="census-btn-cancel" onclick="closeAllocateModal()">Cancel</button>
+          <button type="submit" class="census-btn-confirm" id="allocSubmitBtn">
+            <svg class="ui-ico ui-ico-sm" style="width: 14px; height: 14px; stroke: #ffffff;" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            Confirm Allocation
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ========================================================
+       DISCHARGE CONFIRM DIALOG
+       ======================================================== -->
+  <div id="dischargeModalOverlay" class="census-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="dischargeModalTitle" style="display:none;">
+    <div class="census-modal-card census-modal-card-sm">
+      <div class="census-modal-header census-modal-header-warning">
+        <div class="census-modal-title-group">
+          <svg class="ui-ico" style="width: 20px; height: 20px; stroke: #ffffff;" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+          <h2 class="census-modal-title" id="dischargeModalTitle">Confirm Patient Discharge</h2>
+        </div>
+        <button type="button" class="census-modal-close" onclick="closeDischargeModal()" aria-label="Close">
+          <svg class="ui-ico" style="width: 18px; height: 18px;" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+
+      <div class="census-modal-body">
+        <input type="hidden" id="dischargeBedId" value="">
+        <div class="census-discharge-info">
+          <div class="census-discharge-icon">
+            <svg class="ui-ico" style="width: 28px; height: 28px; stroke: #d97706;" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><polyline points="17 21 22 16 17 11"></polyline></svg>
+          </div>
+          <div>
+            <p class="census-discharge-patient" id="dischargePatientLabel"></p>
+            <p class="census-discharge-sub">Discharging this patient will transition the bed to <strong>UV-C Sanitization</strong> protocol before it can be reallocated.</p>
+          </div>
+        </div>
+        <div class="census-modal-actions">
+          <button type="button" class="census-btn-cancel" onclick="closeDischargeModal()">Cancel</button>
+          <button type="button" class="census-btn-warn" id="dischargeConfirmBtn" onclick="submitDischarge()">
+            <svg class="ui-ico ui-ico-sm" style="width: 14px; height: 14px; stroke: #ffffff;" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            Confirm Discharge
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================
+       BED LIFECYCLE ACTION JAVASCRIPT
+       ======================================================== -->
+  <script>
+  (function () {
+    'use strict';
+
+    const PAGE_URL = window.location.pathname;
+    const CSRF    = document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+    // ------------------------------------------------------------------
+    // Census Toast Notification System
+    // ------------------------------------------------------------------
+    window.censusToast = function (msg, type = 'success') {
+      const container = document.getElementById('censusToastContainer');
+      if (!container) return;
+
+      const toast = document.createElement('div');
+      toast.className = `census-toast census-toast-${type}`;
+
+      const icons = {
+        success : '<svg viewBox="0 0 24 24" width="16" height="16"><polyline points="20 6 9 17 4 12" stroke="currentColor" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></polyline></svg>',
+        error   : '<svg viewBox="0 0 24 24" width="16" height="16"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" fill="none" stroke-width="2.5" stroke-linecap="round"></line><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" fill="none" stroke-width="2.5" stroke-linecap="round"></line></svg>',
+        warning : '<svg viewBox="0 0 24 24" width="16" height="16"><circle cx="12" cy="12" r="10" stroke="currentColor" fill="none" stroke-width="2"></circle><line x1="12" y1="8" x2="12" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="12" y1="16" x2="12.01" y2="16" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"></line></svg>',
+        info    : '<svg viewBox="0 0 24 24" width="16" height="16"><circle cx="12" cy="12" r="10" stroke="currentColor" fill="none" stroke-width="2"></circle><line x1="12" y1="16" x2="12" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="12" y1="8" x2="12.01" y2="8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"></line></svg>',
+      };
+
+      toast.innerHTML = `<span class="census-toast-icon">${icons[type] || icons.info}</span><span class="census-toast-msg">${msg}</span>`;
+      container.appendChild(toast);
+
+      // Auto-dismiss
+      setTimeout(() => toast.classList.add('census-toast-out'), 3800);
+      setTimeout(() => toast.remove(), 4400);
+    };
+
+    // ------------------------------------------------------------------
+    // Metric Chip Refresh — pulls live stats and updates DOM values
+    // ------------------------------------------------------------------
+    async function refreshMetricChips() {
+      try {
+        const res = await fetch(`${PAGE_URL}?_action=get_stats`, { credentials: 'same-origin' });
+        const data = await res.json();
+        if (!data.success) return;
+        const s = data.stats;
+        // Update the four .census-card-value elements in order: total, occupied, available, icu%
+        const vals = document.querySelectorAll('.census-card-value');
+        if (vals[0]) vals[0].textContent = Number(s.total_beds).toLocaleString();
+        if (vals[1]) vals[1].textContent = Number(s.occupied_beds).toLocaleString();
+        if (vals[2]) vals[2].textContent = Number(s.available_beds).toLocaleString();
+        // vals[3] = ICU% — server doesn't return it in get_stats (complex), skip live update
+      } catch (_) { /* silent — chip values remain from last render */ }
+    }
+
+    // ------------------------------------------------------------------
+    // Dropdown cache (single fetch per page load)
+    // ------------------------------------------------------------------
+    let _dropdownCache = null;
+    async function getDropdowns() {
+      if (_dropdownCache) return _dropdownCache;
+      const res  = await fetch(`${PAGE_URL}?_action=get_dropdowns`, { credentials: 'same-origin' });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message || 'Failed to load dropdowns.');
+      _dropdownCache = data;
+      return data;
+    }
+
+    // ------------------------------------------------------------------
+    // ALLOCATE MODAL
+    // ------------------------------------------------------------------
+    window.openAllocateModal = async function (bedId, bedNumber) {
+      const overlay = document.getElementById('allocateModalOverlay');
+      document.getElementById('allocBedId').value      = bedId;
+      document.getElementById('allocBedDisplay').value = bedNumber;
+      document.getElementById('allocNotes').value      = '';
+      overlay.style.display = 'flex';
+      overlay.offsetHeight; // reflow for animation
+      overlay.classList.add('census-modal-visible');
+      document.body.style.overflow = 'hidden';
+
+      // Load dropdowns
+      const patSel = document.getElementById('allocPatientId');
+      const docSel = document.getElementById('allocDoctorId');
+      patSel.innerHTML = '<option value="">— Loading patients… —</option>';
+      docSel.innerHTML = '<option value="">— Loading physicians… —</option>';
+
+      try {
+        const { patients, doctors } = await getDropdowns();
+
+        patSel.innerHTML = '<option value="">— Select patient —</option>' +
+          patients.map(p => `<option value="${p.user_id}">${escHtml(p.full_name)}</option>`).join('');
+
+        docSel.innerHTML = '<option value="">— Select physician (optional) —</option>' +
+          doctors.map(d => `<option value="${d.user_id}">${escHtml(d.full_name)}</option>`).join('');
+      } catch (err) {
+        censusToast('Could not load patient/doctor list: ' + err.message, 'error');
+        patSel.innerHTML = '<option value="">— Error loading data —</option>';
+        docSel.innerHTML = '<option value="">— Error loading data —</option>';
+      }
+    };
+
+    window.closeAllocateModal = function () {
+      const overlay = document.getElementById('allocateModalOverlay');
+      overlay.classList.remove('census-modal-visible');
+      setTimeout(() => { overlay.style.display = 'none'; }, 250);
+      document.body.style.overflow = '';
+    };
+
+    window.submitAllocation = async function (e) {
+      e.preventDefault();
+      const btn  = document.getElementById('allocSubmitBtn');
+      const form = document.getElementById('allocateForm');
+      const data = new FormData(form);
+
+      if (!data.get('patient_id')) {
+        censusToast('Please select a patient before confirming.', 'warning');
+        return;
+      }
+
+      btn.disabled    = true;
+      btn.textContent = 'Allocating…';
+
+      try {
+        const res  = await fetch(PAGE_URL, { method: 'POST', body: data, credentials: 'same-origin' });
+        const resp = await res.json();
+        closeAllocateModal();
+        if (resp.success) {
+          censusToast(resp.message, 'success');
+          refreshMetricChips();
+          setTimeout(() => window.location.reload(), 2800);
+        } else {
+          censusToast(resp.message || 'Allocation failed.', 'error');
+        }
+      } catch (err) {
+        censusToast('Network error during allocation. Please retry.', 'error');
+      } finally {
+        btn.disabled    = false;
+        btn.textContent = 'Confirm Allocation';
+      }
+    };
+
+    // ------------------------------------------------------------------
+    // DISCHARGE CONFIRM DIALOG
+    // ------------------------------------------------------------------
+    window.openDischargeConfirm = function (bedId, bedNumber, patientName) {
+      document.getElementById('dischargeBedId').value = bedId;
+      document.getElementById('dischargePatientLabel').textContent =
+        `Bed ${bedNumber} — ${patientName || 'Current Inpatient'}`;
+      const overlay = document.getElementById('dischargeModalOverlay');
+      overlay.style.display = 'flex';
+      overlay.offsetHeight;
+      overlay.classList.add('census-modal-visible');
+      document.body.style.overflow = 'hidden';
+    };
+
+    window.closeDischargeModal = function () {
+      const overlay = document.getElementById('dischargeModalOverlay');
+      overlay.classList.remove('census-modal-visible');
+      setTimeout(() => { overlay.style.display = 'none'; }, 250);
+      document.body.style.overflow = '';
+    };
+
+    window.submitDischarge = async function () {
+      const bedId = document.getElementById('dischargeBedId').value;
+      const btn   = document.getElementById('dischargeConfirmBtn');
+      btn.disabled    = true;
+      btn.textContent = 'Processing…';
+
+      const fd = new FormData();
+      fd.append('_action',    'discharge_patient');
+      fd.append('bed_id',     bedId);
+      fd.append('csrf_token', CSRF);
+
+      try {
+        const res  = await fetch(PAGE_URL, { method: 'POST', body: fd, credentials: 'same-origin' });
+        const resp = await res.json();
+        closeDischargeModal();
+        if (resp.success) {
+          censusToast(resp.message, 'success');
+          refreshMetricChips();
+          setTimeout(() => window.location.reload(), 2800);
+        } else {
+          censusToast(resp.message || 'Discharge failed.', 'error');
+        }
+      } catch (err) {
+        censusToast('Network error during discharge. Please retry.', 'error');
+      } finally {
+        btn.disabled    = false;
+        btn.textContent = 'Confirm Discharge';
+      }
+    };
+
+    // ------------------------------------------------------------------
+    // MARK BED READY
+    // ------------------------------------------------------------------
+    window.markBedReady = async function (btn, bedId, bedNumber) {
+      btn.disabled    = true;
+      btn.textContent = 'Clearing…';
+
+      const fd = new FormData();
+      fd.append('_action',    'mark_bed_ready');
+      fd.append('bed_id',     bedId);
+      fd.append('csrf_token', CSRF);
+
+      try {
+        const res  = await fetch(PAGE_URL, { method: 'POST', body: fd, credentials: 'same-origin' });
+        const resp = await res.json();
+        if (resp.success) {
+          censusToast(resp.message, 'success');
+          refreshMetricChips();
+          setTimeout(() => window.location.reload(), 2800);
+        } else {
+          censusToast(resp.message || 'Mark Ready failed.', 'error');
+          btn.disabled    = false;
+          btn.textContent = 'Mark Ready';
+        }
+      } catch (err) {
+        censusToast('Network error. Please retry.', 'error');
+        btn.disabled    = false;
+        btn.textContent = 'Mark Ready';
+      }
+    };
+
+    // ------------------------------------------------------------------
+    // Escape HTML helper
+    // ------------------------------------------------------------------
+    function escHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    // ------------------------------------------------------------------
+    // Backdrop click to close modals
+    // ------------------------------------------------------------------
+    document.getElementById('allocateModalOverlay')?.addEventListener('click', function (e) {
+      if (e.target === this) window.closeAllocateModal();
+    });
+    document.getElementById('dischargeModalOverlay')?.addEventListener('click', function (e) {
+      if (e.target === this) window.closeDischargeModal();
+    });
+
+    // Keyboard ESC to close
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') {
+        closeAllocateModal();
+        closeDischargeModal();
+      }
+    });
+
+  }());
+  </script>
 
 </body>
 </html>

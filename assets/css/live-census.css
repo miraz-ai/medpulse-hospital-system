@@ -571,3 +571,401 @@
   box-shadow: 0 8px 18px rgba(245, 158, 11, 0.16) !important;
 }
 
+/* ==========================================================================
+   CENSUS MODAL SYSTEM — Allocate Patient & Discharge Confirm
+   ========================================================================== */
+
+/* Overlay Backdrop */
+.census-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  padding: 20px;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+.census-modal-overlay.census-modal-visible {
+  opacity: 1;
+}
+
+.census-modal-overlay.census-modal-visible .census-modal-card {
+  transform: translateY(0) scale(1);
+  opacity: 1;
+}
+
+/* Modal Card */
+.census-modal-card {
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 20px 60px -10px rgba(0, 0, 0, 0.25), 0 8px 20px -4px rgba(0, 0, 0, 0.1);
+  width: 100%;
+  max-width: 520px;
+  overflow: hidden;
+  transform: translateY(20px) scale(0.97);
+  opacity: 0;
+  transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.25s ease;
+}
+
+.census-modal-card-sm {
+  max-width: 420px;
+}
+
+/* Modal Header — teal gradient */
+.census-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 22px;
+  background: linear-gradient(135deg, #0d9488 0%, #0891b2 100%);
+  gap: 12px;
+}
+
+/* Modal Header — warning amber variant */
+.census-modal-header-warning {
+  background: linear-gradient(135deg, #d97706 0%, #f59e0b 100%);
+}
+
+.census-modal-title-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.census-modal-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #ffffff;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.census-modal-close {
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 8px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  flex-shrink: 0;
+}
+
+.census-modal-close:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.census-modal-close svg {
+  stroke: #ffffff;
+}
+
+/* Modal Body / Form */
+.census-modal-body {
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Form Groups */
+.census-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.census-form-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #374151;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.census-form-label svg {
+  stroke: #6b7280;
+}
+
+.census-required {
+  color: #ef4444;
+  font-size: 0.85rem;
+}
+
+.census-form-control {
+  padding: 9px 13px;
+  border: 1px solid #d1d5db;
+  border-radius: 9px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #111827;
+  background: #ffffff;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  font-family: inherit;
+  width: 100%;
+  box-sizing: border-box;
+  outline: none;
+}
+
+.census-form-control:focus {
+  border-color: #0d9488;
+  box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.12);
+}
+
+.census-form-readonly {
+  background: #f8fafc;
+  color: #64748b;
+  cursor: default;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.census-form-select {
+  padding: 9px 13px;
+  border: 1px solid #d1d5db;
+  border-radius: 9px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #111827;
+  background: #ffffff;
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  font-family: inherit;
+  width: 100%;
+  box-sizing: border-box;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'/%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 36px;
+}
+
+.census-form-select:focus {
+  border-color: #0d9488;
+  box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.12);
+}
+
+.census-form-textarea {
+  resize: vertical;
+  min-height: 72px;
+  max-height: 160px;
+  line-height: 1.5;
+}
+
+/* Modal Action Button Row */
+.census-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.census-btn-cancel {
+  padding: 9px 18px;
+  border-radius: 9px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  font-family: inherit;
+}
+
+.census-btn-cancel:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+.census-btn-confirm {
+  padding: 9px 20px;
+  border-radius: 9px;
+  border: none;
+  background: linear-gradient(135deg, #0d9488 0%, #0891b2 100%);
+  color: #ffffff;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: opacity 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+  font-family: inherit;
+  box-shadow: 0 2px 8px rgba(13, 148, 136, 0.35);
+}
+
+.census-btn-confirm:hover:not(:disabled) {
+  opacity: 0.92;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(13, 148, 136, 0.4);
+}
+
+.census-btn-confirm:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.census-btn-warn {
+  padding: 9px 20px;
+  border-radius: 9px;
+  border: none;
+  background: linear-gradient(135deg, #d97706 0%, #f59e0b 100%);
+  color: #ffffff;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: opacity 0.15s ease, box-shadow 0.15s ease;
+  font-family: inherit;
+  box-shadow: 0 2px 8px rgba(217, 119, 6, 0.35);
+}
+
+.census-btn-warn:hover:not(:disabled) {
+  opacity: 0.9;
+  box-shadow: 0 4px 12px rgba(217, 119, 6, 0.4);
+}
+
+.census-btn-warn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Discharge Confirm Dialog Content */
+.census-discharge-info {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 4px;
+}
+
+.census-discharge-icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.census-discharge-patient {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0 0 6px 0;
+}
+
+.census-discharge-sub {
+  font-size: 0.82rem;
+  color: #64748b;
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* ==========================================================================
+   CENSUS TOAST NOTIFICATION SYSTEM
+   ========================================================================== */
+
+.census-toast-container {
+  position: fixed;
+  bottom: 28px;
+  right: 28px;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.census-toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  max-width: 380px;
+  box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.18);
+  border: 1px solid transparent;
+  pointer-events: auto;
+  animation: censusToastIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  font-family: inherit;
+}
+
+.census-toast-success {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+  color: #15803d;
+}
+
+.census-toast-error {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.census-toast-warning {
+  background: #fffbeb;
+  border-color: #fde68a;
+  color: #b45309;
+}
+
+.census-toast-info {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+}
+
+.census-toast-icon {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.census-toast-msg {
+  flex: 1;
+  line-height: 1.4;
+}
+
+.census-toast-out {
+  animation: censusToastOut 0.5s ease forwards;
+}
+
+@keyframes censusToastIn {
+  from { opacity: 0; transform: translateX(30px) scale(0.95); }
+  to   { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+@keyframes censusToastOut {
+  from { opacity: 1; transform: translateX(0) scale(1); }
+  to   { opacity: 0; transform: translateX(30px) scale(0.9); }
+}
+
+@media (max-width: 640px) {
+  .census-toast-container {
+    bottom: 16px;
+    right: 16px;
+    left: 16px;
+  }
+  .census-toast {
+    max-width: 100%;
+  }
+  .census-modal-card {
+    border-radius: 12px;
+  }
+}
