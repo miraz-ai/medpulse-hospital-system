@@ -47,6 +47,7 @@ try {
   <!-- Single Source of Truth External CSS -->
   <link rel="stylesheet" href="../assets/css/patient_dashboard.css">
   <link rel="stylesheet" href="../assets/css/live-ticker.css?v=<?= time() ?>">
+  <link rel="stylesheet" href="../assets/css/live-pulse.css?v=<?= time() ?>">
 </head>
 <body>
 
@@ -284,9 +285,20 @@ try {
           <h3 class="panel-heading">Live Hospital Pulse & Departmental Hubs</h3>
           <p class="panel-subtext">Instant overview of key clinical departments and census telemetry</p>
         </div>
-        <div class="live-status-pill">
-          <div class="radar-pulse-dot"></div>
-          SYSTEM NORMAL
+        <div class="panel-status-group">
+          <!-- Live ECG / Pulse Wave Monitor -->
+          <div class="ecg-pulse-monitor" title="Real-time cardiac telemetry monitor">
+            <svg class="ecg-wave-svg" viewBox="0 0 60 18" width="60" height="18" aria-hidden="true">
+              <path class="ecg-wave-bg" d="M 0 9 L 10 9 L 13 6.5 L 16 9 L 20 9 L 22 11 L 25 2 L 28 16 L 31 9 L 35 9 L 40 5.5 L 45 9 L 60 9" pathLength="100"></path>
+              <path class="ecg-wave-active" d="M 0 9 L 10 9 L 13 6.5 L 16 9 L 20 9 L 22 11 L 25 2 L 28 16 L 31 9 L 35 9 L 40 5.5 L 45 9 L 60 9" pathLength="100"></path>
+            </svg>
+            <span class="ecg-label"><span class="ecg-bpm-dot"></span>72 BPM &bull; TELEMETRY ACTIVE</span>
+          </div>
+
+          <div class="live-status-pill">
+            <div class="radar-pulse-dot"></div>
+            SYSTEM NORMAL
+          </div>
         </div>
       </div>
 
