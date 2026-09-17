@@ -1,0 +1,642 @@
+/* ==========================================================================
+   MedPulse Enterprise - Inpatient Care & Clinical Teams Stylesheet
+   Design Continuity: Clean Medical Light Aesthetic
+   Location: assets/css/admin/inpatient-care.css
+   ========================================================================== */
+
+:root {
+  --ipc-teal-50: #f0fdfa;
+  --ipc-teal-100: #ccfbf1;
+  --ipc-teal-600: #0d9488;
+  --ipc-teal-700: #0f766e;
+  --ipc-blue-50: #eff6ff;
+  --ipc-blue-100: #dbeafe;
+  --ipc-blue-600: #2563eb;
+  --ipc-slate-50: #f8fafc;
+  --ipc-slate-100: #f1f5f9;
+  --ipc-slate-200: #e2e8f0;
+  --ipc-slate-400: #94a3b8;
+  --ipc-slate-600: #475569;
+  --ipc-slate-800: #1e293b;
+  --ipc-slate-900: #0f172a;
+  --ipc-amber-50: #fffbeb;
+  --ipc-amber-100: #fef3c7;
+  --ipc-amber-600: #d97706;
+  --ipc-emerald-50: #ecfdf5;
+  --ipc-emerald-100: #d1fae5;
+  --ipc-emerald-600: #059669;
+  --ipc-rose-50: #fff1f2;
+  --ipc-rose-100: #ffe4e6;
+  --ipc-rose-600: #e11d48;
+}
+
+/* --- Header Banner --- */
+.inpatient-header-banner {
+  background: linear-gradient(90deg, #f0fdfa 0%, #f8fafc 100%);
+  border: 1px solid #ccfbf1;
+  border-left: 4px solid #0d9488;
+  border-radius: 12px;
+  padding: 20px 24px;
+  margin-bottom: 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.inpatient-header-title h1 {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--ipc-slate-900);
+  margin: 0 0 6px 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.inpatient-header-title p {
+  color: var(--ipc-slate-600);
+  font-size: 0.88rem;
+  margin: 0;
+}
+
+.inpatient-header-chips {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.header-telemetry-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #ffffff;
+  border: 1px solid #ccfbf1;
+  border-radius: 20px;
+  padding: 6px 14px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #0f766e;
+}
+
+.header-telemetry-chip .pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+  animation: pulseGreen 1.8s infinite;
+}
+
+@keyframes pulseGreen {
+  0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+  70% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+/* --- Metrics Grid --- */
+.inpatient-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.inpatient-metric-card {
+  background: #ffffff;
+  border: 1px solid var(--ipc-slate-200);
+  border-radius: 12px;
+  padding: 18px 20px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.inpatient-metric-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 12px -2px rgba(0, 0, 0, 0.06);
+}
+
+.metric-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.metric-card-label {
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--ipc-slate-600);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.metric-card-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.metric-value {
+  font-size: 1.85rem;
+  font-weight: 800;
+  color: var(--ipc-slate-900);
+  line-height: 1;
+  margin-bottom: 8px;
+}
+
+.metric-subtext {
+  font-size: 0.76rem;
+  color: var(--ipc-slate-400);
+  font-weight: 500;
+}
+
+/* --- Action Controls & Filter Bar --- */
+.inpatient-controls-bar {
+  background: #ffffff;
+  border: 1px solid var(--ipc-slate-200);
+  border-radius: 12px;
+  padding: 14px 18px;
+  margin-bottom: 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.controls-search-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 260px;
+}
+
+.controls-search-input {
+  width: 100%;
+  max-width: 380px;
+  padding: 8px 14px 8px 36px;
+  border: 1px solid var(--ipc-slate-200);
+  border-radius: 8px;
+  font-size: 0.88rem;
+  color: var(--ipc-slate-800);
+  background: #ffffff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'%3E%3C/circle%3E%3Cline x1='21' y1='21' x2='16.65' y2='16.65'%3E%3C/line%3E%3C/svg%3E") no-repeat 10px center;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.controls-search-input:focus {
+  outline: none;
+  border-color: var(--ipc-teal-600);
+  box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.12);
+}
+
+.controls-filter-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ward-filter-select {
+  padding: 8px 12px;
+  border: 1px solid var(--ipc-slate-200);
+  border-radius: 8px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--ipc-slate-800);
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.btn-refresh-telemetry {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid var(--ipc-slate-200);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--ipc-slate-600);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.btn-refresh-telemetry:hover {
+  background: var(--ipc-slate-50);
+  border-color: var(--ipc-slate-400);
+  color: var(--ipc-slate-800);
+}
+
+/* --- Main Inpatient Card & Table --- */
+.inpatient-stack-card {
+  background: #ffffff;
+  border: 1px solid var(--ipc-slate-200);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
+}
+
+.inpatient-card-header {
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--ipc-slate-200);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #ffffff;
+}
+
+.inpatient-card-header h2 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--ipc-slate-900);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.inpatient-table-wrap {
+  overflow-x: auto;
+  width: 100%;
+}
+
+.inpatient-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.inpatient-table th {
+  background: #f8fafc;
+  padding: 12px 16px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--ipc-slate-200);
+  white-space: nowrap;
+}
+
+.inpatient-table td {
+  padding: 14px 16px;
+  font-size: 0.88rem;
+  color: var(--ipc-slate-800);
+  border-bottom: 1px solid var(--ipc-slate-100);
+  vertical-align: middle;
+}
+
+.inpatient-table tbody tr:hover {
+  background: #f8fafc;
+}
+
+/* --- Chips & Badges --- */
+.patient-id-chip {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 0.76rem;
+  font-weight: 700;
+  background: var(--ipc-blue-50);
+  color: var(--ipc-blue-600);
+  border: 1px solid var(--ipc-blue-100);
+}
+
+.bed-badge-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  background: var(--ipc-teal-50);
+  color: var(--ipc-teal-700);
+  border: 1px solid var(--ipc-teal-100);
+}
+
+.bed-ward-meta {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--ipc-slate-400);
+  font-weight: 500;
+  margin-top: 2px;
+}
+
+.care-team-cluster {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.doc-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  background: #f1f5f9;
+  color: #334155;
+  border: 1px solid #e2e8f0;
+}
+
+.doc-tag.doc-primary {
+  background: #fef3c7;
+  color: #92400e;
+  border-color: #fde68a;
+}
+
+.doc-tag.doc-primary svg {
+  color: #d97706;
+}
+
+.unassigned-pill {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
+
+/* --- Action Buttons --- */
+.action-buttons-group {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.btn-ipc-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.15s ease;
+}
+
+.btn-transfer {
+  background: var(--ipc-teal-50);
+  color: var(--ipc-teal-700);
+  border-color: var(--ipc-teal-100);
+}
+
+.btn-transfer:hover {
+  background: #ccfbf1;
+  border-color: #99f6e4;
+}
+
+.btn-doctors {
+  background: var(--ipc-blue-50);
+  color: var(--ipc-blue-600);
+  border-color: var(--ipc-blue-100);
+}
+
+.btn-doctors:hover {
+  background: #dbeafe;
+  border-color: #bfdbfe;
+}
+
+.btn-discharge {
+  background: var(--ipc-rose-50);
+  color: var(--ipc-rose-600);
+  border-color: var(--ipc-rose-100);
+}
+
+.btn-discharge:hover {
+  background: #ffe4e6;
+  border-color: #fecdd3;
+}
+
+/* --- Modal Styles --- */
+.inpatient-modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+  padding: 16px;
+}
+
+.inpatient-modal-backdrop.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.inpatient-modal {
+  background: #ffffff;
+  border-radius: 14px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  width: 100%;
+  max-width: 540px;
+  overflow: hidden;
+  transform: translateY(12px) scale(0.98);
+  transition: transform 0.2s ease;
+}
+
+.inpatient-modal-backdrop.open .inpatient-modal {
+  transform: translateY(0) scale(1);
+}
+
+.inpatient-modal-header {
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--ipc-slate-200);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #f8fafc;
+}
+
+.inpatient-modal-header h3 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--ipc-slate-900);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.modal-close-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--ipc-slate-400);
+  font-size: 1.3rem;
+  line-height: 1;
+  padding: 4px;
+  border-radius: 6px;
+}
+
+.modal-close-btn:hover {
+  color: var(--ipc-slate-800);
+  background: var(--ipc-slate-200);
+}
+
+.inpatient-modal-body {
+  padding: 22px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.modal-patient-context {
+  background: #f0fdfa;
+  border: 1px solid #ccfbf1;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.form-group-ipc {
+  margin-bottom: 16px;
+}
+
+.form-group-ipc label {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--ipc-slate-800);
+  margin-bottom: 6px;
+}
+
+.ipc-input, .ipc-select, .ipc-textarea {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--ipc-slate-200);
+  border-radius: 8px;
+  font-size: 0.88rem;
+  color: var(--ipc-slate-800);
+  background: #ffffff;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  box-sizing: border-box;
+}
+
+.ipc-input:focus, .ipc-select:focus, .ipc-textarea:focus {
+  outline: none;
+  border-color: var(--ipc-teal-600);
+  box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.12);
+}
+
+.doctor-checkbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--ipc-slate-200);
+  border-radius: 8px;
+  padding: 8px;
+  background: #f8fafc;
+}
+
+.doc-pick-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: #ffffff;
+  border: 1px solid var(--ipc-slate-200);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.doc-pick-item:hover {
+  background: #f0fdfa;
+}
+
+.doc-pick-item input[type="checkbox"] {
+  accent-color: var(--ipc-teal-600);
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.doc-pick-info {
+  flex: 1;
+}
+
+.doc-pick-name {
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--ipc-slate-900);
+}
+
+.doc-pick-spec {
+  font-size: 0.74rem;
+  color: var(--ipc-slate-400);
+}
+
+.inpatient-modal-footer {
+  padding: 16px 22px;
+  border-top: 1px solid var(--ipc-slate-200);
+  background: #f8fafc;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.btn-ipc-submit {
+  background: var(--ipc-teal-600);
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  padding: 9px 18px;
+  font-size: 0.86rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 0.15s;
+}
+
+.btn-ipc-submit:hover {
+  background: var(--ipc-teal-700);
+}
+
+.btn-ipc-cancel {
+  background: #ffffff;
+  color: var(--ipc-slate-600);
+  border: 1px solid var(--ipc-slate-200);
+  border-radius: 8px;
+  padding: 9px 16px;
+  font-size: 0.86rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-ipc-cancel:hover {
+  background: var(--ipc-slate-100);
+  color: var(--ipc-slate-800);
+}
