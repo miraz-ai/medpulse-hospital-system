@@ -653,8 +653,15 @@ if (!function_exists('getDoctorPastelBadgeClass')) {
     <!-- Header Banner with Animated ECG Pulse Badge -->
     <div class="welcome-banner" style="margin-bottom: 24px;">
       <div class="welcome-text">
-        <h1>
+        <h1 style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
           Live Bed & Clinical Census
+          <div class="ecg-pulse-monitor telemetry-pill <?= htmlspecialchars($telemetry_class) ?>" style="cursor: default;" title="Real-time clinical telemetry: <?= htmlspecialchars($telemetry_label) ?> (<?= htmlspecialchars($telemetry_bpm) ?>)">
+            <svg class="ecg-wave-svg" viewBox="0 0 60 18" width="60" height="18" aria-hidden="true">
+              <path class="ecg-wave-bg" d="M 0 9 L 10 9 L 13 6.5 L 16 9 L 20 9 L 22 11 L 25 2 L 28 16 L 31 9 L 35 9 L 40 5.5 L 45 9 L 60 9" pathLength="100"></path>
+              <path class="ecg-wave-active" d="M 0 9 L 10 9 L 13 6.5 L 16 9 L 20 9 L 22 11 L 25 2 L 28 16 L 31 9 L 35 9 L 40 5.5 L 45 9 L 60 9" pathLength="100"></path>
+            </svg>
+            <span class="ecg-label"><span class="ecg-bpm-dot"></span><?= htmlspecialchars($telemetry_bpm) ?> &bull; <?= htmlspecialchars($telemetry_label) ?> &bull; <?= htmlspecialchars((string)$total_active_beds) ?> BEDS ACTIVE</span>
+          </div>
         </h1>
         <p>Real-time inpatient occupancy, emergency admission allocations, intensive care load, and rapid triage routing across MedPulse.</p>
       </div>
