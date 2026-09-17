@@ -196,3 +196,270 @@
   background: #ef4444;
   animation: none;
 }
+
+/* ==========================================================================
+   Global Clinical Telemetry Pill Dynamic Load States
+   ========================================================================== */
+.telemetry-pill {
+  transition: all 0.25s ease;
+  flex-shrink: 0;
+}
+
+/* 1. Normal / Stable State (< 70% occupancy): #10b981, 2s */
+.telemetry-normal,
+.telemetry-pill.telemetry-normal {
+  background: #f0fdf4 !important;
+  border-color: #a7f3d0 !important;
+}
+
+.telemetry-normal svg,
+.telemetry-normal .ecg-wave-active {
+  stroke: #10b981 !important;
+  animation: ecgPulseAnim 2s linear infinite !important;
+  filter: drop-shadow(0 0 2px rgba(16, 185, 129, 0.45));
+}
+
+.telemetry-normal .ecg-wave-bg {
+  stroke: rgba(16, 185, 129, 0.2) !important;
+}
+
+.telemetry-normal .ecg-label {
+  color: #047857 !important;
+}
+
+.telemetry-normal .ecg-bpm-dot {
+  background: #10b981 !important;
+  animation: bpmBlink 1.2s ease-in-out infinite !important;
+}
+
+/* 2. Elevated / Warning State (70% - 89% occupancy): #f59e0b, 1.2s */
+.telemetry-warning,
+.telemetry-pill.telemetry-warning {
+  background: #fffbeb !important;
+  border-color: #fde68a !important;
+}
+
+.telemetry-warning svg,
+.telemetry-warning .ecg-wave-active {
+  stroke: #f59e0b !important;
+  animation: ecgPulseAnim 1.2s linear infinite !important;
+  filter: drop-shadow(0 0 2.5px rgba(245, 158, 11, 0.5));
+}
+
+.telemetry-warning .ecg-wave-bg {
+  stroke: rgba(245, 158, 11, 0.22) !important;
+}
+
+.telemetry-warning .ecg-label {
+  color: #b45309 !important;
+}
+
+.telemetry-warning .ecg-bpm-dot {
+  background: #f59e0b !important;
+  animation: bpmBlink 0.8s ease-in-out infinite !important;
+}
+
+/* 3. Critical State (>= 90% occupancy or 0 ICU beds available): #ef4444, 0.7s with pulse glow */
+.telemetry-critical,
+.telemetry-pill.telemetry-critical {
+  background: #fef2f2 !important;
+  border-color: #fecaca !important;
+  animation: telemetryPulseGlow 1.4s ease-in-out infinite alternate !important;
+}
+
+@keyframes telemetryPulseGlow {
+  0% {
+    box-shadow: 0 0 4px rgba(239, 68, 68, 0.2);
+    border-color: #fecaca;
+  }
+  100% {
+    box-shadow: 0 0 14px rgba(239, 68, 68, 0.5);
+    border-color: #f87171;
+  }
+}
+
+.telemetry-critical svg,
+.telemetry-critical .ecg-wave-active {
+  stroke: #ef4444 !important;
+  animation: ecgPulseAnim 0.7s linear infinite !important;
+  filter: drop-shadow(0 0 3px rgba(239, 68, 68, 0.7));
+}
+
+.telemetry-critical .ecg-wave-bg {
+  stroke: rgba(239, 68, 68, 0.25) !important;
+}
+
+.telemetry-critical .ecg-label {
+  color: #b91c1c !important;
+  font-weight: 700 !important;
+}
+
+.telemetry-critical .ecg-bpm-dot {
+  background: #ef4444 !important;
+  animation: bpmBlink 0.5s ease-in-out infinite !important;
+}
+
+/* ==========================================================================
+   Global Admin Top Navigation Bar (.admin-topbar)
+   ========================================================================== */
+.admin-topbar {
+  margin-left: var(--sidebar-w, 260px);
+  width: calc(100% - var(--sidebar-w, 260px));
+  height: 64px;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--surface-border, #e2e8f0);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2.25rem;
+  position: sticky;
+  top: 0;
+  z-index: 80;
+  box-sizing: border-box;
+  transition: all 0.2s ease;
+}
+
+.admin-topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+.admin-topbar-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-muted, #64748b);
+  white-space: nowrap;
+}
+
+.admin-topbar-breadcrumb .crumb-root {
+  color: var(--brand-teal, #0d9488);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+  font-weight: 700;
+  transition: color 0.15s ease;
+}
+
+.admin-topbar-breadcrumb .crumb-root:hover {
+  color: var(--brand-primary, #0284c7);
+}
+
+.admin-topbar-breadcrumb .crumb-sep {
+  color: #cbd5e1;
+  font-size: 0.8rem;
+  user-select: none;
+}
+
+.admin-topbar-breadcrumb .crumb-current {
+  color: var(--text-heading, #0f172a);
+  font-weight: 700;
+}
+
+.admin-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-shrink: 0;
+}
+
+/* Admin Profile Actions Group */
+.admin-topbar-profile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-left: 14px;
+  border-left: 1px solid var(--surface-border, #e2e8f0);
+}
+
+.admin-topbar-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--brand-gradient, linear-gradient(135deg, #0284c7 0%, #0d9488 100%));
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  font-weight: 700;
+  box-shadow: 0 2px 6px rgba(13, 148, 136, 0.25);
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.admin-topbar-info {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.admin-topbar-name {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-heading, #0f172a);
+  white-space: nowrap;
+}
+
+.admin-topbar-role {
+  font-size: 0.7rem;
+  color: var(--brand-teal, #0d9488);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.admin-topbar-logout {
+  color: var(--text-muted, #64748b);
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  border: 1px solid transparent;
+  text-decoration: none;
+}
+
+.admin-topbar-logout:hover {
+  background: var(--status-red-bg, #fef2f2);
+  color: var(--status-red, #ef4444);
+  border-color: #fecaca;
+  transform: translateY(-1px);
+}
+
+.admin-topbar-logout .ui-ico {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+}
+
+/* Responsive Breakpoints */
+@media (max-width: 1024px) {
+  .admin-topbar {
+    margin-left: 0;
+    width: 100%;
+    padding: 0 1.25rem;
+    display: none; /* Mobile topbar handles navigation */
+  }
+}
+
+@media (max-width: 1200px) {
+  .admin-topbar-info {
+    display: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .telemetry-pill .ecg-label-beds {
+    display: none;
+  }
+}
+
