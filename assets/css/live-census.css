@@ -1,0 +1,465 @@
+/* ==========================================================================
+   MedPulse Enterprise Dashboard - Dedicated Live Bed & Census Telemetry
+   ========================================================================== */
+
+/* --- Top Metrics Overview Grid --- */
+.census-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.census-metric-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 18px 20px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.census-metric-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 14px -2px rgba(0, 0, 0, 0.05);
+}
+
+.census-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.census-card-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.census-card-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon-teal {
+  background: #f0fdfa;
+  color: #0d9488;
+  border: 1px solid #ccfbf1;
+}
+
+.icon-blue {
+  background: #eff6ff;
+  color: #2563eb;
+  border: 1px solid #bfdbfe;
+}
+
+.icon-green {
+  background: #f0fdf4;
+  color: #16a34a;
+  border: 1px solid #bbf7d0;
+}
+
+.icon-rose {
+  background: #fff1f2;
+  color: #e11d48;
+  border: 1px solid #fecdd3;
+}
+
+.census-card-value {
+  font-size: 1.85rem;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1;
+  margin-bottom: 8px;
+}
+
+.census-card-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+
+.badge-open {
+  background: #ecfdf5;
+  color: #059669;
+  border: 1px solid #a7f3d0;
+}
+
+.badge-active {
+  background: #eff6ff;
+  color: #2563eb;
+  border: 1px solid #bfdbfe;
+}
+
+.badge-warning {
+  background: #fffbeb;
+  color: #d97706;
+  border: 1px solid #fde68a;
+}
+
+.badge-critical {
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+}
+
+/* --- Ward Floor Filter Bar --- */
+.census-filter-bar {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 10px 16px;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.census-filter-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ward-filter-tab {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 9999px;
+  padding: 6px 14px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  outline: none;
+}
+
+.ward-filter-tab:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+  border-color: #cbd5e1;
+}
+
+.ward-filter-tab.active {
+  background: #0d9488;
+  color: #ffffff;
+  border-color: #0d9488;
+  box-shadow: 0 2px 6px rgba(13, 148, 136, 0.25);
+}
+
+.ward-tab-count {
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  padding: 1px 6px;
+  font-size: 0.7rem;
+}
+
+.ward-filter-tab.active .ward-tab-count {
+  background: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+}
+
+.census-legend {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.75rem;
+  color: #64748b;
+  flex-wrap: wrap;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.dot-available { background: #16a34a; }
+.dot-occupied { background: #2563eb; }
+.dot-maintenance { background: #d97706; }
+
+/* --- Interactive Bed Matrix Grid --- */
+.bed-matrix-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+  margin-bottom: 30px;
+}
+
+.bed-slot-card {
+  border-radius: 12px;
+  padding: 16px;
+  position: relative;
+  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 175px;
+}
+
+.bed-slot-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.08);
+}
+
+/* Status variants */
+.slot-available {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  color: #166534;
+}
+
+.slot-occupied {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e40af;
+}
+
+.slot-maintenance {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #92400e;
+}
+
+/* Bed slot header */
+.bed-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.bed-code-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bed-icon-badge {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.slot-available .bed-icon-badge {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+.slot-occupied .bed-icon-badge {
+  background: #dbeafe;
+  color: #2563eb;
+}
+
+.slot-maintenance .bed-icon-badge {
+  background: #fef3c7;
+  color: #d97706;
+}
+
+.bed-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.88rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.bed-ward-tag {
+  font-size: 0.7rem;
+  color: #64748b;
+  font-weight: 600;
+  display: block;
+}
+
+.bed-status-pill {
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: 99px;
+  white-space: nowrap;
+}
+
+.status-available-pill {
+  background: #dcfce7;
+  color: #15803d;
+  border: 1px solid #86efac;
+}
+
+.status-occupied-pill {
+  background: #dbeafe;
+  color: #1d4ed8;
+  border: 1px solid #93c5fd;
+}
+
+.status-maintenance-pill {
+  background: #fef3c7;
+  color: #b45309;
+  border: 1px solid #fcd34d;
+}
+
+/* Bed Card Body */
+.bed-card-body {
+  margin-bottom: 12px;
+  flex: 1;
+}
+
+.bed-patient-info {
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+}
+
+.patient-name {
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: #0f172a;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.patient-id {
+  font-size: 0.7rem;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.patient-meta {
+  font-size: 0.74rem;
+  color: #475569;
+  margin-top: 3px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.attending-doctor {
+  font-size: 0.72rem;
+  color: #0f766e;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.bed-vacant-msg {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #166534;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 0;
+}
+
+.bed-maint-msg {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #92400e;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 0;
+}
+
+/* Quick Action Buttons on Hover */
+.bed-actions-bar {
+  display: flex;
+  gap: 6px;
+  opacity: 0.85;
+  transition: opacity 0.2s ease;
+}
+
+.bed-slot-card:hover .bed-actions-bar {
+  opacity: 1;
+}
+
+.btn-bed-action {
+  flex: 1;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.2s ease;
+  outline: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  text-decoration: none;
+  border: none;
+}
+
+.btn-bed-primary {
+  background: #0d9488;
+  color: #ffffff;
+}
+
+.btn-bed-primary:hover {
+  background: #0f766e;
+  box-shadow: 0 2px 6px rgba(13, 148, 136, 0.3);
+}
+
+.btn-bed-secondary {
+  background: rgba(255, 255, 255, 0.9);
+  color: #334155;
+  border: 1px solid #cbd5e1;
+}
+
+.btn-bed-secondary:hover {
+  background: #ffffff;
+  border-color: #94a3b8;
+  color: #0f172a;
+}
+
+/* Empty ward results */
+.census-empty-ward {
+  display: none;
+  grid-column: 1 / -1;
+  padding: 40px;
+  text-align: center;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+}
+
+@media (max-width: 768px) {
+  .census-filter-bar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

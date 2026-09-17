@@ -89,8 +89,8 @@ if (!isset($pendingCount) && isset($pdo)) {
         </div>
       </a>
     </li>
-    <li class="nav-item <?= ($currentRoute === 'bed_management.php') ? 'active' : '' ?>">
-      <a href="bed_management.php">
+    <li class="nav-item <?= in_array($currentRoute, ['live_census.php', 'bed_management.php'], true) ? 'active' : '' ?>">
+      <a href="live_census.php">
         <div class="nav-item-inner">
           <svg class="ui-ico" viewBox="0 0 24 24"><path d="M2 4v16"></path><path d="M2 8h18a2 2 0 0 1 2 2v10"></path><path d="M2 17h20"></path><path d="M6 8v9"></path></svg>
           Live Bed & Census

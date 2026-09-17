@@ -334,7 +334,7 @@ try {
         </a>
 
         <!-- Hub 4: Bed Census -->
-        <a href="bed_management.php" class="bed-unit-card" style="text-decoration: none; color: inherit;">
+        <a href="live_census.php" class="bed-unit-card" style="text-decoration: none; color: inherit;">
           <div class="bed-unit-head">
             <span>Bed Census</span>
             <svg class="ui-ico" style="stroke: var(--status-amber);" viewBox="0 0 24 24"><path d="M2 4v16"></path><path d="M2 8h18a2 2 0 0 1 2 2v10"></path><path d="M2 17h20"></path></svg>

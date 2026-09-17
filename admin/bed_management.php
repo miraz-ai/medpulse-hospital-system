@@ -2,10 +2,11 @@
 /**
  * MedPulse Enterprise Hospital Management System
  * Standalone Live Bed Census & Admissions Telemetry Console
+ * Routes to dedicated live_census.php
  */
 
-require_once __DIR__ . '/../includes/admin_auth.php';
-
+header('Location: live_census.php');
+exit;
 ?>
 <!DOCTYPE html>
 <html lang="en">
