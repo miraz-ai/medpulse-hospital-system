@@ -24,9 +24,10 @@ try {
     $activeStaffCount = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'Staff' AND status = 'active'")->fetchColumn();
 
     // Bed Census Telemetry (500 Bed Modern Capacity)
-    $bedStats = $pdo->query("SELECT COUNT(*) as total_beds, SUM(status = 'Available') as available_beds FROM hospital_beds")->fetch(PDO::FETCH_ASSOC);
-    $totalBeds = (int)($bedStats['total_beds'] ?? 500);
-    $availableBeds = (int)($bedStats['available_beds'] ?? 392);
+    $total_beds = (int)$pdo->query("SELECT COUNT(*) AS total_beds FROM hospital_beds")->fetchColumn();
+    $available_beds = (int)$pdo->query("SELECT COUNT(*) AS available_beds FROM hospital_beds WHERE status = 'Available'")->fetchColumn();
+    $occupied_beds = (int)$pdo->query("SELECT COUNT(*) AS occupied_beds FROM hospital_beds WHERE status = 'Occupied'")->fetchColumn();
+    $maintenance_beds = (int)$pdo->query("SELECT COUNT(*) AS maintenance_beds FROM hospital_beds WHERE status = 'Maintenance'")->fetchColumn();
 
 } catch (PDOException $e) {
     error_log("Admin Dashboard DB error: " . $e->getMessage());
@@ -344,7 +345,7 @@ try {
             <span>Bed Census</span>
             <svg class="ui-ico" style="stroke: var(--status-amber);" viewBox="0 0 24 24"><path d="M2 4v16"></path><path d="M2 8h18a2 2 0 0 1 2 2v10"></path><path d="M2 17h20"></path></svg>
           </div>
-          <div class="bed-qty"><?= number_format($availableBeds) ?> <small style="font-size: 0.78rem; font-weight: 600; color: var(--text-muted);">/ <?= number_format($totalBeds) ?> Available</small></div>
+          <div class="bed-qty"><?php echo $available_beds; ?> <small style="font-size: 0.78rem; font-weight: 600; color: var(--text-muted);">/ <?php echo $total_beds; ?> Available</small></div>
           <div style="font-size: 0.78rem; color: var(--status-amber); font-weight: 600; margin-top: 6px;">Live Bed Telemetry &rarr;</div>
         </a>
       </div>
