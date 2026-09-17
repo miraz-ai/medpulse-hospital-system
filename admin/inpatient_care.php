@@ -68,24 +68,39 @@ try {
         $patientDoctors[$pid][] = $a;
     }
 
-    // 4. Fetch All Active Doctors for Modals
+    // 4. Fetch All Active & Available Doctors for Care Teams
     $allDoctorsStmt = $pdo->query("
         SELECT 
             u.user_id,
             u.full_name,
-            dp.specialty,
-            dp.room_number,
-            dp.bmdc_license_number
+            COALESCE(dp.specialty, u.department, 'General Medicine') AS specialty,
+            COALESCE(dp.room_number, 'Consultation Wing') AS room_number,
+            COALESCE(dp.bmdc_license_number, u.license_id, 'N/A') AS bmdc_license_number,
+            u.email,
+            u.phone,
+            u.status
         FROM users u
         LEFT JOIN doctor_profiles dp ON u.user_id = dp.user_id
-        WHERE u.role = 'Doctor' AND u.status = 'active'
-        ORDER BY u.full_name ASC
+        WHERE u.role = 'Doctor' AND u.status IN ('active', 'suspended')
+        ORDER BY (u.status = 'active') DESC, u.full_name ASC
     ");
     $activeDoctors = $allDoctorsStmt->fetchAll(PDO::FETCH_ASSOC);
 
     // 5. Unique Ward Types for Filter
     $wardTypesStmt = $pdo->query("SELECT DISTINCT ward_type FROM hospital_beds ORDER BY ward_type ASC");
     $wardTypes = $wardTypesStmt->fetchAll(PDO::FETCH_COLUMN);
+
+    // 6. Fetch Registered Non-Admitted Patients for Quick Admission Modal
+    $unadmittedPatientsStmt = $pdo->query("
+        SELECT u.user_id, u.full_name, u.email, u.phone, u.gender, u.age, u.blood_group
+        FROM users u
+        WHERE u.role = 'Patient' 
+          AND u.user_id NOT IN (
+              SELECT patient_id FROM bed_allocations WHERE status = 'Active'
+          )
+        ORDER BY u.full_name ASC
+    ");
+    $eligiblePatients = $unadmittedPatientsStmt->fetchAll(PDO::FETCH_ASSOC);
 
 } catch (Throwable $e) {
     error_log("Inpatient Care Controller Error: " . $e->getMessage());
@@ -134,6 +149,10 @@ try {
           <span class="pulse-dot"></span>
           Real-Time Telemetry Active
         </div>
+        <button class="btn-ipc-action" style="background: #0d9488; color: #ffffff; padding: 7px 14px; font-size: 0.82rem; display: inline-flex; align-items: center; gap: 6px; border-radius: 8px; font-weight: 700; border: none; cursor: pointer; box-shadow: 0 2px 4px rgba(13,148,136,0.2);" onclick="openAdmitModal();">
+          <svg class="ui-ico ui-ico-sm" style="stroke: #ffffff; width: 15px; height: 15px;" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          + Admit New Inpatient
+        </button>
         <button class="btn-refresh-telemetry" onclick="window.location.reload();">
           <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
           Refresh Data
@@ -444,17 +463,41 @@ try {
             <select id="primaryDoctorSelect" name="primary_doctor_id" class="ipc-select">
               <option value="">-- Select Primary Attending Doctor --</option>
             </select>
+            <span style="font-size: 0.72rem; color: var(--ipc-slate-400); margin-top: 4px; display: block;">
+              Select any hospital physician to lead rounds. Choosing a doctor will automatically add them to the care team.
+            </span>
           </div>
 
           <div class="form-group-ipc">
-            <label>Assigned Care Team Physicians (Consultants)</label>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <label style="margin-bottom: 0;">Assigned Care Team Physicians (Consultants)</label>
+              <span id="careTeamCountLabel" style="font-size: 0.74rem; font-weight: 700; color: #0d9488; background: #ccfbf1; padding: 1px 7px; border-radius: 10px;">0 Assigned</span>
+            </div>
+
             <!-- Selected Doctors Clinical Chips Container -->
             <div id="selected-doctors-chips" class="selected-doctors-chips flex flex-wrap gap-2"></div>
 
-            <!-- Modern Searchable Combobox Input & Floating Dropdown -->
+            <!-- Searchable Combobox with Toggle Button -->
+            <label style="font-size: 0.76rem; color: var(--ipc-slate-600); margin-top: 10px; margin-bottom: 4px; font-weight: 600;">
+              Add / Search All Hospital Physicians:
+            </label>
             <div class="doctor-combobox-wrapper">
-              <input type="text" id="doctor-search-input" class="ipc-input" placeholder="Type doctor name or specialty (e.g. Cardio, Surgery)..." autocomplete="off">
-              <div id="doctor-search-dropdown" class="doctor-search-dropdown" style="display: none;"></div>
+              <div class="doctor-input-container">
+                <svg class="doctor-search-ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                <input type="text" id="doctor-search-input" class="ipc-input doctor-search-field" placeholder="Click or type doctor name, specialty, or room..." autocomplete="off">
+                <button type="button" id="toggleDoctorDropdownBtn" class="doctor-dropdown-toggle-btn" title="Show all hospital doctors">
+                  <svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </button>
+              </div>
+
+              <!-- Floating All-Doctors Dropdown Panel -->
+              <div id="doctor-search-dropdown" class="doctor-search-dropdown" style="display: none;">
+                <div class="doctor-dropdown-header">
+                  <span id="dropdownHeaderCount">All Hospital Physicians (<?= count($activeDoctors) ?> Total)</span>
+                  <span style="font-size: 0.70rem; color: var(--ipc-slate-400);">Click to add/remove</span>
+                </div>
+                <div id="doctorDropdownListContainer" class="doctor-dropdown-list"></div>
+              </div>
             </div>
 
             <!-- Dynamically Synced Hidden Inputs -->
@@ -466,6 +509,80 @@ try {
           <button type="submit" class="btn-ipc-submit" style="background: #2563eb;">
             <svg class="ui-ico" style="width:14px;height:14px;" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
             Save Care Team
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- =========================================================================
+       MODAL 2B: QUICK ADMIT INPATIENT & ALLOCATE BED
+       ========================================================================= -->
+  <div class="inpatient-modal-backdrop" id="admitInpatientModal">
+    <div class="inpatient-modal">
+      <div class="inpatient-modal-header">
+        <h3>
+          <svg class="ui-ico" style="stroke: #0d9488;" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          Admit New Inpatient & Assign Bed
+        </h3>
+        <button class="modal-close-btn" onclick="closeIpcModal('admitInpatientModal')">&times;</button>
+      </div>
+      <form id="admitInpatientForm">
+        <div class="inpatient-modal-body">
+          <div class="form-group-ipc">
+            <label for="admitPatientSelect">Select Registered Patient *</label>
+            <select id="admitPatientSelect" name="patient_id" class="ipc-select" required>
+              <option value="">-- Choose Patient for Admission --</option>
+              <?php foreach ($eligiblePatients as $ep): ?>
+                <option value="<?= (int)$ep['user_id'] ?>">
+                  <?= htmlspecialchars($ep['full_name'], ENT_QUOTES, 'UTF-8') ?> (PAT-<?= str_pad((string)$ep['user_id'], 4, '0', STR_PAD_LEFT) ?> • <?= htmlspecialchars($ep['gender'] ?? 'Male', ENT_QUOTES, 'UTF-8') ?>, <?= (int)($ep['age'] ?? 24) ?>y, <?= htmlspecialchars($ep['blood_group'] ?? 'B+', ENT_QUOTES, 'UTF-8') ?>)
+                </option>
+              <?php endforeach; ?>
+            </select>
+            <span style="font-size: 0.72rem; color: var(--ipc-slate-400); margin-top: 4px; display: block;">
+              Only patients without active admissions are listed. Inpatients can hold at most one bed at a time.
+            </span>
+          </div>
+
+          <div class="form-group-ipc">
+            <label for="admitWardFilter">Filter Available Beds by Ward</label>
+            <select id="admitWardFilter" class="ipc-select">
+              <option value="all">All Hospital Wards</option>
+              <?php foreach ($wardTypes as $wt): ?>
+                <option value="<?= htmlspecialchars($wt, ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($wt, ENT_QUOTES, 'UTF-8') ?></option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+
+          <div class="form-group-ipc">
+            <label for="admitBedSelect">Select Available Bed *</label>
+            <select id="admitBedSelect" name="bed_id" class="ipc-select" required>
+              <option value="">-- Loading Available Beds... --</option>
+            </select>
+          </div>
+
+          <div class="form-group-ipc">
+            <label for="admitDoctorSelect">Attending Physician (Lead Care Doctor) *</label>
+            <select id="admitDoctorSelect" name="doctor_id" class="ipc-select" required>
+              <option value="">-- Choose Attending Doctor from Full Roster --</option>
+              <?php foreach ($activeDoctors as $doc): ?>
+                <option value="<?= (int)$doc['user_id'] ?>">
+                  <?= htmlspecialchars($doc['full_name'], ENT_QUOTES, 'UTF-8') ?> — <?= htmlspecialchars($doc['specialty'] ?? 'General Medicine', ENT_QUOTES, 'UTF-8') ?> (<?= htmlspecialchars($doc['room_number'] ?? 'Consultation', ENT_QUOTES, 'UTF-8') ?>)
+                </option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+
+          <div class="form-group-ipc">
+            <label for="admitNotes">Admission Diagnosis / Clinical Reason</label>
+            <input type="text" id="admitNotes" name="notes" class="ipc-input" placeholder="e.g. Acute chest pain, Post-operative surgical recovery, ICU monitoring">
+          </div>
+        </div>
+        <div class="inpatient-modal-footer">
+          <button type="button" class="btn-ipc-cancel" onclick="closeIpcModal('admitInpatientModal')">Cancel</button>
+          <button type="submit" class="btn-ipc-submit" style="background: #0d9488;">
+            <svg class="ui-ico" style="width:14px;height:14px;" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            Confirm Admission & Allocate Bed
           </button>
         </div>
       </form>

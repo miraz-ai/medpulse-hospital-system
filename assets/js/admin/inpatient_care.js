@@ -218,16 +218,20 @@ document.addEventListener('DOMContentLoaded', () => {
   // ---------------------------------------------------------------------------
   // ---------------------------------------------------------------------------
   // ---------------------------------------------------------------------------
-  // Action 2: Open Multi-Doctor Care Team Modal (Modern Searchable Combobox & Chips)
+  // Action 2: Open Multi-Doctor Care Team Modal (Full Hospital Physicians Combobox)
   // ---------------------------------------------------------------------------
   let selectedDoctorIds = [];
   let currentPrimaryDocId = null;
 
-  const chipsContainer   = document.getElementById('selected-doctors-chips');
-  const doctorSearchInput = document.getElementById('doctor-search-input');
-  const searchDropdown   = document.getElementById('doctor-search-dropdown');
-  const primarySelect    = document.getElementById('primaryDoctorSelect');
-  const hiddenInputsBox  = document.getElementById('doctor-hidden-inputs');
+  const chipsContainer     = document.getElementById('selected-doctors-chips');
+  const doctorSearchInput  = document.getElementById('doctor-search-input');
+  const searchDropdown     = document.getElementById('doctor-search-dropdown');
+  const dropdownList       = document.getElementById('doctorDropdownListContainer');
+  const dropdownCount      = document.getElementById('dropdownHeaderCount');
+  const toggleDoctorBtn    = document.getElementById('toggleDoctorDropdownBtn');
+  const primarySelect      = document.getElementById('primaryDoctorSelect');
+  const hiddenInputsBox    = document.getElementById('doctor-hidden-inputs');
+  const careTeamCountLabel = document.getElementById('careTeamCountLabel');
 
   window.openDoctorModal = function(patientId, patientName, bedNumber, activeDocIdsJson, primaryDocId) {
     document.getElementById('doctorPatientId').value = patientId;
@@ -247,6 +251,7 @@ document.addEventListener('DOMContentLoaded', () => {
     renderSelectedChips();
     syncPrimarySelect();
     syncHiddenInputs();
+    updateCareTeamCount();
 
     if (doctorSearchInput) doctorSearchInput.value = '';
     if (searchDropdown) searchDropdown.style.display = 'none';
@@ -256,6 +261,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Alias for Care Team Modal
   window.openCareTeamModal = window.openDoctorModal;
+
+  function updateCareTeamCount() {
+    if (careTeamCountLabel) {
+      careTeamCountLabel.textContent = `${selectedDoctorIds.length} Assigned`;
+    }
+  }
 
   function renderSelectedChips() {
     if (!chipsContainer) return;
@@ -275,30 +286,69 @@ document.addEventListener('DOMContentLoaded', () => {
       `;
       chipsContainer.appendChild(chip);
     });
+
+    updateCareTeamCount();
   }
 
   function syncPrimarySelect() {
     if (!primarySelect) return;
-    primarySelect.innerHTML = '<option value="">-- None / Unassigned --</option>';
+    primarySelect.innerHTML = '';
+
+    const defaultOpt = document.createElement('option');
+    defaultOpt.value = '';
+    defaultOpt.textContent = '-- None / Unassigned --';
+    primarySelect.appendChild(defaultOpt);
+
+    // Group 1: Currently Selected Care Team
+    const careTeamGroup = document.createElement('optgroup');
+    careTeamGroup.label = 'Active Care Team (Selected)';
 
     selectedDoctorIds.forEach(id => {
       const doc = activeDoctorsCache.find(d => Number(d.user_id) === Number(id));
       if (!doc) return;
-
       const opt = document.createElement('option');
       opt.value = doc.user_id;
-      opt.textContent = `${doc.full_name} (${doc.specialty || 'General'})`;
+      opt.textContent = `${doc.full_name} — ${doc.specialty || 'General Medicine'} (${doc.room_number || 'Room'})`;
       if (Number(currentPrimaryDocId) === Number(id)) {
         opt.selected = true;
       }
-      primarySelect.appendChild(opt);
+      careTeamGroup.appendChild(opt);
     });
+
+    if (selectedDoctorIds.length > 0) {
+      primarySelect.appendChild(careTeamGroup);
+    }
+
+    // Group 2: All Other Available Hospital Physicians
+    const allDoctorsGroup = document.createElement('optgroup');
+    allDoctorsGroup.label = 'All Other Hospital Physicians (Click to Assign)';
+
+    activeDoctorsCache.forEach(doc => {
+      if (selectedDoctorIds.includes(Number(doc.user_id))) return;
+      const opt = document.createElement('option');
+      opt.value = doc.user_id;
+      opt.textContent = `${doc.full_name} — ${doc.specialty || 'General Medicine'} (${doc.room_number || 'Room'})`;
+      if (Number(currentPrimaryDocId) === Number(doc.user_id)) {
+        opt.selected = true;
+      }
+      allDoctorsGroup.appendChild(opt);
+    });
+
+    primarySelect.appendChild(allDoctorsGroup);
   }
 
   if (primarySelect) {
     primarySelect.addEventListener('change', (e) => {
-      currentPrimaryDocId = e.target.value ? Number(e.target.value) : null;
+      const selectedVal = e.target.value ? Number(e.target.value) : null;
+      currentPrimaryDocId = selectedVal;
+      // If user selected a doctor from the full roster who wasn't yet in the care team, automatically add them!
+      if (selectedVal && !selectedDoctorIds.includes(selectedVal)) {
+        selectedDoctorIds.push(selectedVal);
+        syncHiddenInputs();
+      }
       renderSelectedChips();
+      syncPrimarySelect();
+      filterDoctorDropdown(doctorSearchInput ? doctorSearchInput.value : '');
     });
   }
 
@@ -323,7 +373,7 @@ document.addEventListener('DOMContentLoaded', () => {
     syncPrimarySelect();
     syncHiddenInputs();
 
-    // Re-filter dropdown so the removed doctor is immediately searchable again
+    // Re-filter dropdown so the status immediately updates
     if (searchDropdown && searchDropdown.style.display !== 'none') {
       filterDoctorDropdown(doctorSearchInput ? doctorSearchInput.value : '');
     }
@@ -341,52 +391,101 @@ document.addEventListener('DOMContentLoaded', () => {
       syncHiddenInputs();
     }
 
-    if (doctorSearchInput) {
-      doctorSearchInput.value = '';
-      filterDoctorDropdown('');
-      doctorSearchInput.focus();
+    // Re-filter dropdown to update the item state to 'Assigned'
+    if (searchDropdown && searchDropdown.style.display !== 'none') {
+      filterDoctorDropdown(doctorSearchInput ? doctorSearchInput.value : '');
     }
   };
 
   function filterDoctorDropdown(query) {
-    if (!searchDropdown) return;
+    if (!searchDropdown || !dropdownList) return;
     const term = (query || '').trim().toLowerCase();
 
-    // Exclude already-selected doctors from search dropdown
-    const available = activeDoctorsCache.filter(doc => !selectedDoctorIds.includes(Number(doc.user_id)));
-
+    // Matches against ALL hospital doctors
     const matches = (term === '')
-      ? available
-      : available.filter(doc => {
-          const nameMatch = doc.full_name.toLowerCase().includes(term);
+      ? activeDoctorsCache
+      : activeDoctorsCache.filter(doc => {
+          const nameMatch = (doc.full_name || '').toLowerCase().includes(term);
           const specMatch = (doc.specialty || '').toLowerCase().includes(term);
-          return nameMatch || specMatch;
+          const roomMatch = (doc.room_number || '').toLowerCase().includes(term);
+          const licMatch  = (doc.bmdc_license_number || '').toLowerCase().includes(term);
+          return nameMatch || specMatch || roomMatch || licMatch;
         });
+
+    if (dropdownCount) {
+      dropdownCount.textContent = (term === '') 
+        ? `All Hospital Physicians (${activeDoctorsCache.length} Total)` 
+        : `Matching Physicians (${matches.length} of ${activeDoctorsCache.length})`;
+    }
 
     if (matches.length === 0) {
-      searchDropdown.innerHTML = `<div class="doctor-dropdown-empty">${available.length === 0 ? 'All hospital physicians already selected.' : 'No matching doctors found.'}</div>`;
+      dropdownList.innerHTML = `<div class="doctor-dropdown-empty">No physicians matching "${term}". All hospital doctors are accessible.</div>`;
     } else {
-      searchDropdown.innerHTML = '';
+      dropdownList.innerHTML = '';
       matches.forEach(doc => {
+        const isAssigned = selectedDoctorIds.includes(Number(doc.user_id));
+        const isPrimary  = (Number(currentPrimaryDocId) === Number(doc.user_id));
         const item = document.createElement('div');
-        item.className = 'doctor-dropdown-item';
+        item.className = `doctor-dropdown-item ${isAssigned ? 'is-assigned' : ''}`;
+        
         item.innerHTML = `
-          <span class="doctor-dropdown-name">${doc.full_name}</span>
-          <span class="doctor-dropdown-spec">${doc.specialty || 'General'}</span>
+          <div class="doctor-dropdown-info">
+            <div style="display:flex; align-items:center; gap:6px;">
+              <span class="doctor-dropdown-name">${doc.full_name}</span>
+              ${isPrimary ? '<span style="font-size:0.68rem; font-weight:700; color:#b45309; background:#fef3c7; padding:1px 6px; border-radius:4px;">Lead</span>' : ''}
+              ${doc.status === 'suspended' ? '<span style="font-size:0.68rem; font-weight:700; color:#dc2626; background:#fee2e2; padding:1px 6px; border-radius:4px;">Suspended</span>' : ''}
+            </div>
+            <div class="doctor-dropdown-meta">
+              <span class="doctor-dropdown-spec">${doc.specialty || 'General Medicine'}</span>
+              <span>• ${doc.room_number || 'Room'}</span>
+              <span>• ${doc.bmdc_license_number || 'BMDC'}</span>
+            </div>
+          </div>
+          <div class="doctor-dropdown-action">
+            ${isAssigned 
+              ? '<span class="doctor-dropdown-action-btn btn-assigned-doc">✓ Assigned</span>'
+              : '<span class="doctor-dropdown-action-btn btn-add-doc">+ Add to Team</span>'
+            }
+          </div>
         `;
+
         item.addEventListener('mousedown', (e) => {
-          e.preventDefault(); // Prevent blur before selection
-          addDoctorChip(doc.user_id);
+          e.preventDefault(); // Prevent input blur
+          if (isAssigned) {
+            removeDoctorChip(doc.user_id);
+          } else {
+            addDoctorChip(doc.user_id);
+          }
         });
-        searchDropdown.appendChild(item);
+
+        dropdownList.appendChild(item);
       });
     }
 
     searchDropdown.style.display = 'block';
   }
 
+  // Dropdown toggle button click
+  if (toggleDoctorBtn) {
+    toggleDoctorBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (searchDropdown && searchDropdown.style.display === 'block') {
+        searchDropdown.style.display = 'none';
+      } else {
+        filterDoctorDropdown(doctorSearchInput ? doctorSearchInput.value : '');
+        if (doctorSearchInput) doctorSearchInput.focus();
+      }
+    });
+  }
+
+  // Prevent input blur when clicking inside dropdown or on scrollbar
+  if (searchDropdown) {
+    searchDropdown.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+    });
+  }
+
   if (doctorSearchInput) {
-    // Search input listener: fires smoothly on typing, backspace, and clear without blocking any keys!
     doctorSearchInput.addEventListener('input', (e) => {
       filterDoctorDropdown(e.target.value);
     });
@@ -396,10 +495,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     doctorSearchInput.addEventListener('blur', () => {
-      // Delay closing slightly so mousedown on item registers
       setTimeout(() => {
         if (searchDropdown) searchDropdown.style.display = 'none';
-      }, 200);
+      }, 250);
     });
   }
 
@@ -568,6 +666,119 @@ document.addEventListener('DOMContentLoaded', () => {
     const count = rows.length;
     const countBadge = document.getElementById('kpiTotalInpatients');
     if (countBadge) countBadge.textContent = count;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Action 3B: Quick Admit Inpatient Modal & Available Beds Controller
+  // ---------------------------------------------------------------------------
+  const admitModal = document.getElementById('admitInpatientModal');
+  const admitForm  = document.getElementById('admitInpatientForm');
+
+  window.openAdmitModal = function() {
+    openModal(admitModal);
+    loadAdmitBeds('all');
+  };
+
+  function loadAdmitBeds(wardFilter) {
+    const bedSelect = document.getElementById('admitBedSelect');
+    if (!bedSelect) return;
+    bedSelect.innerHTML = '<option value="">-- Loading Available Beds... --</option>';
+
+    fetch('../backend/api/get_available_beds.php')
+      .then(r => r.json())
+      .then(data => {
+        if (!data.success || !data.beds) {
+          bedSelect.innerHTML = '<option value="">No available beds found</option>';
+          return;
+        }
+        availableBedsCache = data.beds;
+        renderAdmitBedsDropdown(wardFilter);
+      })
+      .catch(() => {
+        bedSelect.innerHTML = '<option value="">Error loading available beds</option>';
+      });
+  }
+
+  function renderAdmitBedsDropdown(wardFilter) {
+    const bedSelect = document.getElementById('admitBedSelect');
+    if (!bedSelect) return;
+    bedSelect.innerHTML = '<option value="">-- Select Available Ward Bed --</option>';
+
+    const filtered = (wardFilter === 'all')
+      ? availableBedsCache
+      : availableBedsCache.filter(b => b.ward_type === wardFilter);
+
+    if (filtered.length === 0) {
+      bedSelect.innerHTML = '<option value="">No available beds in selected ward</option>';
+      return;
+    }
+
+    filtered.forEach(b => {
+      const opt = document.createElement('option');
+      opt.value = b.bed_id;
+      opt.textContent = `${b.bed_number} — ${b.ward_type} (Floor ${b.floor_number}) | ৳${Number(b.daily_rate).toLocaleString()}/day`;
+      bedSelect.appendChild(opt);
+    });
+  }
+
+  const admitWardFilter = document.getElementById('admitWardFilter');
+  if (admitWardFilter) {
+    admitWardFilter.addEventListener('change', (e) => {
+      renderAdmitBedsDropdown(e.target.value);
+    });
+  }
+
+  if (admitForm) {
+    admitForm.addEventListener('submit', function(e) {
+      e.preventDefault();
+      const submitBtn = this.querySelector('button[type="submit"]');
+      const origText = submitBtn.innerHTML;
+
+      const patientId = document.getElementById('admitPatientSelect').value;
+      const bedId     = document.getElementById('admitBedSelect').value;
+      const docId     = document.getElementById('admitDoctorSelect').value;
+      const notes     = document.getElementById('admitNotes').value;
+
+      if (!patientId || !bedId || !docId) {
+        if (typeof showToast === 'function') showToast('Patient, Bed, and Attending Doctor are required.', 'error');
+        return;
+      }
+
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = '<svg class="ui-ico spin" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg> Admitting...';
+
+      const formData = new URLSearchParams();
+      formData.append('csrf_token', csrfToken);
+      formData.append('action', 'allocate_patient');
+      formData.append('patient_id', patientId);
+      formData.append('bed_id', bedId);
+      formData.append('doctor_id', docId);
+      formData.append('notes', notes);
+
+      fetch('../backend/admin_actions.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: formData.toString()
+      })
+      .then(r => r.json())
+      .then(data => {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = origText;
+
+        if (data.success || data.status === 'success') {
+          closeModal(admitModal);
+          if (typeof showToast === 'function') showToast(data.message, 'success');
+          setTimeout(() => window.location.reload(), 600);
+        } else {
+          if (typeof showToast === 'function') showToast(data.message || 'Admission failed.', 'error');
+        }
+      })
+      .catch(err => {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = origText;
+        if (typeof showToast === 'function') showToast('Network error during admission.', 'error');
+      });
+    });
   }
 
   // ---------------------------------------------------------------------------
