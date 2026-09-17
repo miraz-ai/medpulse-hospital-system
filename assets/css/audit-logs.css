@@ -303,6 +303,74 @@
   border: 1px solid #e2e8f0;
 }
 
+.badge-cat-pharmacy {
+  background: #fdf4ff;
+  color: #9333ea;
+  border: 1px solid #f0abfc;
+}
+
+/* --- Audit Pagination --- */
+.audit-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 14px 20px;
+  margin-top: 20px;
+  flex-wrap: wrap;
+}
+
+.audit-page-info {
+  font-size: 0.82rem;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.audit-page-links {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.audit-page-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #334155;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  text-decoration: none;
+  transition: all 0.15s ease;
+  min-width: 34px;
+}
+
+.audit-page-btn:hover:not(.disabled) {
+  background: #f0fdfa;
+  border-color: #0d9488;
+  color: #0d9488;
+}
+
+.audit-page-btn.active {
+  background: #0d9488;
+  border-color: #0d9488;
+  color: #ffffff;
+  pointer-events: none;
+}
+
+.audit-page-btn.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 /* Action text & target */
 .audit-action-main {
   font-weight: 600;

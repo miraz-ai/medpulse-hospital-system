@@ -100,8 +100,9 @@ if (in_array($statusFilter, ['available', 'occupied', 'maintenance', 'reserved']
 
 // Search filter (bed code or patient name)
 if (!empty($searchFilter)) {
-    $whereClauses[] = "(b.bed_number LIKE :search_term OR p.full_name LIKE :search_term)";
-    $params[':search_term'] = '%' . $searchFilter . '%';
+    $whereClauses[] = "(b.bed_number LIKE :s_bed OR p.full_name LIKE :s_pat)";
+    $params[':s_bed'] = '%' . $searchFilter . '%';
+    $params[':s_pat'] = '%' . $searchFilter . '%';
 }
 
 $whereSql = !empty($whereClauses) ? "WHERE " . implode(" AND ", $whereClauses) : "";

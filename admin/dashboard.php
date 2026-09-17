@@ -29,6 +29,28 @@ try {
     $occupied_beds = (int)$pdo->query("SELECT COUNT(*) AS occupied_beds FROM hospital_beds WHERE status = 'Occupied'")->fetchColumn();
     $maintenance_beds = (int)$pdo->query("SELECT COUNT(*) AS maintenance_beds FROM hospital_beds WHERE status = 'Maintenance'")->fetchColumn();
 
+    // 3. Live Event Telemetry Ticker (Latest 5 Events from audit_logs)
+    $tickerLogs = $pdo->query("
+        SELECT log_id, action, description, category, ip_address, created_at 
+        FROM audit_logs 
+        ORDER BY created_at DESC 
+        LIMIT 5
+    ")->fetchAll(PDO::FETCH_ASSOC);
+
+    // Relative timestamp helper
+    if (!function_exists('getTelemetryRelativeTime')) {
+        function getTelemetryRelativeTime($datetime) {
+            $timestamp = is_numeric($datetime) ? (int)$datetime : strtotime($datetime);
+            if (!$timestamp) return 'Just now';
+            $diff = time() - $timestamp;
+            if ($diff < 60) return 'Just now';
+            if ($diff < 3600) return max(1, round($diff / 60)) . 'm ago';
+            if ($diff < 86400) return max(1, round($diff / 3600)) . 'h ago';
+            if ($diff < 604800) return max(1, round($diff / 86400)) . 'd ago';
+            return date('M j', $timestamp);
+        }
+    }
+
 } catch (PDOException $e) {
     error_log("Admin Dashboard DB error: " . $e->getMessage());
     die("A secure database communication failure occurred. Please contact system engineering.");
@@ -96,30 +118,34 @@ try {
 
       <div class="ticker-viewport">
         <div class="ticker-track" id="tickerTrack">
-          <div class="ticker-item">
-            <span class="ticker-cat-badge cat-admission">Admission</span>
-            <span class="ticker-text">Patient registered to Emergency Ward 3B</span>
-            <span class="ticker-separator">&bull;</span>
-            <span class="ticker-time">Just now</span>
-          </div>
-          <div class="ticker-item">
-            <span class="ticker-cat-badge cat-verification">Verification</span>
-            <span class="ticker-text">Dr. Ayesha Siddiqua credentials approved</span>
-            <span class="ticker-separator">&bull;</span>
-            <span class="ticker-time">2m ago</span>
-          </div>
-          <div class="ticker-item">
-            <span class="ticker-cat-badge cat-pharmacy">Pharmacy</span>
-            <span class="ticker-text">Medication batch #409 released</span>
-            <span class="ticker-separator">&bull;</span>
-            <span class="ticker-time">5m ago</span>
-          </div>
-          <div class="ticker-item">
-            <span class="ticker-cat-badge cat-census">Census</span>
-            <span class="ticker-text">Bed #14 sanitized and ready for allocation</span>
-            <span class="ticker-separator">&bull;</span>
-            <span class="ticker-time">8m ago</span>
-          </div>
+          <?php if (!empty($tickerLogs)): ?>
+            <?php foreach ($tickerLogs as $log): 
+              $cat = strtoupper($log['category'] ?? 'SYSTEM');
+              $catClass = match($cat) {
+                  'ADMISSION' => 'cat-admission',
+                  'VERIFICATION' => 'cat-verification',
+                  'PHARMACY' => 'cat-pharmacy',
+                  'SECURITY' => 'cat-security',
+                  default => 'cat-system'
+              };
+              $desc = !empty($log['description']) ? $log['description'] : ($log['action'] ?? 'Telemetry event recorded');
+              $relTime = getTelemetryRelativeTime($log['created_at']);
+            ?>
+              <div class="ticker-item">
+                <span class="ticker-cat-badge <?= $catClass ?>"><?= htmlspecialchars($cat, ENT_QUOTES, 'UTF-8') ?></span>
+                <span class="ticker-text"><?= htmlspecialchars($desc, ENT_QUOTES, 'UTF-8') ?></span>
+                <span class="ticker-separator">&bull;</span>
+                <span class="ticker-time"><?= htmlspecialchars($relTime, ENT_QUOTES, 'UTF-8') ?></span>
+              </div>
+            <?php endforeach; ?>
+          <?php else: ?>
+            <div class="ticker-item">
+              <span class="ticker-cat-badge cat-system">SYSTEM</span>
+              <span class="ticker-text">Telemetry Active &bull; All channels normal</span>
+              <span class="ticker-separator">&bull;</span>
+              <span class="ticker-time">Just now</span>
+            </div>
+          <?php endif; ?>
         </div>
       </div>
 

@@ -691,19 +691,30 @@ ON DUPLICATE KEY UPDATE
   `delivery_status` = VALUES(`delivery_status`);
 
 -- ----------------------------------------------------------------------------
--- 9. Compliance & Security Audit Logs
+-- 9. Compliance & Security Audit Logs (Dynamic Telemetry Stream)
 -- ----------------------------------------------------------------------------
 INSERT INTO `audit_logs`
-  (`log_id`, `actor_id`, `actor_role`, `action_name`, `target_entity`, `ip_address`, `security_level`, `created_at`)
+  (`log_id`, `user_id`, `actor_id`, `actor_role`, `action`, `description`, `category`, `action_name`, `target_entity`, `ip_address`, `security_level`, `created_at`)
 VALUES
-  (1, 6,    'Admin',  'Doctor Credential Verified',                       'Dr. Ayesha Siddiqua (BMDC-A-94120)', '192.168.1.10',  'INFO',     '2026-09-17 01:45:00'),
-  (2, NULL, 'System', 'Failed Password Lockout Triggered',                'auth.endpoint (01700000000)',        '103.145.74.22', 'CRITICAL', '2026-09-17 01:30:00'),
-  (3, 8,    'Doctor', 'ICU Patient Telemetry Downloaded',                 'Patient #0001 (Agatsuma Zenitsu)',   '192.168.1.42',  'INFO',     '2026-09-17 01:05:00'),
-  (4, 15,   'Staff',  'Central Ward Bed Allocation Updated',              'Bed ICU-B01 assigned to ADM-1082',   '192.168.1.58',  'INFO',     '2026-09-17 00:35:00'),
-  (5, 21,   'Doctor', 'Prescription Synchronized to EMR',                 'EMR File #10492 (Zenitsu)',          '192.168.1.33',  'INFO',     '2026-09-16 23:20:00'),
-  (6, NULL, 'System', 'Repeated Identifier Mismatch on Doctor Portal',    'dr.unknown@medpulse.test',           '185.220.101.5', 'WARNING',  '2026-09-16 22:40:00'),
-  (7, NULL, 'System', 'Inpatient Invoice Reconciled & Stored',            'Invoice INV-2026-081 (৳ 44,100)',    '127.0.0.1',     'INFO',     '2026-09-16 20:50:00')
+  (1, 6,    6,    'Admin',  'Doctor Credential Verified',          'Dr. Ayesha Siddiqua credentials approved by Miraz',                   'VERIFICATION', 'Doctor Credential Verified',          'Dr. Ayesha Siddiqua (BMDC-A-94120)', '192.168.1.10',  'INFO',     '2026-09-17 08:12:00'),
+  (2, 15,   15,   'Staff',  'Patient Bed Admission',              'Patient registered to Emergency Ward Bed #EMG-101',                  'ADMISSION',    'Patient Bed Admission',              'Agatsuma Zenitsu (Bed #EMG-101)',    '192.168.1.8',   'INFO',     '2026-09-17 08:08:00'),
+  (3, 21,   21,   'Doctor', 'Medication Batch Dispensed',         'Narcotics locker batch #409 released for ICU cardiac care',           'PHARMACY',     'Medication Batch Dispensed',         'Pharmacy Batch #409 (Morphine)',     '192.168.1.22',  'INFO',     '2026-09-17 07:55:00'),
+  (4, NULL, NULL, 'System', 'Failed Password Lockout Triggered',   'Repeated unauthorized login attempts detected on staff portal',      'SECURITY',     'Failed Password Lockout Triggered',  'auth.endpoint (01700000000)',        '103.145.74.22', 'CRITICAL', '2026-09-17 07:30:00'),
+  (5, 15,   15,   'Staff',  'Bed Sanitization Completed',         'Bed #14 sanitized and ready for rapid patient allocation',            'ADMISSION',    'Bed Sanitization Completed',         'Bed #14 (Floor 1 Emergency)',        '192.168.1.18',  'INFO',     '2026-09-17 07:15:00'),
+  (6, 6,    6,    'Admin',  'Staff Registration Authorized',      'Nurse Farzana Yasmin credential review completed and access granted', 'VERIFICATION', 'Staff Registration Authorized',      'Staff Candidate #25 (Nurse Farzana)','192.168.1.10',  'INFO',     '2026-09-17 06:40:00'),
+  (7, NULL, NULL, 'System', 'Automated Pulse Wave Telemetry',     'Cardiac monitoring heartbeat steady at 72 BPM • System Normal',       'SYSTEM',       'Automated Pulse Wave Telemetry',     'ECG Pulse Daemon',                   '127.0.0.1',     'INFO',     '2026-09-17 05:50:00'),
+  (8, 6,    6,    'Admin',  'Administrative Root Session Opened', 'Executive command center login verified via dual authentication',      'SECURITY',     'Administrative Root Session Opened', 'Admin Miraz Console',                '192.168.1.5',   'INFO',     '2026-09-17 04:30:00'),
+  (9, 15,   15,   'Staff',  'Presidential Suite Preparation',     'VIP Suite PRES-401 deep sanitization complete and dignitary ready',   'ADMISSION',    'Presidential Suite Preparation',     'Suite PRES-401 (Floor 4)',           '192.168.1.12',  'INFO',     '2026-09-17 03:10:00'),
+  (10, NULL, NULL,'System', 'Hospital Census Reconciled',         '500-bed clinical capacity verified across all 5 clinical floors',     'SYSTEM',       'Hospital Census Reconciled',         'Hospital Beds Inventory (500)',      '127.0.0.1',     'INFO',     '2026-09-17 02:00:00')
 ON DUPLICATE KEY UPDATE
+  `user_id` = VALUES(`user_id`),
+  `actor_id` = VALUES(`actor_id`),
+  `actor_role` = VALUES(`actor_role`),
+  `action` = VALUES(`action`),
+  `description` = VALUES(`description`),
+  `category` = VALUES(`category`),
   `action_name` = VALUES(`action_name`),
   `target_entity` = VALUES(`target_entity`),
-  `security_level` = VALUES(`security_level`);
+  `ip_address` = VALUES(`ip_address`),
+  `security_level` = VALUES(`security_level`),
+  `created_at` = VALUES(`created_at`);
