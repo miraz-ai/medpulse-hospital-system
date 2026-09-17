@@ -3,8 +3,9 @@
    ========================================================================== */
 
 .telemetry-ticker-bar {
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
+  background: linear-gradient(90deg, #f0fdfa 0%, #f8fafc 100%);
+  border: 1px solid #ccfbf1;
+  border-left: 4px solid #0d9488;
   border-radius: 12px;
   padding: 8px 16px;
   display: flex;
@@ -12,7 +13,7 @@
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 24px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
+  box-shadow: 0 4px 6px -1px rgba(13, 148, 136, 0.05);
   transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
   position: relative;
   overflow: hidden;
