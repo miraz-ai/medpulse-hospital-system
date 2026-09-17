@@ -217,16 +217,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ---------------------------------------------------------------------------
   // ---------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
   // Action 2: Open Multi-Doctor Care Team Modal (Modern Searchable Combobox & Chips)
   // ---------------------------------------------------------------------------
   let selectedDoctorIds = [];
   let currentPrimaryDocId = null;
 
-  const chipsContainer = document.getElementById('selected-doctors-chips');
-  const searchInput    = document.getElementById('doctor-search-input');
-  const searchDropdown = document.getElementById('doctor-search-dropdown');
-  const primarySelect  = document.getElementById('primaryDoctorSelect');
-  const hiddenInputsBox = document.getElementById('doctor-hidden-inputs');
+  const chipsContainer   = document.getElementById('selected-doctors-chips');
+  const doctorSearchInput = document.getElementById('doctor-search-input');
+  const searchDropdown   = document.getElementById('doctor-search-dropdown');
+  const primarySelect    = document.getElementById('primaryDoctorSelect');
+  const hiddenInputsBox  = document.getElementById('doctor-hidden-inputs');
 
   window.openDoctorModal = function(patientId, patientName, bedNumber, activeDocIdsJson, primaryDocId) {
     document.getElementById('doctorPatientId').value = patientId;
@@ -247,11 +248,14 @@ document.addEventListener('DOMContentLoaded', () => {
     syncPrimarySelect();
     syncHiddenInputs();
 
-    if (searchInput) searchInput.value = '';
+    if (doctorSearchInput) doctorSearchInput.value = '';
     if (searchDropdown) searchDropdown.style.display = 'none';
 
     openModal(doctorsModal);
   };
+
+  // Alias for Care Team Modal
+  window.openCareTeamModal = window.openDoctorModal;
 
   function renderSelectedChips() {
     if (!chipsContainer) return;
@@ -321,7 +325,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Re-filter dropdown so the removed doctor is immediately searchable again
     if (searchDropdown && searchDropdown.style.display !== 'none') {
-      filterDoctorDropdown(searchInput ? searchInput.value : '');
+      filterDoctorDropdown(doctorSearchInput ? doctorSearchInput.value : '');
     }
   };
 
@@ -337,10 +341,10 @@ document.addEventListener('DOMContentLoaded', () => {
       syncHiddenInputs();
     }
 
-    if (searchInput) {
-      searchInput.value = '';
+    if (doctorSearchInput) {
+      doctorSearchInput.value = '';
       filterDoctorDropdown('');
-      searchInput.focus();
+      doctorSearchInput.focus();
     }
   };
 
@@ -381,17 +385,17 @@ document.addEventListener('DOMContentLoaded', () => {
     searchDropdown.style.display = 'block';
   }
 
-  if (searchInput) {
-    // Search input listener: fires smoothly on typing, backspace, and clear!
-    searchInput.addEventListener('input', (e) => {
+  if (doctorSearchInput) {
+    // Search input listener: fires smoothly on typing, backspace, and clear without blocking any keys!
+    doctorSearchInput.addEventListener('input', (e) => {
       filterDoctorDropdown(e.target.value);
     });
 
-    searchInput.addEventListener('focus', (e) => {
+    doctorSearchInput.addEventListener('focus', (e) => {
       filterDoctorDropdown(e.target.value);
     });
 
-    searchInput.addEventListener('blur', () => {
+    doctorSearchInput.addEventListener('blur', () => {
       // Delay closing slightly so mousedown on item registers
       setTimeout(() => {
         if (searchDropdown) searchDropdown.style.display = 'none';
@@ -569,11 +573,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // ---------------------------------------------------------------------------
   // 4. Live Search & Ward Filter in Table
   // ---------------------------------------------------------------------------
-  const searchInput = document.getElementById('inpatientSearch');
-  const tableWardFilter = document.getElementById('tableWardFilter');
+  const tableSearchInput  = document.getElementById('inpatientSearch');
+  const tableWardFilter   = document.getElementById('tableWardFilter');
 
   function filterTable() {
-    const term = (searchInput ? searchInput.value : '').toLowerCase().trim();
+    const term = (tableSearchInput ? tableSearchInput.value : '').toLowerCase().trim();
     const ward = (tableWardFilter ? tableWardFilter.value : 'all');
 
     const rows = document.querySelectorAll('.inpatient-table tbody tr:not(.empty-row)');
@@ -600,8 +604,49 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  if (searchInput) searchInput.addEventListener('input', filterTable);
+  if (tableSearchInput) tableSearchInput.addEventListener('input', filterTable);
   if (tableWardFilter) tableWardFilter.addEventListener('change', filterTable);
+
+  // Event delegation on table for clinical action buttons (supporting dynamic re-renders)
+  const inpatientTable = document.querySelector('.inpatient-table');
+  if (inpatientTable) {
+    inpatientTable.addEventListener('click', (e) => {
+      const transferBtn = e.target.closest('.btn-transfer');
+      if (transferBtn && !transferBtn.getAttribute('onclick')) {
+        const row = transferBtn.closest('tr');
+        if (row) {
+          const pid = row.id.replace('patientRow-', '');
+          const pname = row.dataset.patientName || '';
+          const bnum = row.dataset.bedNumber || '';
+          const ward = row.dataset.ward || '';
+          window.openTransferModal(pid, pname, '', bnum, ward);
+        }
+      }
+
+      const doctorsBtn = e.target.closest('.btn-doctors');
+      if (doctorsBtn && !doctorsBtn.getAttribute('onclick')) {
+        const row = doctorsBtn.closest('tr');
+        if (row) {
+          const pid = row.id.replace('patientRow-', '');
+          const pname = row.dataset.patientName || '';
+          const bnum = row.dataset.bedNumber || '';
+          window.openDoctorModal(pid, pname, bnum, [], null);
+        }
+      }
+
+      const dischargeBtn = e.target.closest('.btn-discharge');
+      if (dischargeBtn && !dischargeBtn.getAttribute('onclick')) {
+        const row = dischargeBtn.closest('tr');
+        if (row) {
+          const pid = row.id.replace('patientRow-', '');
+          const pname = row.dataset.patientName || '';
+          const bnum = row.dataset.bedNumber || '';
+          const ward = row.dataset.ward || '';
+          window.openDischargeModal(pid, pname, bnum, ward);
+        }
+      }
+    });
+  }
 
   // ---------------------------------------------------------------------------
   // 5. Universal Real-Time SSE Stream Listener
