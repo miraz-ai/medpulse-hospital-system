@@ -163,7 +163,7 @@ try {
   
   <!-- Single Source of Truth External CSS -->
   <link rel="stylesheet" href="../assets/css/patient_dashboard.css">
-  <link rel="stylesheet" href="../assets/css/audit-logs.css?v=<?= time() ?>">
+  <link rel="stylesheet" href="../assets/css/admin/audit-logs.css?v=<?= time() ?>">
 </head>
 <body>
 

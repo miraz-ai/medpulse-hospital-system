@@ -115,8 +115,8 @@ try {
   
   <!-- Single Source of Truth External CSS -->
   <link rel="stylesheet" href="../assets/css/patient_dashboard.css">
-  <link rel="stylesheet" href="../assets/css/live-ticker.css?v=<?= time() ?>">
-  <link rel="stylesheet" href="../assets/css/live-pulse.css?v=<?= time() ?>">
+  <link rel="stylesheet" href="../assets/css/admin/live-ticker.css?v=<?= time() ?>">
+  <link rel="stylesheet" href="../assets/css/admin/live-pulse.css?v=<?= time() ?>">
 </head>
 <body>
 
