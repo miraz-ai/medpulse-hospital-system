@@ -38,12 +38,43 @@ window.addEventListener('DOMContentLoaded', () => {
   } else if (msg === 'registered') {
     showAlert('Registration successful! Please sign in with your credentials.', 'success');
   }
+
+  // Password visibility toggle handler
+  const toggleButtons = document.querySelectorAll('.toggle-password-btn');
+  toggleButtons.forEach(button => {
+    button.addEventListener('click', (e) => {
+      e.preventDefault();
+      const wrapper = button.closest('.password-field-wrapper');
+      if (!wrapper) return;
+      const input = wrapper.querySelector('.password-input');
+      const icon = button.querySelector('.eye-icon');
+
+      if (!input) return;
+
+      const isPassword = input.getAttribute('type') === 'password';
+      input.setAttribute('type', isPassword ? 'text' : 'password');
+
+      if (icon) {
+        icon.classList.toggle('fa-eye', !isPassword);
+        icon.classList.toggle('fa-eye-slash', isPassword);
+      }
+    });
+  });
 });
 
 function clearAllForms() {
   const forms = document.querySelectorAll('form');
   forms.forEach(form => form.reset());
   checkStrength('');
+  document.querySelectorAll('.password-field-wrapper').forEach(wrapper => {
+    const input = wrapper.querySelector('.password-input');
+    const icon = wrapper.querySelector('.eye-icon');
+    if (input) input.setAttribute('type', 'password');
+    if (icon) {
+      icon.classList.add('fa-eye');
+      icon.classList.remove('fa-eye-slash');
+    }
+  });
 }
 
 function toggleDesktopSlider(openSignup) {

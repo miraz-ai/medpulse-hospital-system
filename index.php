@@ -76,9 +76,12 @@
           <i class="fa-regular fa-envelope f-icon"></i>
         </div>
 
-        <div class="field-box">
-          <input type="password" name="password" placeholder="Password" required />
+        <div class="field-box password-field-wrapper">
+          <input type="password" name="password" class="password-input" placeholder="Password" required />
           <i class="fa-solid fa-lock f-icon"></i>
+          <button type="button" class="toggle-password-btn" aria-label="Toggle password visibility">
+            <i class="fa-solid fa-eye eye-icon"></i>
+          </button>
         </div>
 
         <button type="submit" class="submit-btn">Authenticate & Enter</button>
@@ -132,9 +135,12 @@
           </div>
         </div>
 
-        <div class="field-box">
-          <input type="password" id="regPassInput" name="password" placeholder="Create Strong Password" oninput="checkStrength(this.value)" required />
+        <div class="field-box password-field-wrapper">
+          <input type="password" id="regPassInput" name="password" class="password-input" placeholder="Create Strong Password" oninput="checkStrength(this.value)" required />
           <i class="fa-solid fa-shield-halved f-icon"></i>
+          <button type="button" class="toggle-password-btn" aria-label="Toggle password visibility">
+            <i class="fa-solid fa-eye eye-icon"></i>
+          </button>
         </div>
 
         <div class="password-strength-box">
