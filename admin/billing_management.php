@@ -5,7 +5,141 @@
  */
 
 require_once __DIR__ . '/../includes/admin_auth.php';
+require_once __DIR__ . '/../config/db.php';
 
+// ----------------------------------------------------------------------------
+// AJAX Endpoint: Fetch Itemized Invoice Breakdown & Doctor Payout Details
+// ----------------------------------------------------------------------------
+if (isset($_GET['action']) && $_GET['action'] === 'get_invoice_breakdown') {
+    header('Content-Type: application/json; charset=utf-8');
+    $invId = filter_var($_GET['invoice_id'] ?? 0, FILTER_VALIDATE_INT);
+    if (!$invId) {
+        echo json_encode(['success' => false, 'message' => 'Invalid invoice identifier.']);
+        exit;
+    }
+
+    try {
+        // Fetch invoice master details
+        $stmt = $pdo->prepare("
+            SELECT 
+                i.invoice_id,
+                i.invoice_number,
+                i.patient_id,
+                i.admission_id,
+                i.subtotal,
+                i.vat_percentage,
+                i.discount,
+                i.net_payable,
+                i.paid_amount,
+                i.due_amount,
+                i.payment_method,
+                i.status,
+                i.created_at,
+                u.full_name AS patient_name,
+                u.phone AS patient_phone,
+                u.email AS patient_email,
+                u.gender AS patient_gender,
+                u.age AS patient_age,
+                u.blood_group AS patient_blood_group,
+                gen.full_name AS generated_by_name,
+                hb.bed_number,
+                hb.ward_type,
+                ba.admitted_at,
+                ba.discharged_at
+            FROM invoices i
+            JOIN users u ON i.patient_id = u.user_id
+            LEFT JOIN users gen ON i.generated_by = gen.user_id
+            LEFT JOIN bed_allocations ba ON i.admission_id = ba.allocation_id
+            LEFT JOIN hospital_beds hb ON ba.bed_id = hb.bed_id
+            WHERE i.invoice_id = ?
+        ");
+        $stmt->execute([$invId]);
+        $invoice = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$invoice) {
+            echo json_encode(['success' => false, 'message' => 'Invoice record not found.']);
+            exit;
+        }
+
+        // Fetch line items with assigned physician details & payout status
+        $itemStmt = $pdo->prepare("
+            SELECT 
+                ii.item_id,
+                ii.invoice_id,
+                ii.doctor_id,
+                ii.item_type,
+                ii.description,
+                ii.unit_price,
+                ii.quantity,
+                ii.total_price,
+                ii.doctor_payout_status,
+                ii.doctor_payout_amount,
+                doc.full_name AS doctor_name,
+                doc.phone AS doctor_phone,
+                dp.specialty AS doctor_specialty
+            FROM invoice_items ii
+            LEFT JOIN users doc ON ii.doctor_id = doc.user_id
+            LEFT JOIN doctor_profiles dp ON doc.user_id = dp.user_id
+            WHERE ii.invoice_id = ?
+            ORDER BY ii.item_id ASC
+        ");
+        $itemStmt->execute([$invId]);
+        $items = $itemStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        echo json_encode([
+            'success' => true,
+            'invoice' => $invoice,
+            'items'   => $items
+        ]);
+        exit;
+    } catch (PDOException $e) {
+        echo json_encode(['success' => false, 'message' => 'Database error: ' . $e->getMessage()]);
+        exit;
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Page Load: Fetch All Central Invoices with Doctor Breakdown Aggregates
+// ----------------------------------------------------------------------------
+$invoices = [];
+try {
+    $invoicesStmt = $pdo->query("
+        SELECT 
+            i.invoice_id,
+            i.invoice_number,
+            i.patient_id,
+            i.admission_id,
+            i.subtotal,
+            i.vat_percentage,
+            i.discount,
+            i.net_payable,
+            i.paid_amount,
+            i.due_amount,
+            i.payment_method,
+            i.status,
+            i.created_at,
+            u.full_name AS patient_name,
+            u.email AS patient_email,
+            u.phone AS patient_phone,
+            u.gender AS patient_gender,
+            hb.bed_number,
+            hb.ward_type,
+            COUNT(DISTINCT ii.doctor_id) AS doctor_count,
+            GROUP_CONCAT(DISTINCT doc.full_name ORDER BY doc.full_name SEPARATOR ', ') AS doctor_names,
+            GROUP_CONCAT(DISTINCT ii.item_type ORDER BY ii.item_type SEPARATOR ', ') AS service_types
+        FROM invoices i
+        JOIN users u ON i.patient_id = u.user_id
+        LEFT JOIN bed_allocations ba ON i.admission_id = ba.allocation_id
+        LEFT JOIN hospital_beds hb ON ba.bed_id = hb.bed_id
+        LEFT JOIN invoice_items ii ON i.invoice_id = ii.invoice_id
+        LEFT JOIN users doc ON ii.doctor_id = doc.user_id AND doc.role = 'Doctor'
+        GROUP BY i.invoice_id
+        ORDER BY i.created_at DESC
+    ");
+    $invoices = $invoicesStmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $e) {
+    $invoices = [];
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -20,11 +154,12 @@ require_once __DIR__ . '/../includes/admin_auth.php';
   
   <!-- Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://fonts.gstatic.com">
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   
   <!-- Single Source of Truth External CSS -->
   <link rel="stylesheet" href="../assets/css/patient_dashboard.css">
+  <link rel="stylesheet" href="../assets/css/admin/billing-management.css">
 </head>
 <body>
 
@@ -93,7 +228,7 @@ require_once __DIR__ . '/../includes/admin_auth.php';
             <svg class="ui-ico" style="stroke: var(--brand-primary); width: 22px; height: 22px;" viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect><line x1="1" y1="10" x2="23" y2="10"></line></svg>
             Recent Hospital Clinical Invoices
           </h3>
-          <p>Real-time billing transactions, discharge billings, and diagnostic laboratory statements</p>
+          <p>Real-time billing transactions, physician consultations, inpatient stays, and insurance settlements</p>
         </div>
         <span class="role-pill role-pill-doctor" style="font-size: 0.76rem;">
           CENTRAL TREASURY
@@ -105,51 +240,183 @@ require_once __DIR__ . '/../includes/admin_auth.php';
           <thead>
             <tr>
               <th>Invoice #</th>
-              <th>Patient Name</th>
+              <th>Patient Details</th>
+              <th>Doctor Involvement</th>
               <th>Department Service</th>
-              <th>Total Amount</th>
+              <th>Financials (Net / Due)</th>
               <th>Payment Method</th>
               <th>Billing Date</th>
-              <th style="text-align: right;">Settlement</th>
+              <th>Settlement</th>
+              <th style="text-align: right;">Actions</th>
             </tr>
           </thead>
           <tbody>
-            <tr>
-              <td><span class="license-chip">INV-2026-081</span></td>
-              <td><strong style="color: var(--text-heading);">Agatsuma Zenitsu</strong></td>
-              <td>ICU Critical Care & Telemetry</td>
-              <td><strong style="color: var(--brand-primary);">৳ 45,000</strong></td>
-              <td>bKash / Credit Card</td>
-              <td style="color: var(--text-muted); font-size: 0.8rem;">16 Sep 2026</td>
-              <td style="text-align: right;"><span class="status-badge-active">Paid & Settled</span></td>
-            </tr>
-            <tr>
-              <td><span class="license-chip">INV-2026-079</span></td>
-              <td><strong style="color: var(--text-heading);">Nusrat Jahan</strong></td>
-              <td>Cardiac CCU Diagnostics</td>
-              <td><strong style="color: var(--brand-primary);">৳ 28,500</strong></td>
-              <td>Insurance Direct Claim</td>
-              <td style="color: var(--text-muted); font-size: 0.8rem;">15 Sep 2026</td>
-              <td style="text-align: right;"><span class="status-badge-active">Approved</span></td>
-            </tr>
-            <tr>
-              <td><span class="license-chip">INV-2026-076</span></td>
-              <td><strong style="color: var(--text-heading);">Jahid Hasan</strong></td>
-              <td>General Surgery Consultation</td>
-              <td><strong style="color: var(--brand-primary);">৳ 8,200</strong></td>
-              <td>Nagad Mobile Pay</td>
-              <td style="color: var(--text-muted); font-size: 0.8rem;">14 Sep 2026</td>
-              <td style="text-align: right;"><span class="status-badge-active">Paid</span></td>
-            </tr>
-            <tr>
-              <td><span class="license-chip">INV-2026-068</span></td>
-              <td><strong style="color: var(--text-heading);">Robert Downey Jr.</strong></td>
-              <td>VIP Suite Admission Care</td>
-              <td><strong style="color: var(--brand-primary);">৳ 75,000</strong></td>
-              <td>Direct Bank Wire</td>
-              <td style="color: var(--text-muted); font-size: 0.8rem;">12 Sep 2026</td>
-              <td style="text-align: right;"><span class="status-badge-active">Settled</span></td>
-            </tr>
+            <?php if (empty($invoices)): ?>
+              <tr>
+                <td colspan="9" style="text-align: center; color: var(--text-muted); padding: 3rem;">
+                  No clinical invoices recorded yet.
+                </td>
+              </tr>
+            <?php else: ?>
+              <?php foreach ($invoices as $inv): ?>
+                <?php
+                  $initials = strtoupper(substr(trim($inv['patient_name']), 0, 2));
+                  $net = (float)$inv['net_payable'];
+                  $paid = (float)$inv['paid_amount'];
+                  $due = (float)$inv['due_amount'];
+                  $paymentClean = strtolower(str_replace(' ', '', $inv['payment_method']));
+                ?>
+                <tr>
+                  <!-- 1. Invoice Number -->
+                  <td>
+                    <span class="license-chip"><?= htmlspecialchars($inv['invoice_number'], ENT_QUOTES, 'UTF-8') ?></span>
+                    <?php if (!empty($inv['bed_number'])): ?>
+                      <div class="invoice-admission-tag" title="Inpatient Bed Allocation">
+                        <svg class="ui-ico" style="width: 11px; height: 11px; stroke: #0284c7;" viewBox="0 0 24 24"><path d="M2 4v16M2 8h18a2 2 0 0 1 2 2v10M2 17h20M6 8v9"></path></svg>
+                        Bed <?= htmlspecialchars($inv['bed_number'], ENT_QUOTES, 'UTF-8') ?>
+                      </div>
+                    <?php endif; ?>
+                  </td>
+
+                  <!-- 2. Patient Details -->
+                  <td>
+                    <div class="user-cell-flex">
+                      <div class="user-avatar-initials"><?= htmlspecialchars($initials, ENT_QUOTES, 'UTF-8') ?></div>
+                      <div>
+                        <strong style="color: var(--text-heading); display: block; font-size: 0.86rem;">
+                          <?= htmlspecialchars($inv['patient_name'], ENT_QUOTES, 'UTF-8') ?>
+                        </strong>
+                        <span style="color: var(--text-muted); font-size: 0.74rem;">
+                          <?= htmlspecialchars($inv['patient_phone'] ?: $inv['patient_email'], ENT_QUOTES, 'UTF-8') ?>
+                        </span>
+                      </div>
+                    </div>
+                  </td>
+
+                  <!-- 3. Doctor Involvement -->
+                  <td>
+                    <?php if ((int)$inv['doctor_count'] > 0 && !empty($inv['doctor_names'])): ?>
+                      <div class="doctor-badge-wrap">
+                        <span class="doctor-chip" title="<?= htmlspecialchars($inv['doctor_names'], ENT_QUOTES, 'UTF-8') ?>">
+                          <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                          <?= htmlspecialchars($inv['doctor_names'], ENT_QUOTES, 'UTF-8') ?>
+                        </span>
+                      </div>
+                    <?php else: ?>
+                      <span class="doctor-direct-chip" title="Direct Hospital Facility Charges">
+                        <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24" style="width: 13px; height: 13px; stroke: #94a3b8;"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="9" x2="15" y2="15"></line><line x1="15" y1="9" x2="9" y2="15"></line></svg>
+                        Hospital Direct
+                      </span>
+                    <?php endif; ?>
+                  </td>
+
+                  <!-- 4. Department Service -->
+                  <td>
+                    <?php
+                      $services = !empty($inv['service_types']) ? $inv['service_types'] : 'General Clinical Service';
+                    ?>
+                    <span style="color: #334155; font-size: 0.82rem; font-weight: 500;">
+                      <?= htmlspecialchars($services, ENT_QUOTES, 'UTF-8') ?>
+                    </span>
+                  </td>
+
+                  <!-- 5. Financials (Net / Paid / Due) -->
+                  <td>
+                    <div class="financial-summary-cell">
+                      <strong class="text-net-payable">৳ <?= number_format($net, 2) ?></strong>
+                      <div class="financial-subtext">
+                        <span class="text-paid">Paid: ৳ <?= number_format($paid, 2) ?></span>
+                        <?php if ($due > 0.00): ?>
+                          <span class="text-due-pill">Due: ৳ <?= number_format($due, 2) ?></span>
+                        <?php else: ?>
+                          <span class="text-zero-due">&bull; No Due</span>
+                        <?php endif; ?>
+                      </div>
+                    </div>
+                  </td>
+
+                  <!-- 6. Payment Method -->
+                  <td>
+                    <span class="payment-chip payment-<?= htmlspecialchars($paymentClean, ENT_QUOTES, 'UTF-8') ?>">
+                      <?= htmlspecialchars($inv['payment_method'], ENT_QUOTES, 'UTF-8') ?>
+                    </span>
+                  </td>
+
+                  <!-- 7. Billing Date -->
+                  <td>
+                    <span style="color: var(--text-muted); font-size: 0.8rem; font-weight: 500;">
+                      <?= date('d M Y', strtotime($inv['created_at'])) ?>
+                    </span>
+                  </td>
+
+                  <!-- 8. Settlement Status -->
+                  <td>
+                    <?php if ($inv['status'] === 'Paid'): ?>
+                      <span class="status-badge-active">
+                        <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        Paid & Settled
+                      </span>
+                    <?php elseif ($inv['status'] === 'Partial'): ?>
+                      <span class="status-badge-partial">
+                        <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 14 14"></polyline></svg>
+                        Partial Due
+                      </span>
+                    <?php else: ?>
+                      <span class="status-badge-pending">
+                        <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                        Pending
+                      </span>
+                    <?php endif; ?>
+                  </td>
+
+                  <!-- 9. Actions Column -->
+                  <td style="text-align: right;">
+                    <div class="billing-actions-row">
+                      <!-- View / Print Breakdown Trigger -->
+                      <button type="button" 
+                              class="btn-billing-action btn-view-breakdown" 
+                              data-action="view-invoice" 
+                              data-invoice-id="<?= (int)$inv['invoice_id'] ?>" 
+                              title="View & Print Itemized Bill Breakdown">
+                        <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                        <span>Breakdown</span>
+                      </button>
+
+                      <!-- Audit Trail / Quick Status Icon -->
+                      <?php if ($due <= 0.00 && $inv['status'] === 'Paid'): ?>
+                        <button type="button" 
+                                class="btn-billing-action btn-audit-settled" 
+                                data-action="audit-trail" 
+                                data-invoice-id="<?= (int)$inv['invoice_id'] ?>" 
+                                data-invoice-number="<?= htmlspecialchars($inv['invoice_number'], ENT_QUOTES, 'UTF-8') ?>" 
+                                data-status="settled" 
+                                data-net="<?= number_format($net, 2) ?>" 
+                                data-paid="<?= number_format($paid, 2) ?>" 
+                                data-due="0.00" 
+                                title="Audit Status: Fully Settled & Reconciled">
+                          <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><polyline points="9 12 11 14 15 10"></polyline></svg>
+                          <span>Settled</span>
+                        </button>
+                      <?php else: ?>
+                        <button type="button" 
+                                class="btn-billing-action btn-audit-due" 
+                                data-action="audit-trail" 
+                                data-invoice-id="<?= (int)$inv['invoice_id'] ?>" 
+                                data-invoice-number="<?= htmlspecialchars($inv['invoice_number'], ENT_QUOTES, 'UTF-8') ?>" 
+                                data-status="due" 
+                                data-net="<?= number_format($net, 2) ?>" 
+                                data-paid="<?= number_format($paid, 2) ?>" 
+                                data-due="<?= number_format($due, 2) ?>" 
+                                title="Audit Status: Pending Balance ৳<?= number_format($due, 2) ?>">
+                          <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                          <span>Due ৳<?= number_format($due) ?></span>
+                        </button>
+                      <?php endif; ?>
+                    </div>
+                  </td>
+                </tr>
+              <?php endforeach; ?>
+            <?php endif; ?>
           </tbody>
         </table>
       </div>
@@ -157,5 +424,186 @@ require_once __DIR__ . '/../includes/admin_auth.php';
 
   </main>
 
+  <!-- ========================================================================
+       MODAL 1: Itemized Clinical Invoice & Doctor Breakdown
+       ======================================================================== -->
+  <div id="invoiceBreakdownModal" class="billing-modal-backdrop" aria-hidden="true">
+    <div class="billing-modal-container">
+      <div class="billing-modal-card">
+        <!-- Modal Header -->
+        <div class="billing-modal-header">
+          <div class="modal-title-wrap">
+            <div class="modal-hospital-badge">
+              <svg class="ui-ico" viewBox="0 0 24 24" style="stroke: var(--brand-primary); width: 26px; height: 26px;"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect><line x1="1" y1="10" x2="23" y2="10"></line></svg>
+              <div>
+                <h3>MedPulse Hospital Central Billing</h3>
+                <p>Official Itemized Patient Ledger & Clinical Statement</p>
+              </div>
+            </div>
+          </div>
+          <div class="modal-header-right">
+            <span id="modalInvoiceStatusBadge" class="status-badge-active">Paid & Settled</span>
+            <button type="button" class="billing-modal-close" id="btnCloseBreakdownModal" aria-label="Close modal">&times;</button>
+          </div>
+        </div>
+
+        <!-- Modal Body (Printable Area) -->
+        <div class="billing-modal-body" id="printableInvoiceContent">
+          <!-- Metadata Grid -->
+          <div class="invoice-meta-grid">
+            <div class="meta-item">
+              <span class="meta-label">Invoice Number</span>
+              <strong class="meta-value" id="modalInvoiceNumber">-</strong>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Billing Date</span>
+              <strong class="meta-value" id="modalInvoiceDate">-</strong>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Patient Name</span>
+              <strong class="meta-value" id="modalPatientName">-</strong>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Patient Contact</span>
+              <strong class="meta-value" id="modalPatientContact">-</strong>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Inpatient Stay</span>
+              <strong class="meta-value" id="modalInpatientBed">Outpatient / Ambulatory</strong>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Payment Method</span>
+              <strong class="meta-value" id="modalPaymentMethod">-</strong>
+            </div>
+          </div>
+
+          <!-- Itemized Breakdown Table -->
+          <div class="invoice-items-table-wrap">
+            <table class="invoice-items-table">
+              <thead>
+                <tr>
+                  <th style="width: 16%;">Category</th>
+                  <th style="width: 38%;">Service Description</th>
+                  <th style="width: 26%;">Attending / Consulting Doctor</th>
+                  <th style="width: 10%; text-align: right;">Rate (৳)</th>
+                  <th style="width: 10%; text-align: right;">Total (৳)</th>
+                </tr>
+              </thead>
+              <tbody id="modalInvoiceItemsBody">
+                <!-- Injected dynamically via billing_management.js -->
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Financial Reconciliation Summary -->
+          <div class="invoice-reconciliation-panel">
+            <div class="reconciliation-col-left">
+              <div class="ledger-security-stamp">
+                <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24" style="stroke: var(--status-green);"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><polyline points="9 12 11 14 15 10"></polyline></svg>
+                <span>Verified by MedPulse Central Treasury & Compliance Ledger</span>
+              </div>
+              <p class="ledger-disclaimer">
+                Computer-generated clinical statement. All medical consultation fees, bed telemetry allocations, and diagnostic charges are verified according to Bangladesh DGHS clinical guidelines.
+              </p>
+            </div>
+            <div class="reconciliation-col-right">
+              <div class="recon-row">
+                <span>Subtotal:</span>
+                <strong id="modalSubtotal">৳ 0.00</strong>
+              </div>
+              <div class="recon-row">
+                <span id="modalVatLabel">VAT (5.0%):</span>
+                <strong id="modalVatAmount">৳ 0.00</strong>
+              </div>
+              <div class="recon-row" id="modalDiscountRow">
+                <span>Institutional Discount:</span>
+                <strong id="modalDiscountAmount" style="color: var(--status-green);">- ৳ 0.00</strong>
+              </div>
+              <div class="recon-row recon-net">
+                <span>Net Total Payable:</span>
+                <strong id="modalNetPayable">৳ 0.00</strong>
+              </div>
+              <div class="recon-row">
+                <span>Paid Amount:</span>
+                <strong id="modalPaidAmount" style="color: var(--brand-primary);">৳ 0.00</strong>
+              </div>
+              <div class="recon-row recon-due" id="modalDueRow">
+                <span>Outstanding Due:</span>
+                <strong id="modalDueAmount">৳ 0.00</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Modal Footer Actions -->
+        <div class="billing-modal-footer">
+          <button type="button" class="btn-modal-secondary" id="btnCancelBreakdownModal">Close</button>
+          <button type="button" class="btn-modal-primary" id="btnPrintInvoice">
+            <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24" style="stroke: white;"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+            Print Official Invoice
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       MODAL 2: Quick Audit Trail & Settlement Status
+       ======================================================================== -->
+  <div id="invoiceAuditModal" class="billing-modal-backdrop" aria-hidden="true">
+    <div class="billing-modal-container billing-modal-container-sm">
+      <div class="billing-modal-card">
+        <div class="billing-modal-header">
+          <div class="modal-title-wrap">
+            <div class="modal-hospital-badge">
+              <svg class="ui-ico" viewBox="0 0 24 24" style="stroke: var(--brand-primary); width: 22px; height: 22px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><polyline points="9 12 11 14 15 10"></polyline></svg>
+              <div>
+                <h3>Invoice Audit Trail</h3>
+                <p id="auditInvoiceSubtitle">Treasury & Compliance Status</p>
+              </div>
+            </div>
+          </div>
+          <button type="button" class="billing-modal-close" id="btnCloseAuditModal" aria-label="Close modal">&times;</button>
+        </div>
+        <div class="billing-modal-body" style="padding: 1.5rem; gap: 1rem;">
+          <div id="auditStatusBanner" class="audit-status-banner settled">
+            <!-- Populated dynamically via JS -->
+          </div>
+          <div class="audit-details-list">
+            <div class="audit-detail-item">
+              <span class="audit-lbl">Treasury Ledger Status:</span>
+              <strong id="auditLedgerStatus" class="audit-val">VERIFIED_BALANCED</strong>
+            </div>
+            <div class="audit-detail-item">
+              <span class="audit-lbl">Net Invoice Total:</span>
+              <strong id="auditNetVal" class="audit-val">৳ 0.00</strong>
+            </div>
+            <div class="audit-detail-item">
+              <span class="audit-lbl">Total Disbursed / Paid:</span>
+              <strong id="auditPaidVal" class="audit-val">৳ 0.00</strong>
+            </div>
+            <div class="audit-detail-item">
+              <span class="audit-lbl">Remaining Balance Due:</span>
+              <strong id="auditDueVal" class="audit-val">৳ 0.00</strong>
+            </div>
+            <div class="audit-detail-item">
+              <span class="audit-lbl">Ledger Integrity Hash:</span>
+              <code id="auditSecurityHash" style="font-size: 0.74rem; background: #f1f5f9; padding: 2px 6px; border-radius: 4px; color: #0284c7;">SHA256: 4f8b91...a02c</code>
+            </div>
+          </div>
+          <div style="margin-top: 1rem; display: flex; justify-content: flex-end; gap: 0.5rem;">
+            <a href="audit_logs.php?category=FINANCIAL" class="btn-modal-secondary" style="font-size: 0.8rem; text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">
+              <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 14 14"></polyline></svg>
+              View System Audit Logs
+            </a>
+            <button type="button" class="btn-modal-primary" id="btnDismissAuditModal" style="font-size: 0.8rem;">Dismiss</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dedicated Admin Billing Management Script -->
+  <script src="../assets/js/admin/billing_management.js"></script>
 </body>
 </html>

@@ -1,0 +1,786 @@
+/**
+ * MedPulse Enterprise Hospital Management System
+ * Admin Central Billing Management Stylesheet
+ * Single Source of Truth for Billing Table Actions, Modals, Doctor Breakdown, & Print Styles
+ */
+
+/* ==========================================================================
+   1. TABLE ENHANCEMENTS & CELL STYLES
+   ========================================================================== */
+
+/* Enhanced table column sizing & wrapping */
+.admin-data-table th,
+.admin-data-table td {
+  white-space: nowrap;
+}
+
+.user-cell-flex {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.user-avatar-initials {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #e0f2fe, #ccfbf1);
+  color: var(--brand-primary, #0284c7);
+  font-weight: 800;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1px solid rgba(2, 132, 199, 0.15);
+}
+
+.invoice-admission-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 3px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #0369a1;
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+/* Doctor involvement badges */
+.doctor-badge-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.doctor-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: #f0fdf4;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doctor-chip svg {
+  width: 14px;
+  height: 14px;
+  stroke: #16a34a;
+  flex-shrink: 0;
+}
+
+.doctor-direct-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #f8fafc;
+  color: #64748b;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+/* Financial cell */
+.financial-summary-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.text-net-payable {
+  color: var(--brand-primary, #0284c7);
+  font-size: 0.95rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.financial-subtext {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.text-paid {
+  color: #15803d;
+  font-weight: 600;
+}
+
+.text-due-pill {
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-weight: 700;
+}
+
+.text-zero-due {
+  color: #64748b;
+  font-weight: 500;
+}
+
+/* Payment method chip */
+.payment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  background: #f8fafc;
+  color: #334155;
+  border: 1px solid #e2e8f0;
+}
+
+.payment-bkash {
+  background: #fdf2f8;
+  color: #be185d;
+  border-color: #fbcfe8;
+}
+
+.payment-nagad {
+  background: #fff7ed;
+  color: #c2410c;
+  border-color: #fed7aa;
+}
+
+.payment-creditcard {
+  background: #f5f3ff;
+  color: #6d28d9;
+  border-color: #ddd6fe;
+}
+
+.payment-insurance {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-color: #bfdbfe;
+}
+
+.payment-cash {
+  background: #f0fdf4;
+  color: #15803d;
+  border-color: #bbf7d0;
+}
+
+/* Status Badges */
+.status-badge-partial {
+  background: #eff6ff;
+  color: #2563eb;
+  font-weight: 700;
+  font-size: 0.72rem;
+  padding: 3px 8px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid #bfdbfe;
+}
+
+/* ==========================================================================
+   2. ACTIONS COLUMN & BUTTON STYLES
+   ========================================================================== */
+
+.billing-actions-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.btn-billing-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 11px;
+  border-radius: 8px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid transparent;
+  outline: none;
+  text-decoration: none;
+  line-height: 1.2;
+}
+
+.btn-billing-action svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2.2;
+}
+
+/* View / Print Breakdown Action Button */
+.btn-view-breakdown {
+  background: #ffffff;
+  color: var(--brand-primary, #0284c7);
+  border-color: #bae6fd;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.btn-view-breakdown:hover {
+  background: #f0f9ff;
+  border-color: var(--brand-primary, #0284c7);
+  color: #0369a1;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(2, 132, 199, 0.15);
+}
+
+.btn-view-breakdown:active {
+  transform: translateY(0);
+}
+
+/* Audit Button: Settled variant */
+.btn-audit-settled {
+  background: #f0fdf4;
+  color: #166534;
+  border-color: #bbf7d0;
+}
+
+.btn-audit-settled:hover {
+  background: #dcfce7;
+  border-color: #86efac;
+  color: #14532d;
+  transform: translateY(-1px);
+}
+
+/* Audit Button: Pending Due variant */
+.btn-audit-due {
+  background: #fffbeb;
+  color: #b45309;
+  border-color: #fde68a;
+}
+
+.btn-audit-due:hover {
+  background: #fef3c7;
+  border-color: #fcd34d;
+  color: #92400e;
+  transform: translateY(-1px);
+}
+
+/* ==========================================================================
+   3. MODAL BACKDROP & DIALOG SYSTEM
+   ========================================================================== */
+
+.billing-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.62);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 1050;
+  padding: 1.25rem;
+  opacity: 0;
+  transition: opacity 0.24s ease;
+}
+
+.billing-modal-backdrop.open {
+  display: flex;
+  opacity: 1;
+}
+
+.billing-modal-container {
+  width: 100%;
+  max-width: 860px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.billing-modal-container-sm {
+  max-width: 520px;
+}
+
+.billing-modal-card {
+  background: #ffffff;
+  border-radius: 18px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.25);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  max-height: 90vh;
+  transform: translateY(12px) scale(0.98);
+  transition: transform 0.26s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.billing-modal-backdrop.open .billing-modal-card {
+  transform: translateY(0) scale(1);
+}
+
+/* Modal Header */
+.billing-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.25rem 1.75rem;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.modal-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.modal-hospital-badge {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.modal-hospital-badge h3 {
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0;
+  line-height: 1.2;
+}
+
+.modal-hospital-badge p {
+  font-size: 0.78rem;
+  color: #64748b;
+  margin: 2px 0 0 0;
+}
+
+.modal-header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.billing-modal-close {
+  background: transparent;
+  border: none;
+  font-size: 1.6rem;
+  line-height: 1;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 8px;
+  transition: all 0.15s ease;
+}
+
+.billing-modal-close:hover {
+  color: #0f172a;
+  background: #e2e8f0;
+}
+
+/* Modal Body */
+.billing-modal-body {
+  padding: 1.75rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* Metadata Grid */
+.invoice-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  background: #f8fafc;
+  padding: 1.1rem 1.25rem;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+}
+
+.meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.meta-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.meta-value {
+  font-size: 0.88rem;
+  color: #0f172a;
+  font-weight: 600;
+}
+
+/* Itemized Table */
+.invoice-items-table-wrap {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.invoice-items-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.84rem;
+  text-align: left;
+}
+
+.invoice-items-table th {
+  background: #f1f5f9;
+  padding: 0.75rem 1rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.invoice-items-table td {
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: middle;
+  color: #334155;
+}
+
+.invoice-items-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.invoice-items-table tbody tr:nth-child(even) {
+  background: #fafafa;
+}
+
+.item-category-chip {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.category-consultation {
+  background: #f0fdf4;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+}
+
+.category-bedcharge {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+}
+
+.category-diagnostictest {
+  background: #fdf2f8;
+  color: #be185d;
+  border: 1px solid #fbcfe8;
+}
+
+.category-pharmacy {
+  background: #fff7ed;
+  color: #c2410c;
+  border: 1px solid #fed7aa;
+}
+
+.doctor-item-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.doctor-item-name {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.doctor-item-specialty {
+  font-size: 0.72rem;
+  color: #64748b;
+}
+
+.payout-chip {
+  display: inline-block;
+  font-size: 0.68rem;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-weight: 700;
+  margin-top: 2px;
+  width: fit-content;
+}
+
+.payout-disbursed {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.payout-pending {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.payout-unclaimed {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+/* Reconciliation Panel */
+.invoice-reconciliation-panel {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 1.5rem;
+  padding: 1.25rem 1.5rem;
+  background: #f8fafc;
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
+}
+
+.reconciliation-col-left {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+}
+
+.ledger-security-stamp {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #15803d;
+}
+
+.ledger-disclaimer {
+  font-size: 0.74rem;
+  color: #94a3b8;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.reconciliation-col-right {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.recon-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.84rem;
+  color: #475569;
+}
+
+.recon-row strong {
+  font-variant-numeric: tabular-nums;
+  color: #0f172a;
+}
+
+.recon-net {
+  border-top: 1px dashed #cbd5e1;
+  padding-top: 7px;
+  margin-top: 4px;
+  font-size: 0.95rem;
+}
+
+.recon-net strong {
+  font-size: 1.1rem;
+  color: var(--brand-primary, #0284c7);
+  font-weight: 800;
+}
+
+.recon-due {
+  border-top: 1px solid #e2e8f0;
+  padding-top: 7px;
+  font-size: 0.92rem;
+}
+
+.recon-due.has-due strong {
+  color: #dc2626;
+  font-weight: 800;
+}
+
+.recon-due.no-due strong {
+  color: #16a34a;
+  font-weight: 700;
+}
+
+/* Modal Footer */
+.billing-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 1.25rem 1.75rem;
+  background: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+}
+
+.btn-modal-secondary {
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-modal-secondary:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.btn-modal-primary {
+  padding: 8px 18px;
+  border-radius: 8px;
+  background: var(--brand-gradient, linear-gradient(135deg, #0284c7 0%, #0d9488 100%));
+  color: #ffffff;
+  border: none;
+  font-size: 0.84rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25);
+  transition: all 0.2s ease;
+}
+
+.btn-modal-primary:hover {
+  opacity: 0.95;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(2, 132, 199, 0.35);
+}
+
+.btn-modal-primary:active {
+  transform: translateY(0);
+}
+
+/* ==========================================================================
+   4. AUDIT POPUP / MODAL DETAIL STYLES
+   ========================================================================== */
+
+.audit-status-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 1rem;
+  border-radius: 10px;
+  margin-bottom: 1rem;
+}
+
+.audit-status-banner.settled {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  color: #166534;
+}
+
+.audit-status-banner.due {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #92400e;
+}
+
+.audit-details-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 1rem;
+  background: #f8fafc;
+}
+
+.audit-detail-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.84rem;
+}
+
+.audit-lbl {
+  color: #64748b;
+  font-weight: 500;
+}
+
+.audit-val {
+  color: #0f172a;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ==========================================================================
+   5. PRINT OPTIMIZATIONS (@media print)
+   ========================================================================== */
+
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  /* Hide everything on page except the printable modal */
+  body > * {
+    display: none !important;
+  }
+
+  .billing-modal-backdrop {
+    display: block !important;
+    position: static !important;
+    background: transparent !important;
+    padding: 0 !important;
+    opacity: 1 !important;
+  }
+
+  .billing-modal-container {
+    max-width: 100% !important;
+    max-height: none !important;
+  }
+
+  .billing-modal-card {
+    border: none !important;
+    box-shadow: none !important;
+    max-height: none !important;
+  }
+
+  .billing-modal-header {
+    background: transparent !important;
+    border-bottom: 2px solid #000000 !important;
+    padding: 1rem 0 !important;
+  }
+
+  .billing-modal-close,
+  .billing-modal-footer {
+    display: none !important;
+  }
+
+  .invoice-items-table th {
+    background: #f1f5f9 !important;
+    color: #000000 !important;
+  }
+
+  .invoice-reconciliation-panel {
+    background: #f8fafc !important;
+    border: 1px solid #cbd5e1 !important;
+  }
+}
