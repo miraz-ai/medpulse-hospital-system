@@ -44,31 +44,40 @@ window.addEventListener('DOMContentLoaded', () => {
   toggleButtons.forEach(button => {
     button.addEventListener('click', (e) => {
       e.preventDefault();
-      const wrapper = button.closest('.password-field-wrapper');
-      if (!wrapper) return;
-      const input = wrapper.querySelector('.password-input');
-      const icon = button.querySelector('.eye-icon');
-
-      if (!input) return;
-
-      const isPassword = input.getAttribute('type') === 'password';
-      input.setAttribute('type', isPassword ? 'text' : 'password');
-
-      if (icon) {
-        icon.classList.toggle('fa-eye', !isPassword);
-        icon.classList.toggle('fa-eye-slash', isPassword);
-      }
+      togglePassword(button);
     });
   });
 });
+
+function togglePassword(btn) {
+  if (!btn) return;
+  const wrapper = btn.closest('.password-input-group, .password-field-wrapper, .field-box');
+  if (!wrapper) return;
+  const input = wrapper.querySelector('.password-input') || wrapper.querySelector('input');
+  const icon = btn.querySelector('.eye-icon') || btn.querySelector('i');
+  if (!input) return;
+
+  const isPassword = input.getAttribute('type') === 'password';
+  input.setAttribute('type', isPassword ? 'text' : 'password');
+
+  if (icon) {
+    if (isPassword) {
+      icon.classList.remove('fa-eye');
+      icon.classList.add('fa-eye-slash');
+    } else {
+      icon.classList.remove('fa-eye-slash');
+      icon.classList.add('fa-eye');
+    }
+  }
+}
 
 function clearAllForms() {
   const forms = document.querySelectorAll('form');
   forms.forEach(form => form.reset());
   checkStrength('');
-  document.querySelectorAll('.password-field-wrapper').forEach(wrapper => {
-    const input = wrapper.querySelector('.password-input');
-    const icon = wrapper.querySelector('.eye-icon');
+  document.querySelectorAll('.password-input-group, .password-field-wrapper').forEach(wrapper => {
+    const input = wrapper.querySelector('.password-input') || wrapper.querySelector('input');
+    const icon = wrapper.querySelector('.eye-icon') || wrapper.querySelector('i');
     if (input) input.setAttribute('type', 'password');
     if (icon) {
       icon.classList.add('fa-eye');
