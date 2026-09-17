@@ -42,22 +42,30 @@ window.addEventListener('DOMContentLoaded', () => {
   // Password visibility toggle handler
   const toggleButtons = document.querySelectorAll('.toggle-password-btn');
   toggleButtons.forEach(button => {
-    button.addEventListener('click', (e) => {
-      e.preventDefault();
-      togglePassword(button);
-    });
+    if (!button.hasAttribute('onclick')) {
+      button.addEventListener('click', (e) => {
+        e.preventDefault();
+        togglePassword(button);
+      });
+    }
   });
 });
 
 function togglePassword(btn) {
   if (!btn) return;
+  const now = Date.now();
+  if (btn._lastToggleTime && (now - btn._lastToggleTime < 250)) {
+    return;
+  }
+  btn._lastToggleTime = now;
+
   const wrapper = btn.closest('.password-input-group, .password-field-wrapper, .field-box');
   if (!wrapper) return;
   const input = wrapper.querySelector('.password-input') || wrapper.querySelector('input');
   const icon = btn.querySelector('.eye-icon') || btn.querySelector('i') || btn.querySelector('svg');
   if (!input) return;
 
-  const isPassword = input.getAttribute('type') === 'password' || input.type === 'password';
+  const isPassword = (input.getAttribute('type') === 'password') || (input.type === 'password');
   const newType = isPassword ? 'text' : 'password';
   input.setAttribute('type', newType);
   input.type = newType;
@@ -66,9 +74,13 @@ function togglePassword(btn) {
     if (isPassword) {
       icon.classList.remove('fa-eye');
       icon.classList.add('fa-eye-slash');
+      if (icon.hasAttribute('data-icon')) icon.setAttribute('data-icon', 'eye-slash');
+      btn.setAttribute('aria-label', 'Hide password');
     } else {
       icon.classList.remove('fa-eye-slash');
       icon.classList.add('fa-eye');
+      if (icon.hasAttribute('data-icon')) icon.setAttribute('data-icon', 'eye');
+      btn.setAttribute('aria-label', 'Show password');
     }
   }
 }
@@ -77,9 +89,10 @@ function clearAllForms() {
   const forms = document.querySelectorAll('form');
   forms.forEach(form => form.reset());
   checkStrength('');
-  document.querySelectorAll('.password-input-group, .password-field-wrapper, .field-box').forEach(wrapper => {
+  document.querySelectorAll('.password-input-group, .password-field-wrapper').forEach(wrapper => {
     const input = wrapper.querySelector('.password-input') || wrapper.querySelector('input');
-    const icon = wrapper.querySelector('.eye-icon') || wrapper.querySelector('i') || wrapper.querySelector('svg');
+    const icon = wrapper.querySelector('.toggle-password-btn .eye-icon, .toggle-password-btn i');
+    const btn = wrapper.querySelector('.toggle-password-btn');
     if (input) {
       input.setAttribute('type', 'password');
       input.type = 'password';
@@ -87,6 +100,10 @@ function clearAllForms() {
     if (icon) {
       icon.classList.add('fa-eye');
       icon.classList.remove('fa-eye-slash');
+      if (icon.hasAttribute('data-icon')) icon.setAttribute('data-icon', 'eye');
+    }
+    if (btn) {
+      btn.setAttribute('aria-label', 'Show password');
     }
   });
 }

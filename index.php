@@ -178,40 +178,5 @@
   </div>
 
   <script src="assets/js/auth.js?v=<?= time() ?>"></script>
-<script>
-document.addEventListener('DOMContentLoaded', () => {
-  // Target exclusively inputs with name="password" or name="confirm_password"
-  const passwordInputs = document.querySelectorAll('input[name="password"], input[name="confirm_password"]');
-
-  passwordInputs.forEach(input => {
-    const wrapper = input.parentElement;
-    if (!wrapper) return;
-
-    // Find the toggle button or eye icon inside this specific wrapper
-    const toggleBtn = wrapper.querySelector('button, i, svg, .toggle-password-btn');
-    if (!toggleBtn) return;
-
-    toggleBtn.style.cursor = 'pointer';
-
-    toggleBtn.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-
-      if (input.type === 'password') {
-        input.type = 'text';
-      } else {
-        input.type = 'password';
-      }
-
-      // Switch icon classes if using fontawesome
-      const icon = toggleBtn.tagName.toLowerCase() === 'i' ? toggleBtn : toggleBtn.querySelector('i');
-      if (icon) {
-        icon.classList.toggle('fa-eye');
-        icon.classList.toggle('fa-eye-slash');
-      }
-    });
-  });
-});
-</script>
 </body>
 </html>

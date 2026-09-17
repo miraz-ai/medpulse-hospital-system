@@ -294,8 +294,7 @@ p.desc { color: var(--text-muted); font-size: 0.83rem; margin-bottom: 18px; }
   color: var(--primary, #0ea5e9);
 }
 .toggle-password-btn .eye-icon,
-.toggle-password-btn i,
-.toggle-password-btn svg {
+.toggle-password-btn i {
   font-size: 0.95rem;
   pointer-events: none;
 }
