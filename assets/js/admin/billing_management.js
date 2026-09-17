@@ -69,11 +69,21 @@
   }
 
   /**
-   * Format doctor name ensuring a single "Dr. " prefix (prevents "Dr. Dr." duplicates)
+   * Format doctor name ensuring correct clinical honorific prefix (prevents "Dr. Dr." duplicates,
+   * while preserving computed titles like "Prof. Dr.", "Assoc. Prof. Dr.", "Col. (Retd.) Prof. Dr.")
    */
   function formatDoctorName(rawName) {
     if (!rawName) return '';
-    const clean = String(rawName).trim().replace(/^((dr|prof|assoc\.?\s*prof|md)\.?\s*)+/i, '');
+    const str = String(rawName).trim();
+    // If string already has a complex calculated title, preserve it cleanly
+    if (/^(?:(?:col\.|lt\.\s*col\.|brig\.\s*gen\.|major)\s*(?:\(retd\.?\))?\s*)*(?:prof\.|assoc\.|asst\.)/i.test(str)) {
+      return str;
+    }
+    if (/^(?:col\.|lt\.\s*col\.|brig\.\s*gen\.|major)\s*(?:\(retd\.?\))?/i.test(str)) {
+      return str;
+    }
+    // Clean any duplicate or redundant leading Dr./Doctor prefixes
+    const clean = str.replace(/^(?:(?:dr\.?|doctor)\s*)+/i, '');
     return `Dr. ${clean}`;
   }
 

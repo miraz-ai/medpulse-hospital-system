@@ -6,6 +6,7 @@
 
 require_once __DIR__ . '/../includes/admin_auth.php';
 require_once __DIR__ . '/../config/db.php';
+require_once __DIR__ . '/../includes/doctor_helpers.php';
 
 // ----------------------------------------------------------------------------
 // AJAX Endpoint: Fetch Itemized Invoice Breakdown & Doctor Payout Details
@@ -76,7 +77,10 @@ if (isset($_GET['action']) && $_GET['action'] === 'get_invoice_breakdown') {
                 ii.doctor_payout_amount,
                 doc.full_name AS doctor_name,
                 doc.phone AS doctor_phone,
-                dp.specialty AS doctor_specialty
+                dp.specialty AS doctor_specialty,
+                dp.designation AS doctor_designation,
+                dp.military_rank AS doctor_military_rank,
+                dp.qualifications AS doctor_qualifications
             FROM invoice_items ii
             LEFT JOIN users doc ON ii.doctor_id = doc.user_id
             LEFT JOIN doctor_profiles dp ON doc.user_id = dp.user_id
@@ -85,6 +89,17 @@ if (isset($_GET['action']) && $_GET['action'] === 'get_invoice_breakdown') {
         ");
         $itemStmt->execute([$invId]);
         $items = $itemStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        foreach ($items as &$it) {
+            if (!empty($it['doctor_name'])) {
+                $it['doctor_name'] = formatDoctorTitle(
+                    $it['doctor_name'],
+                    $it['doctor_designation'] ?? null,
+                    $it['doctor_military_rank'] ?? null
+                );
+            }
+        }
+        unset($it);
 
         echo json_encode([
             'success' => true,
@@ -132,6 +147,9 @@ if (isset($_GET['action']) && $_GET['action'] === 'get_treasury_summary') {
                 ii.description, ii.doctor_payout_amount, ii.doctor_payout_status,
                 doc.full_name  AS doctor_name,
                 dp.specialty   AS doctor_specialty,
+                dp.designation AS doctor_designation,
+                dp.military_rank AS doctor_military_rank,
+                dp.qualifications AS doctor_qualifications,
                 i.invoice_number,
                 pat.full_name  AS patient_name
             FROM invoice_items ii
@@ -145,6 +163,17 @@ if (isset($_GET['action']) && $_GET['action'] === 'get_treasury_summary') {
             LIMIT 100
         ");
         $payouts = $payoutStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        foreach ($payouts as &$p) {
+            if (!empty($p['doctor_name'])) {
+                $p['doctor_name'] = formatDoctorTitle(
+                    $p['doctor_name'],
+                    $p['doctor_designation'] ?? null,
+                    $p['doctor_military_rank'] ?? null
+                );
+            }
+        }
+        unset($p);
 
         echo json_encode(['success' => true, 'summary' => $summary, 'payouts' => $payouts]);
     } catch (PDOException $e) {
@@ -203,17 +232,33 @@ if (isset($_GET['action']) && $_GET['action'] === 'settle_payment' && $_SERVER['
         $newStatus = $newDue <= 0 ? 'Paid' : 'Partial';
 
         // Update invoice
+        $paymentStatus = $newDue <= 0 ? 'paid' : 'unpaid';
         $updateStmt = $pdo->prepare("
             UPDATE invoices
-               SET paid_amount = :paid, due_amount = :due, status = :status
+               SET paid_amount = :paid, due_amount = :due, status = :status,
+                   payment_status = :pay_status, payment_method = :method
              WHERE invoice_id = :id
         ");
         $updateStmt->execute([
-            ':paid'   => $newPaid,
-            ':due'    => $newDue,
-            ':status' => $newStatus,
-            ':id'     => $invId,
+            ':paid'       => $newPaid,
+            ':due'        => $newDue,
+            ':status'     => $newStatus,
+            ':pay_status' => $paymentStatus,
+            ':method'     => $method,
+            ':id'         => $invId,
         ]);
+
+        // When payment is settled (Paid), release doctor earnings to available_for_disbursement
+        if ($newStatus === 'Paid') {
+            $earnStmt = $pdo->prepare("
+                UPDATE doctor_earnings
+                   SET disbursement_status = 'available_for_disbursement',
+                       updated_at = NOW()
+                 WHERE invoice_id = :id
+                   AND disbursement_status = 'pending_hospital_collection'
+            ");
+            $earnStmt->execute([':id' => $invId]);
+        }
 
         // Fetch invoice number for audit
         $invNumStmt = $pdo->prepare("SELECT invoice_number FROM invoices WHERE invoice_id = ?");
@@ -277,7 +322,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'approve_doctor_payout' && $_S
 
         // Fetch item details for audit
         $itemFetchStmt = $pdo->prepare("
-            SELECT ii.doctor_payout_amount, ii.doctor_payout_status,
+            SELECT ii.invoice_id, ii.doctor_id, ii.doctor_payout_amount, ii.doctor_payout_status,
                    doc.full_name AS doctor_name, i.invoice_number
             FROM invoice_items ii
             JOIN invoices i ON ii.invoice_id = i.invoice_id
@@ -301,6 +346,19 @@ if (isset($_GET['action']) && $_GET['action'] === 'approve_doctor_payout' && $_S
              WHERE item_id = ?
         ");
         $updateStmt->execute([$itemId]);
+
+        // Sync doctor_earnings ledger
+        $updEarn = $pdo->prepare("
+            UPDATE doctor_earnings
+               SET disbursement_status = 'disbursed',
+                   updated_at = NOW()
+             WHERE invoice_id = :inv_id
+               AND doctor_id = :doc_id
+        ");
+        $updEarn->execute([
+            ':inv_id' => $item['invoice_id'],
+            ':doc_id' => $item['doctor_id']
+        ]);
 
         // Audit log
         $auditStmt = $pdo->prepare("
@@ -400,6 +458,17 @@ try {
         ORDER BY i.created_at DESC
     ");
     $invoices = $invoicesStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    foreach ($invoices as &$inv) {
+        if (!empty($inv['doctor_names'])) {
+            $names = explode(', ', $inv['doctor_names']);
+            $formatted = array_map(function($n) {
+                return formatDoctorTitle($n);
+            }, $names);
+            $inv['doctor_names'] = implode(', ', $formatted);
+        }
+    }
+    unset($inv);
 } catch (PDOException $e) {
     $invoices = [];
 }

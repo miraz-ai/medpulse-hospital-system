@@ -264,14 +264,84 @@ try {
     ];
     $newStatus = $statusMap[$action];
 
+    $pdo->beginTransaction();
+
     $updateStmt = $pdo->prepare("UPDATE users SET status = :status WHERE user_id = :id");
     $updateStmt->execute([
         ':status' => $newStatus,
         ':id'     => $userId
     ]);
 
+    // Handle Doctor Credential Approval State & Audit Trail
+    if ($targetUser['role'] === 'Doctor') {
+        $adminId = (int)($_SESSION['user_id'] ?? 0);
+        $clientIp = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+
+        $bmdcLookup = $pdo->prepare("SELECT COALESCE(bmdc_reg_number, bmdc_license_number, '') FROM doctor_profiles WHERE user_id = :uid LIMIT 1");
+        $bmdcLookup->execute([':uid' => $userId]);
+        $bmdcNum = $bmdcLookup->fetchColumn() ?: 'N/A';
+
+        if ($action === 'approve' || $action === 'activate') {
+            $updDoc = $pdo->prepare("
+                UPDATE doctor_profiles 
+                SET approval_status = 'approved', 
+                    approved_by = :aid, 
+                    approved_at = NOW() 
+                WHERE user_id = :uid
+            ");
+            $updDoc->execute([':aid' => $adminId, ':uid' => $userId]);
+
+            // Log official audit entry
+            try {
+                $auditStmt = $pdo->prepare("
+                    INSERT INTO audit_logs 
+                        (actor_id, actor_role, action, action_name, description, category, target_entity, ip_address, security_level)
+                    VALUES 
+                        (:actor_id, 'Admin', 'DOCTOR_CREDENTIAL_APPROVED', 'Doctor Credential Approved', :desc, 'VERIFICATION', :target, :ip, 'INFO')
+                ");
+                $auditStmt->execute([
+                    ':actor_id' => $adminId,
+                    ':desc'     => "Doctor {$targetUser['full_name']} credentials verified and approved (BMDC: {$bmdcNum})",
+                    ':target'   => "Doctor #{$userId} ({$bmdcNum})",
+                    ':ip'       => $clientIp
+                ]);
+            } catch (Throwable $e) {
+                // Non-blocking audit log
+            }
+        } elseif ($action === 'reject') {
+            $updDoc = $pdo->prepare("
+                UPDATE doctor_profiles 
+                SET approval_status = 'rejected', 
+                    approved_by = :aid, 
+                    approved_at = NOW() 
+                WHERE user_id = :uid
+            ");
+            $updDoc->execute([':aid' => $adminId, ':uid' => $userId]);
+
+            // Log rejection audit entry
+            try {
+                $auditStmt = $pdo->prepare("
+                    INSERT INTO audit_logs 
+                        (actor_id, actor_role, action, action_name, description, category, target_entity, ip_address, security_level)
+                    VALUES 
+                        (:actor_id, 'Admin', 'DOCTOR_CREDENTIAL_REJECTED', 'Doctor Credential Rejected', :desc, 'VERIFICATION', :target, :ip, 'WARNING')
+                ");
+                $auditStmt->execute([
+                    ':actor_id' => $adminId,
+                    ':desc'     => "Doctor {$targetUser['full_name']} registration credentials declined (BMDC: {$bmdcNum})",
+                    ':target'   => "Doctor #{$userId} ({$bmdcNum})",
+                    ':ip'       => $clientIp
+                ]);
+            } catch (Throwable $e) {
+                // Non-blocking audit log
+            }
+        }
+    }
+
+    $pdo->commit();
+
     $actionVerbs = [
-        'approve'  => 'approved & activated',
+        'approve'  => 'approved & authorized for portal access',
         'activate' => 'reactivated',
         'reject'   => 'declined',
         'suspend'  => 'suspended'

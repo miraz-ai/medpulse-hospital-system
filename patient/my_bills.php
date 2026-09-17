@@ -47,6 +47,7 @@ header('Cache-Control: post-check=0, pre-check=0', false);
 header('Pragma: no-cache');
 
 require_once __DIR__ . '/../config/db.php';
+require_once __DIR__ . '/../includes/doctor_helpers.php';
 
 $patientUserId = (int) $_SESSION['user_id'];
 
@@ -77,7 +78,8 @@ if (isset($_GET['action']) && $_GET['action'] === 'get_receipt') {
 
         $itemStmt = $pdo->prepare("
             SELECT ii.item_type, ii.description, ii.quantity, ii.unit_price, ii.total_price,
-                   doc.full_name AS doctor_name, dp.specialty AS doctor_specialty
+                   doc.full_name AS doctor_name, dp.specialty AS doctor_specialty,
+                   dp.designation AS doctor_designation, dp.military_rank AS doctor_military_rank
             FROM invoice_items ii
             LEFT JOIN users           doc ON ii.doctor_id = doc.user_id
             LEFT JOIN doctor_profiles dp  ON doc.user_id  = dp.user_id
@@ -86,6 +88,17 @@ if (isset($_GET['action']) && $_GET['action'] === 'get_receipt') {
         ");
         $itemStmt->execute([$invId]);
         $items = $itemStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        foreach ($items as &$it) {
+            if (!empty($it['doctor_name'])) {
+                $it['doctor_name'] = formatDoctorTitle(
+                    $it['doctor_name'],
+                    $it['doctor_designation'] ?? null,
+                    $it['doctor_military_rank'] ?? null
+                );
+            }
+        }
+        unset($it);
         echo json_encode(['success' => true, 'invoice' => $invoice, 'items' => $items]);
     } catch (PDOException $e) {
         echo json_encode(['success' => false, 'message' => 'Database error.']);
@@ -155,7 +168,7 @@ $patientName = htmlspecialchars($patient['full_name'], ENT_QUOTES, 'UTF-8');
   <link rel="stylesheet" href="../assets/css/patient_dashboard.css">
   <style>
     .billing-root{display:flex;min-height:100vh;width:100%;}
-    .bills-main{flex:1;padding:28px 32px;overflow-y:auto;max-width:1100px;margin:0 auto;width:100%;}
+    .bills-main{flex:1;padding:28px 32px;overflow-y:auto;max-width:1240px;margin:0 auto;width:100%;}
     @media(max-width:900px){.bills-main{padding:20px 16px;} .invoice-table-wrap{overflow-x:auto;}}
 
     /* No-cash banner */
@@ -191,10 +204,11 @@ $patientName = htmlspecialchars($patient['full_name'], ENT_QUOTES, 'UTF-8');
     .section-title svg{stroke:#0284c7;}
 
     /* Invoice table */
-    .invoice-table-wrap{background:#fff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;margin-bottom:30px;}
+    .invoice-table-wrap{background:#fff;border:1px solid #e2e8f0;border-radius:16px;overflow-x:auto;margin-bottom:30px;}
     .invoice-table{width:100%;border-collapse:collapse;font-size:.83rem;}
     .invoice-table thead tr{background:linear-gradient(135deg,#f8fafc,#f1f5f9);}
     .invoice-table th{padding:13px 16px;text-align:left;font-size:.68rem;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #e2e8f0;white-space:nowrap;}
+    .invoice-table th:last-child, .invoice-table td:last-child{min-width:210px;}
     .invoice-table tbody tr{border-bottom:1px solid #f1f5f9;transition:background .15s;}
     .invoice-table tbody tr:last-child{border-bottom:none;}
     .invoice-table tbody tr:hover{background:#f8fafc;}
@@ -210,6 +224,9 @@ $patientName = htmlspecialchars($patient['full_name'], ENT_QUOTES, 'UTF-8');
     .btn-view-receipt{display:inline-flex;align-items:center;gap:6px;background:linear-gradient(135deg,#0284c7,#0d9488);color:#fff;border:none;cursor:pointer;border-radius:8px;padding:7px 14px;font-size:.74rem;font-weight:700;transition:opacity .18s,transform .18s;font-family:inherit;}
     .btn-view-receipt:hover{opacity:.88;transform:scale(1.02);}
     .btn-view-receipt svg{stroke:#fff;width:14px;height:14px;}
+    .btn-pay-gateway{display:inline-flex;align-items:center;gap:6px;background:linear-gradient(135deg,#059669,#047857);color:#fff;border:none;cursor:pointer;border-radius:8px;padding:7px 12px;font-size:.74rem;font-weight:700;transition:opacity .18s,transform .18s;font-family:inherit;white-space:nowrap;}
+    .btn-pay-gateway:hover{opacity:.88;transform:scale(1.02);}
+    .btn-pay-gateway svg{stroke:#fff;width:13px;height:13px;}
     .empty-bills{text-align:center;padding:64px 24px;}
     .empty-bills svg{stroke:#cbd5e1;margin-bottom:16px;}
     .empty-bills h3{font-size:1rem;font-weight:700;color:#64748b;margin-bottom:6px;}
@@ -354,7 +371,7 @@ $patientName = htmlspecialchars($patient['full_name'], ENT_QUOTES, 'UTF-8');
               <th>Paid</th>
               <th>Due</th>
               <th>Status</th>
-              <th>Receipt</th>
+              <th>Actions / Statement</th>
             </tr>
           </thead>
           <tbody>
@@ -362,7 +379,7 @@ $patientName = htmlspecialchars($patient['full_name'], ENT_QUOTES, 'UTF-8');
               $statusBadge = match(strtolower($inv['status'])) {
                 'paid'    => '<span class="badge-status badge-paid">&#9679; Paid</span>',
                 'partial' => '<span class="badge-status badge-partial">&#9680; Partial</span>',
-                'pending' => '<span class="badge-status badge-pending">&#9675; Pending</span>',
+                'pending' => '<span class="badge-status badge-pending">&#9675; UNPAID / ACTION REQUIRED</span>',
                 default   => '<span class="badge-status badge-draft">' . htmlspecialchars($inv['status'], ENT_QUOTES, 'UTF-8') . '</span>',
               };
               $dueClass = (float)$inv['due_amount'] > 0 ? 'inv-due' : 'inv-zero';
@@ -393,16 +410,31 @@ $patientName = htmlspecialchars($patient['full_name'], ENT_QUOTES, 'UTF-8');
               <td class="<?= $dueClass ?>">&#2547;<?= number_format((float)$inv['due_amount'], 2) ?></td>
               <td><?= $statusBadge ?></td>
               <td>
-                <button
-                  class="btn-view-receipt"
-                  id="btn-receipt-<?= (int)$inv['invoice_id'] ?>"
-                  data-invoice-id="<?= (int)$inv['invoice_id'] ?>"
-                  onclick="openReceipt(<?= (int)$inv['invoice_id'] ?>, '<?= htmlspecialchars($inv['invoice_number'], ENT_QUOTES, 'UTF-8') ?>')"
-                  aria-label="View receipt for invoice <?= htmlspecialchars($inv['invoice_number'], ENT_QUOTES, 'UTF-8') ?>"
-                >
-                  <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                  View
-                </button>
+                <div style="display:flex;flex-direction:column;gap:5px;align-items:stretch;min-width:160px;max-width:210px;">
+                  <button
+                    class="btn-view-receipt"
+                    id="btn-receipt-<?= (int)$inv['invoice_id'] ?>"
+                    data-invoice-id="<?= (int)$inv['invoice_id'] ?>"
+                    onclick="openReceipt(<?= (int)$inv['invoice_id'] ?>, '<?= htmlspecialchars($inv['invoice_number'], ENT_QUOTES, 'UTF-8') ?>')"
+                    aria-label="View breakdown for invoice <?= htmlspecialchars($inv['invoice_number'], ENT_QUOTES, 'UTF-8') ?>"
+                    title="View Itemized Breakdown"
+                    style="justify-content:center;width:100%;"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                    View Breakdown
+                  </button>
+                  <?php if ((float)$inv['due_amount'] > 0 || strtolower($inv['status']) !== 'paid'): ?>
+                    <button
+                      class="btn-pay-gateway"
+                      onclick="openPaymentGuidance('<?= htmlspecialchars($inv['invoice_number'], ENT_QUOTES, 'UTF-8') ?>', <?= (float)$inv['due_amount'] ?>)"
+                      title="Pay via Central Cashier or Digital Gateway"
+                      style="justify-content:center;width:100%;"
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+                      Pay via Central Cashier / Gateway
+                    </button>
+                  <?php endif; ?>
+                </div>
               </td>
             </tr>
             <?php endforeach; ?>
@@ -523,11 +555,73 @@ function renderReceipt(inv, items) {
         &#9888;&#65039; <strong>Official Record:</strong> This receipt is electronically generated and valid without a physical signature.
         Do not pay cash to any individual. All payments must go through the official cashier or online portal.
       </div>
-      <button class="btn-print-receipt" onclick="printReceipt()">
-        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="17" height="17"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
-        Print / Save as PDF
-      </button>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;">
+        <button class="btn-print-receipt" style="flex:1;" onclick="printReceipt()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="17" height="17"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+          Print / Save as PDF
+        </button>
+        ${parseFloat(inv.due_amount||0) > 0 ? `
+        <button class="btn-pay-gateway" style="flex:1;justify-content:center;padding:11px 22px;font-size:.84rem;" onclick="openPaymentGuidance('${escHtml(inv.invoice_number)}', ${parseFloat(inv.due_amount)})">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+          Pay via Cashier / Gateway
+        </button>` : ''}
+      </div>
     </div>`;
+}
+
+function openPaymentGuidance(invNumber, dueAmount) {
+  const fmt = v => '\u09F3' + parseFloat(v || 0).toLocaleString('en-BD', {minimumFractionDigits:2, maximumFractionDigits:2});
+  modalContent.innerHTML = `
+    <div class="modal-header">
+      <div>
+        <div class="modal-title" id="receiptModalTitle">Payment Guidance & Cashier Desk</div>
+        <div class="modal-subtitle">Invoice ${escHtml(invNumber)} &middot; Outstanding Due: ${fmt(dueAmount)}</div>
+      </div>
+      <button class="modal-close" onclick="closeReceipt()" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div style="background:linear-gradient(135deg,#059669,#047857);border-radius:14px;padding:20px 22px;color:#fff;margin-bottom:20px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+          <div>
+            <div style="font-size:.7rem;font-weight:700;opacity:.8;text-transform:uppercase;letter-spacing:.05em;">Treasury Reference</div>
+            <div style="font-family:'Courier New',monospace;font-size:1.15rem;font-weight:800;letter-spacing:.04em;">${escHtml(invNumber)}</div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:.7rem;font-weight:700;opacity:.8;text-transform:uppercase;letter-spacing:.05em;">Payable Due</div>
+            <div style="font-size:1.25rem;font-weight:800;">${fmt(dueAmount)}</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:grid;gap:12px;margin-bottom:22px;">
+        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px 16px;display:flex;gap:14px;align-items:flex-start;">
+          <div style="width:34px;height:34px;border-radius:8px;background:#e0f2fe;color:#0284c7;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.85rem;flex-shrink:0;">1</div>
+          <div>
+            <div style="font-size:.84rem;font-weight:700;color:#0f172a;margin-bottom:3px;">MedPulse Central Treasury Cashier</div>
+            <div style="font-size:.76rem;color:#64748b;line-height:1.5;">Present Invoice Number <strong>${escHtml(invNumber)}</strong> at Cashier Counters 1–4 (Ground Floor Main Lobby). Accepted modes: Cash, VISA, MasterCard, or Bank Draft. A computer-stamped voucher will be issued immediately.</div>
+          </div>
+        </div>
+
+        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px 16px;display:flex;gap:14px;align-items:flex-start;">
+          <div style="width:34px;height:34px;border-radius:8px;background:#dcfce7;color:#15803d;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.85rem;flex-shrink:0;">2</div>
+          <div>
+            <div style="font-size:.84rem;font-weight:700;color:#0f172a;margin-bottom:3px;">Digital Payment Gateway (bKash / Nagad / Rocket)</div>
+            <div style="font-size:.76rem;color:#64748b;line-height:1.5;">Select <em>Merchant Payment</em> &rarr; Merchant Wallet: <strong>01700-MEDPULSE</strong> &rarr; Amount: <strong>${parseFloat(dueAmount).toFixed(2)}</strong> &rarr; Reference: <strong>${escHtml(invNumber)}</strong>. Keep your Transaction ID for cashier reconciliation.</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="background:#fef9c3;border:1px solid #fbbf24;border-radius:10px;padding:12px 14px;margin-bottom:18px;font-size:.75rem;color:#92400e;line-height:1.6;">
+        &#9888;&#65039; <strong>Notice:</strong> Following payment at Central Cashier, your patient ledger and discharge gate pass will unlock automatically in real time.
+      </div>
+
+      <button class="btn-print-receipt" style="background:#0f172a;" onclick="closeReceipt()">
+        Close Window
+      </button>
+    </div>
+  `;
+  backdrop.classList.add('open');
+  document.body.style.overflow = 'hidden';
 }
 
 function printReceipt() {

@@ -48,6 +48,7 @@ header("Cache-Control: post-check=0, pre-check=0", false);
 header("Pragma: no-cache");
 
 require_once __DIR__ . '/../config/db.php';
+require_once __DIR__ . '/../includes/doctor_helpers.php';
 
 $doctorUserId = (int)$_SESSION['user_id'];
 
@@ -55,7 +56,8 @@ $doctorUserId = (int)$_SESSION['user_id'];
 try {
     $docStmt = $pdo->prepare("
         SELECT u.user_id, u.full_name, u.email, u.phone, u.gender,
-               dp.doctor_id, dp.specialty, dp.bmdc_license_number, dp.consultation_fee,
+               dp.doctor_id, dp.specialty, dp.designation, dp.military_rank, dp.qualifications,
+               dp.bmdc_license_number, dp.consultation_fee,
                dp.room_number, dp.available_days, dp.shift_timings
         FROM users u
         LEFT JOIN doctor_profiles dp ON u.user_id = dp.user_id
@@ -73,15 +75,15 @@ try {
     die("A database error occurred while fetching physician profile.");
 }
 
-// ── Doctor Greeting & Name Sanitization (Resolves Dr. Dr. bug) ─────────────
-$rawFullName = $doctor['full_name'] ?? $_SESSION['full_name'] ?? 'Physician';
-// Strip all existing variations of Dr, Dr., Doctor
-$cleanName = preg_replace('/^(?:(?:dr\.?|doctor)\s+)+/i', '', trim($rawFullName));
-$displayName = 'Dr. ' . $cleanName;
+// ── Doctor Greeting & Auto-Computed Clinical Honorific ────────────────────
+$cleanName = cleanDoctorBaseName($doctor['full_name'] ?? $_SESSION['full_name'] ?? 'Physician');
+$designation = trim($doctor['designation'] ?? 'Consultant');
+$militaryRank = trim($doctor['military_rank'] ?? '');
+$qualifications = trim($doctor['qualifications'] ?? 'MBBS');
 
-// Generate initials for avatar
-$nameParts = preg_split('/\s+/', trim($cleanName));
-$doctorInitials = strtoupper(substr($nameParts[0] ?? 'D', 0, 1) . substr($nameParts[count($nameParts) - 1] ?? 'R', 0, 1));
+$displayName = formatDoctorTitle($cleanName, $designation, $militaryRank);
+$displayFullIdentity = formatDoctorFullIdentity($cleanName, $designation, $militaryRank, $qualifications);
+$doctorInitials = formatDoctorAvatarInitials($cleanName);
 
 // Specialty & Credentials formatting
 $specialty = htmlspecialchars($doctor['specialty'] ?? 'General Surgery & Critical Care', ENT_QUOTES, 'UTF-8');
@@ -223,135 +225,6 @@ try {
 
   <style>
     /* ── Doctor Portal Refined Styles ────────────────────────────────────── */
-    .doctor-topbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 1.25rem;
-      margin-bottom: 1.5rem;
-      flex-wrap: wrap;
-    }
-    .topbar-breadcrumb {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      font-size: 0.85rem;
-      font-weight: 600;
-      color: var(--text-muted);
-    }
-    .breadcrumb-sep { color: #cbd5e1; font-weight: 400; }
-    .breadcrumb-current { color: var(--brand-teal); font-weight: 700; }
-
-    .topbar-search-wrap {
-      flex: 1;
-      max-width: 420px;
-      position: relative;
-    }
-    .topbar-search-wrap svg {
-      position: absolute;
-      left: 12px;
-      top: 50%;
-      transform: translateY(-50%);
-      stroke: var(--text-muted);
-      pointer-events: none;
-    }
-    .topbar-search-input {
-      width: 100%;
-      padding: 0.6rem 1rem 0.6rem 2.4rem;
-      border-radius: var(--radius-md);
-      border: 1px solid var(--surface-border);
-      background: var(--surface);
-      font-size: 0.84rem;
-      color: var(--text-heading);
-      outline: none;
-      transition: border-color 0.2s, box-shadow 0.2s;
-    }
-    .topbar-search-input:focus {
-      border-color: var(--brand-teal);
-      box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.15);
-    }
-
-    .topbar-right-cluster {
-      display: flex;
-      align-items: center;
-      gap: 1rem;
-    }
-    .topbar-notif-btn {
-      position: relative;
-      background: var(--surface);
-      border: 1px solid var(--surface-border);
-      border-radius: var(--radius-md);
-      width: 40px;
-      height: 40px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      color: var(--text-heading);
-      transition: background 0.18s;
-    }
-    .topbar-notif-btn:hover {
-      background: #f1f5f9;
-    }
-    .notif-badge-dot {
-      position: absolute;
-      top: 9px;
-      right: 9px;
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--status-amber);
-      box-shadow: 0 0 0 2px var(--surface);
-    }
-
-    .doctor-profile-badge {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      background: var(--surface);
-      border: 1px solid var(--surface-border);
-      padding: 0.4rem 0.85rem 0.4rem 0.5rem;
-      border-radius: 30px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-    }
-    .doc-avatar-initials {
-      width: 34px;
-      height: 34px;
-      border-radius: 50%;
-      background: var(--brand-gradient);
-      color: #ffffff;
-      font-weight: 800;
-      font-size: 0.82rem;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      letter-spacing: 0.5px;
-    }
-    .doc-meta-text {
-      display: flex;
-      flex-direction: column;
-    }
-    .doc-display-name {
-      font-size: 0.86rem;
-      font-weight: 700;
-      color: var(--text-heading);
-      line-height: 1.15;
-    }
-    .doc-status-indicator {
-      font-size: 0.72rem;
-      color: var(--text-muted);
-      display: flex;
-      align-items: center;
-      gap: 5px;
-    }
-    .pulse-dot-green {
-      width: 7px;
-      height: 7px;
-      border-radius: 50%;
-      background: var(--status-green);
-      box-shadow: 0 0 0 2px rgba(5, 150, 105, 0.2);
-    }
-
     /* Subtitle and Credentials Bar */
     .doctor-credentials-line {
       margin-top: 6px;
@@ -457,38 +330,6 @@ try {
   <!-- Main Viewport (Full Parity with Admin/Patient Dashboards) -->
   <main class="viewport-full">
 
-    <!-- Top Navigation / Header Bar -->
-    <div class="doctor-topbar">
-      <div class="topbar-breadcrumb">
-        <span class="breadcrumb-root">Doctor Portal</span>
-        <span class="breadcrumb-sep">/</span>
-        <span class="breadcrumb-current">Clinical Overview</span>
-      </div>
-
-      <div class="topbar-search-wrap">
-        <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-        <input type="text" id="doctorQuickSearch" class="topbar-search-input" placeholder="Search inpatients, appointments, or UHID..." onkeyup="filterDoctorDashboard(this.value)">
-      </div>
-
-      <div class="topbar-right-cluster">
-        <div class="topbar-notif-btn" title="Clinical Notifications" onclick="showToast('All clinical telemetries and test orders are synchronized.', 'success')">
-          <svg class="ui-ico" viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
-          <span class="notif-badge-dot"></span>
-        </div>
-
-        <div class="doctor-profile-badge">
-          <div class="doc-avatar-initials"><?= $doctorInitials ?></div>
-          <div class="doc-meta-text">
-            <span class="doc-display-name"><?= htmlspecialchars($displayName, ENT_QUOTES, 'UTF-8') ?></span>
-            <span class="doc-status-indicator">
-              <span class="pulse-dot-green"></span>
-              On Duty &bull; <?= htmlspecialchars($specialtyShort, ENT_QUOTES, 'UTF-8') ?>
-            </span>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- Executive Doctor Welcome Banner -->
     <div class="welcome-banner">
       <div class="welcome-text">
@@ -497,7 +338,13 @@ try {
           <svg class="ui-ico" style="stroke: var(--brand-teal); width: 24px; height: 24px;" viewBox="0 0 24 24"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"></path></svg>
         </h1>
         <div class="doctor-credentials-line">
+          <span><strong><?= htmlspecialchars($designation, ENT_QUOTES, 'UTF-8') ?></strong></span>
+          <span>&bull;</span>
           <span><?= $specialty ?></span>
+          <?php if (!empty($qualifications)): ?>
+            <span>&bull;</span>
+            <span style="font-weight: 600; color: #475569;"><?= htmlspecialchars($qualifications, ENT_QUOTES, 'UTF-8') ?></span>
+          <?php endif; ?>
           <span>&bull;</span>
           <span>BMDC Reg: <strong><?= $bmdcLicense ?></strong></span>
           <span class="cred-chip"><?= $roomNumber ?></span>

@@ -22,13 +22,14 @@ if (!isset($_SESSION['user_id']) || empty($_SESSION['user_id']) || !isset($_SESS
 }
 
 require_once __DIR__ . '/../config/db.php';
+require_once __DIR__ . '/../includes/doctor_helpers.php';
 
 $doctorUserId = (int)$_SESSION['user_id'];
 
 // Fetch Doctor Profile
 try {
     $docStmt = $pdo->prepare("
-        SELECT u.full_name, dp.specialty, dp.bmdc_license_number
+        SELECT u.full_name, dp.specialty, dp.designation, dp.military_rank, dp.qualifications, dp.bmdc_license_number
         FROM users u
         LEFT JOIN doctor_profiles dp ON u.user_id = dp.user_id
         WHERE u.user_id = ?
@@ -40,8 +41,8 @@ try {
     $doctor = null;
 }
 
-$cleanName = preg_replace('/^(?:(?:dr\.?|doctor)\s+)+/i', '', trim($doctor['full_name'] ?? 'Doctor'));
-$displayName = 'Dr. ' . $cleanName;
+$cleanName = cleanDoctorBaseName($doctor['full_name'] ?? 'Doctor');
+$displayName = formatDoctorTitle($cleanName, $doctor['designation'] ?? null, $doctor['military_rank'] ?? null);
 $specialty = htmlspecialchars($doctor['specialty'] ?? 'General Surgery & Critical Care', ENT_QUOTES, 'UTF-8');
 $bmdcLicense = htmlspecialchars($doctor['bmdc_license_number'] ?? 'BMDC-PENDING', ENT_QUOTES, 'UTF-8');
 

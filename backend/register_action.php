@@ -24,8 +24,8 @@ if (!in_array($role, $allowed_roles, true)) {
 }
 
 // 2. Status Assignment Logic
-// Patients and Doctors are active immediately; Staff requires administrative approval
-$status = in_array($role, ['Patient', 'Doctor'], true) ? 'active' : 'pending';
+// Patients are active immediately; Doctors and Staff require administrative approval
+$status = ($role === 'Patient') ? 'active' : 'pending';
 
 // 3. Mandatory Fields Check
 if ($name === '' || $raw_email === '' || $raw_phone === '' || $gender === '' || $password === '') {
@@ -72,34 +72,65 @@ if (!preg_match($passwordPattern, $password)) {
 }
 
 try {
-    // 8. Pre-Validation Checks (Explicit Unique Email & Phone Lookup)
-    $checkStmt = $pdo->prepare("
-        SELECT email, phone 
-        FROM users 
-        WHERE email = :email OR phone = :phone 
-        LIMIT 1
-    ");
-    $checkStmt->execute([
-        'email' => $email,
-        'phone' => $phone
-    ]);
-    $existing_user = $checkStmt->fetch();
+    // 8. Pre-Flight Duplicate Checks
+    // Check 8a: Unique Email in users
+    $checkEmail = $pdo->prepare("SELECT user_id FROM users WHERE email = :email LIMIT 1");
+    $checkEmail->execute([':email' => $email]);
+    if ($checkEmail->fetch()) {
+        echo json_encode([
+            'status'  => 'error',
+            'message' => 'This email address is already registered. Please sign in or use a different email.'
+        ]);
+        exit;
+    }
 
-    if ($existing_user) {
-        if (strtolower($existing_user['email']) === $email) {
-            echo json_encode([
-                'status'  => 'error',
-                'message' => 'This email address is already registered. Please log in or use a different email.'
-            ]);
-            exit;
-        }
+    // Check 8b: Unique Phone in users
+    $checkPhone = $pdo->prepare("SELECT user_id FROM users WHERE phone = :phone LIMIT 1");
+    $checkPhone->execute([':phone' => $phone]);
+    if ($checkPhone->fetch()) {
+        echo json_encode([
+            'status'  => 'error',
+            'message' => 'This phone number is already associated with an existing account.'
+        ]);
+        exit;
+    }
 
-        if ($existing_user['phone'] === $phone) {
-            echo json_encode([
-                'status'  => 'error',
-                'message' => 'This mobile number is already linked to an existing account.'
+    // Check 8c: Unique BMDC Registration Number in doctor_profiles (if role is Doctor)
+    $bmdcLicense = '';
+    if ($role === 'Doctor') {
+        $rawBmdc = trim($_POST['bmdc_reg_number'] ?? $_POST['bmdc_reg'] ?? $_POST['bmdc_license_number'] ?? '');
+        if (!empty($rawBmdc)) {
+            $checkBmdc = $pdo->prepare("
+                SELECT doctor_id 
+                FROM doctor_profiles 
+                WHERE bmdc_reg_number = :bmdc1 OR bmdc_license_number = :bmdc2 
+                LIMIT 1
+            ");
+            $checkBmdc->execute([
+                ':bmdc1' => $rawBmdc,
+                ':bmdc2' => $rawBmdc,
             ]);
-            exit;
+            if ($checkBmdc->fetch()) {
+                echo json_encode([
+                    'status'  => 'error',
+                    'message' => 'This BMDC registration number is already registered under an existing doctor profile.'
+                ]);
+                exit;
+            }
+            $bmdcLicense = $rawBmdc;
+        } else {
+            // Auto-generate guaranteed unique BMDC license
+            do {
+                $candidate = 'BMDC-A-' . mt_rand(20000, 99999);
+                $bCheck = $pdo->prepare("
+                    SELECT 1 
+                    FROM doctor_profiles 
+                    WHERE bmdc_reg_number = ? OR bmdc_license_number = ? 
+                    LIMIT 1
+                ");
+                $bCheck->execute([$candidate, $candidate]);
+            } while ($bCheck->fetchColumn());
+            $bmdcLicense = $candidate;
         }
     }
 
@@ -128,7 +159,7 @@ try {
     ]);
     $newUserId = (int)$pdo->lastInsertId();
 
-    // 11. Linked Doctor Profile Provisioning & Immediate Session Auth
+    // 11. Linked Doctor Profile Provisioning (Strictly Pending Admin Approval Gatekeeper)
     if ($role === 'Doctor') {
         $specialty = trim($_POST['specialty'] ?? '') ?: 'General Surgery & Critical Care';
         $consultationFee = isset($_POST['consultation_fee']) && is_numeric($_POST['consultation_fee'])
@@ -138,29 +169,18 @@ try {
         $availableDays = 'Mon,Tue,Wed,Thu,Fri';
         $shiftTimings = '09:00 AM - 05:00 PM';
 
-        // BMDC License handling
-        $bmdcLicense = trim($_POST['bmdc_license_number'] ?? $_POST['bmdc_reg'] ?? '');
-        if (empty($bmdcLicense)) {
-            // Generate guaranteed unique BMDC license
-            do {
-                $candidate = 'BMDC-A-' . mt_rand(20000, 99999);
-                $bCheck = $pdo->prepare("SELECT 1 FROM doctor_profiles WHERE bmdc_license_number = ? LIMIT 1");
-                $bCheck->execute([$candidate]);
-            } while ($bCheck->fetchColumn());
-            $bmdcLicense = $candidate;
-        }
-
-        // Insert into doctor_profiles
+        // Insert into doctor_profiles with approval_status = 'pending'
         $docProfileStmt = $pdo->prepare("
             INSERT INTO doctor_profiles 
-                (user_id, specialty, bmdc_license_number, consultation_fee, room_number, available_days, shift_timings)
+                (user_id, specialty, designation, qualifications, bmdc_license_number, bmdc_reg_number, approval_status, consultation_fee, room_number, available_days, shift_timings)
             VALUES 
-                (:uid, :specialty, :bmdc, :fee, :room, :days, :shift)
+                (:uid, :specialty, 'Consultant', 'MBBS', :bmdc_lic, :bmdc_reg, 'pending', :fee, :room, :days, :shift)
         ");
         $docProfileStmt->execute([
             ':uid'       => $newUserId,
             ':specialty' => $specialty,
-            ':bmdc'      => $bmdcLicense,
+            ':bmdc_lic'  => $bmdcLicense,
+            ':bmdc_reg'  => $bmdcLicense,
             ':fee'       => $consultationFee,
             ':room'      => $roomNumber,
             ':days'      => $availableDays,
@@ -176,43 +196,33 @@ try {
             ':uid'  => $newUserId,
         ]);
 
-        // Establish Authenticated Session
-        session_regenerate_id(true);
-        $_SESSION['user_id']       = $newUserId;
-        $_SESSION['full_name']     = $name;
-        $_SESSION['email']         = $email;
-        $_SESSION['phone']         = $phone;
-        $_SESSION['gender']        = $gender;
-        $_SESSION['role']          = 'Doctor';
-        $_SESSION['status']        = 'active';
-        $_SESSION['doctor_id']     = $doctorProfileId;
-        $_SESSION['last_activity'] = time();
-
         // Audit Log Entry
         try {
             $ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
             $auditStmt = $pdo->prepare("
                 INSERT INTO audit_logs 
-                    (actor_id, actor_role, action, action_name, description, category, target_entity, ip_address)
+                    (actor_id, actor_role, action, action_name, description, category, target_entity, ip_address, security_level)
                 VALUES 
-                    (:actor, 'Doctor', 'REGISTRATION', 'REGISTRATION', :desc, 'SECURITY', 'DOCTOR_PORTAL', :ip)
+                    (:actor, 'Doctor', 'DOCTOR_REGISTRATION_SUBMITTED', 'Doctor Registration Submitted', :desc, 'VERIFICATION', 'DOCTOR_PORTAL', :ip, 'INFO')
             ");
             $auditStmt->execute([
                 ':actor' => $newUserId,
-                ':desc'  => "Doctor account registered: {$name} ({$specialty}, {$bmdcLicense})",
+                ':desc'  => "Doctor account registered awaiting administrative verification: {$name} ({$specialty}, BMDC: {$bmdcLicense})",
                 ':ip'    => $ip,
             ]);
         } catch (Throwable $e) {
             // Non-blocking audit log
         }
 
+        // NOTE: DO NOT establish an active doctor login session automatically upon registration.
+        // Redirect the doctor with informative credentialing notice.
         echo json_encode([
             'status'   => 'success',
             'success'  => true,
-            'pending'  => false,
+            'pending'  => true,
             'role'     => 'Doctor',
-            'message'  => "Doctor registration complete! Welcome {$name}. Redirecting to your Clinical Workspace...",
-            'redirect' => 'doctor/dashboard.php'
+            'message'  => 'Registration successful. Your medical credentials (BMDC) have been submitted to the Admin Treasury & Credentialing Board for verification. You will gain portal access once approved.',
+            'redirect' => 'login.php?msg=pending_verification'
         ]);
         exit;
     }
@@ -240,20 +250,26 @@ try {
     exit;
 
 } catch (PDOException $e) {
-    // 12. Database Exception Fallback (Handle MySQL 1062 Duplicate Entry Violation)
+    // 13. Database Exception Fallback (Handle MySQL 1062 Duplicate Entry Violation)
     $errorCode = $e->errorInfo[1] ?? 0;
-    if ($errorCode === 1062) {
+    if ($errorCode === 1062 || $e->getCode() == 23000) {
         $errorMessage = $e->getMessage();
-        if (stripos($errorMessage, 'email') !== false) {
+        if (stripos($errorMessage, 'unique_email') !== false || stripos($errorMessage, 'email') !== false) {
             echo json_encode([
                 'status'  => 'error',
-                'message' => 'This email address is already registered. Please log in or use a different email.'
+                'message' => 'This email address is already registered. Please sign in or use a different email.'
             ]);
             exit;
-        } elseif (stripos($errorMessage, 'phone') !== false) {
+        } elseif (stripos($errorMessage, 'unique_phone') !== false || stripos($errorMessage, 'phone') !== false) {
             echo json_encode([
                 'status'  => 'error',
-                'message' => 'This mobile number is already linked to an existing account.'
+                'message' => 'This phone number is already associated with an existing account.'
+            ]);
+            exit;
+        } elseif (stripos($errorMessage, 'unique_bmdc') !== false || stripos($errorMessage, 'bmdc') !== false) {
+            echo json_encode([
+                'status'  => 'error',
+                'message' => 'This BMDC registration number is already registered under an existing doctor profile.'
             ]);
             exit;
         } else {

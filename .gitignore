@@ -1,0 +1,28 @@
+# MedPulse Hospital Management System - Git Ignore Policy
+
+# Temporary & Test Scratch Artifacts
+scratch/
+tests/scratch/
+*.tmp
+
+# Runtime Event Streams & Logs
+storage/events/*.jsonl
+!storage/events/.gitkeep
+storage/logs/*.log
+*.log
+
+# Environment & Credentials
+.env
+.env.local
+.env.*.local
+
+# Operating System & IDE Configs
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# XAMPP / PHP runtime dumps
+php_errors.log

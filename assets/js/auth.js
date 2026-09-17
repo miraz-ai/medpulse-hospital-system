@@ -18,11 +18,11 @@ window.addEventListener('DOMContentLoaded', () => {
   if (authError === 'unauthorized') {
     showAlert('Session expired or unauthorized access. Please sign in.', 'error');
   } else if (authError === 'pending_approval') {
-    showAlert('Your account is awaiting administrative approval. Our hospital authority will review your medical credentials before granting portal access.', 'error', 6000);
+    showAlert('Your account is currently under administrative verification. Please wait for official approval before accessing the clinical portal.', 'error', 7000);
   } else if (authError === 'account_suspended') {
-    showAlert('Your account has been suspended by hospital administration. Please contact hospital HR.', 'error', 6000);
+    showAlert('Your account has been suspended by hospital administration. Please contact hospital HR.', 'error', 7000);
   } else if (authError === 'account_declined') {
-    showAlert('Your account request has been declined. Please contact administration.', 'error', 6000);
+    showAlert('Your registration credentials were rejected by the hospital administration. Contact hospital admin.', 'error', 7000);
   } else if (authError === 'account_inactive') {
     showAlert('Your account is currently inactive. Please contact administration.', 'error');
   } else if (authError === 'invalid_credentials') {
@@ -34,7 +34,7 @@ window.addEventListener('DOMContentLoaded', () => {
   if (msg === 'logged_out') {
     showAlert('You have been securely logged out.', 'success');
   } else if (msg === 'pending_verification') {
-    showAlert('Registration received! Your account is awaiting administrative approval before activation.', 'success', 6000);
+    showAlert('Registration successful. Your medical credentials (BMDC) have been submitted to the Admin Treasury & Credentialing Board for verification. You will gain portal access once approved.', 'success', 8000);
   } else if (msg === 'registered') {
     showAlert('Registration successful! Please sign in with your credentials.', 'success');
   }

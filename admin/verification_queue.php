@@ -5,14 +5,20 @@
  */
 
 require_once __DIR__ . '/../includes/admin_auth.php';
+require_once __DIR__ . '/../includes/doctor_helpers.php';
 
 try {
-    // Query pending applicants (Doctors & Staff)
+    // Query pending applicants (Doctors & Staff) where status is pending or doctor approval_status is pending
     $pendingStmt = $pdo->prepare("
-        SELECT user_id, full_name, email, phone, gender, role, status, license_id, department, created_at 
-        FROM users 
-        WHERE status = 'pending' AND role IN ('Doctor', 'Staff') 
-        ORDER BY created_at DESC
+        SELECT u.user_id, u.full_name, u.email, u.phone, u.gender, u.role, u.status, u.created_at,
+               COALESCE(dp.bmdc_reg_number, dp.bmdc_license_number, u.license_id, 'BMDC-PENDING') AS bmdc_number,
+               COALESCE(dp.specialty, u.department, 'General Clinical Practice') AS specialty_display,
+               dp.designation, dp.military_rank, dp.qualifications, dp.approval_status
+        FROM users u 
+        LEFT JOIN doctor_profiles dp ON u.user_id = dp.user_id
+        WHERE (u.status = 'pending' OR (u.role = 'Doctor' AND dp.approval_status = 'pending'))
+          AND u.role IN ('Doctor', 'Staff') 
+        ORDER BY u.created_at DESC
     ");
     $pendingStmt->execute();
     $pendingUsers = $pendingStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -128,25 +134,32 @@ try {
           <thead>
             <tr>
               <th>Personnel Candidate</th>
-              <th>Role Requested</th>
+              <th>Role</th>
+              <th>Specialty / Department</th>
               <th>Official Email</th>
               <th>Phone Number</th>
-              <th>License / Staff ID</th>
-              <th>Registered Date</th>
+              <th>BMDC Reg / ID</th>
+              <th>Registration Date</th>
               <th style="text-align: right;">Review Action</th>
             </tr>
           </thead>
           <tbody>
             <?php foreach ($pendingUsers as $user): ?>
+              <?php
+                $displayName = $user['full_name'];
+                if ($user['role'] === 'Doctor') {
+                    $displayName = formatDoctorTitle($user['full_name'], $user['designation'] ?? 'Consultant', $user['military_rank'] ?? null);
+                }
+              ?>
               <tr id="row-user-<?= (int)$user['user_id'] ?>">
                 <td>
                   <div class="user-cell-flex">
                     <div class="user-avatar-initials">
-                      <?= htmlspecialchars(strtoupper(substr($user['full_name'], 0, 2)), ENT_QUOTES, 'UTF-8') ?>
+                      <?= htmlspecialchars(strtoupper(substr(cleanDoctorBaseName($user['full_name']), 0, 2)), ENT_QUOTES, 'UTF-8') ?>
                     </div>
                     <div>
                       <strong style="color: var(--text-heading); font-size: 0.92rem;">
-                        <?= htmlspecialchars($user['full_name'], ENT_QUOTES, 'UTF-8') ?>
+                        <?= htmlspecialchars($displayName, ENT_QUOTES, 'UTF-8') ?>
                       </strong>
                       <div style="font-size: 0.72rem; color: var(--text-muted);">
                         Gender: <?= htmlspecialchars($user['gender'], ENT_QUOTES, 'UTF-8') ?>
@@ -167,31 +180,36 @@ try {
                     </span>
                   <?php endif; ?>
                 </td>
-                <td style="font-weight: 600; color: var(--text-heading);">
+                <td>
+                  <span style="font-size: 0.85rem; font-weight: 500; color: var(--text-heading);">
+                    <?= htmlspecialchars($user['specialty_display'], ENT_QUOTES, 'UTF-8') ?>
+                  </span>
+                </td>
+                <td style="font-weight: 500; font-size: 0.84rem; color: var(--text-body);">
                   <?= htmlspecialchars($user['email'], ENT_QUOTES, 'UTF-8') ?>
                 </td>
-                <td><?= htmlspecialchars($user['phone'], ENT_QUOTES, 'UTF-8') ?></td>
+                <td style="font-size: 0.84rem;"><?= htmlspecialchars($user['phone'], ENT_QUOTES, 'UTF-8') ?></td>
                 <td>
                   <span class="license-chip">
-                    <?= htmlspecialchars($user['license_id'] ?? 'VERIFY-PENDING', ENT_QUOTES, 'UTF-8') ?>
+                    <?= htmlspecialchars($user['bmdc_number'], ENT_QUOTES, 'UTF-8') ?>
                   </span>
                 </td>
                 <td style="font-size: 0.78rem; color: var(--text-muted);">
                   <?= htmlspecialchars(date('d M Y, h:i A', strtotime($user['created_at'])), ENT_QUOTES, 'UTF-8') ?>
                 </td>
                 <td>
-                  <div class="table-actions-flex" style="justify-content: flex-end;">
+                  <div class="table-actions-flex" style="justify-content: flex-end; gap: 6px;">
                     <button class="btn-table-action btn-table-approve" 
                             onclick="executeAdminAction(<?= (int)$user['user_id'] ?>, 'approve', this)"
-                            title="Approve candidate and grant portal access">
+                            title="Approve <?= $user['role'] ?> credentials and grant portal access">
                       <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                      Approve
+                      Approve <?= $user['role'] ?>
                     </button>
                     <button class="btn-table-action btn-table-reject" 
                             onclick="executeAdminAction(<?= (int)$user['user_id'] ?>, 'reject', this)"
-                            title="Decline candidate application">
+                            title="Decline and reject <?= $user['role'] ?> application">
                       <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                      Decline
+                      Reject <?= $user['role'] ?>
                     </button>
                   </div>
                 </td>

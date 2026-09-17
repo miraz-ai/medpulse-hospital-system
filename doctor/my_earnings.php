@@ -51,6 +51,7 @@ header('Cache-Control: post-check=0, pre-check=0', false);
 header('Pragma: no-cache');
 
 require_once __DIR__ . '/../config/db.php';
+require_once __DIR__ . '/../includes/doctor_helpers.php';
 
 $doctorUserId = (int) $_SESSION['user_id'];
 
@@ -58,7 +59,8 @@ $doctorUserId = (int) $_SESSION['user_id'];
 try {
     $docStmt = $pdo->prepare("
         SELECT u.full_name, u.email, u.phone, u.gender,
-               dp.specialty, dp.bmdc_license_number, dp.consultation_fee, dp.room_number
+               dp.specialty, dp.designation, dp.military_rank, dp.qualifications,
+               dp.bmdc_license_number, dp.consultation_fee, dp.room_number
         FROM users u
         LEFT JOIN doctor_profiles dp ON u.user_id = dp.user_id
         WHERE u.user_id = ? AND u.role = 'Doctor'
@@ -135,8 +137,8 @@ $hour = (int)date('H');
 $greeting = $hour < 12 ? 'Good Morning' : ($hour < 17 ? 'Good Afternoon' : 'Good Evening');
 
 $rawDocName  = $doctor['full_name'] ?? 'Doctor';
-$cleanDocName = preg_replace('/^(?:(?:dr\.?|doctor)\s+)+/i', '', trim($rawDocName));
-$displayName = 'Dr. ' . $cleanDocName;
+$cleanDocName = cleanDoctorBaseName($rawDocName);
+$displayName = formatDoctorTitle($cleanDocName, $doctor['designation'] ?? null, $doctor['military_rank'] ?? null);
 $doctorName  = htmlspecialchars($displayName, ENT_QUOTES, 'UTF-8');
 $specialty   = htmlspecialchars($doctor['specialty'] ?? 'General Practice', ENT_QUOTES, 'UTF-8');
 $licenseNum  = htmlspecialchars($doctor['bmdc_license_number'] ?? '—', ENT_QUOTES, 'UTF-8');

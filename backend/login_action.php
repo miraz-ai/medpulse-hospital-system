@@ -86,18 +86,47 @@ try {
 
     // c. Immediate Status Gatekeeper (Checked BEFORE role or session)
     if (strcasecmp($user["status"], "pending") === 0) {
+        if (session_id()) session_destroy();
         header("Location: ../login.php?error=pending_approval");
         exit();
     }
 
     if (strcasecmp($user["status"], "suspended") === 0) {
+        if (session_id()) session_destroy();
         header("Location: ../login.php?error=account_suspended");
         exit();
     }
 
     if (strcasecmp($user["status"], "rejected") === 0) {
+        if (session_id()) session_destroy();
         header("Location: ../login.php?error=account_declined");
         exit();
+    }
+
+    // Doctor Specific Gatekeeper: Check doctor_profiles approval_status
+    if ($user["role"] === "Doctor") {
+        $docGateStmt = $pdo->prepare("SELECT doctor_id, approval_status FROM doctor_profiles WHERE user_id = ? LIMIT 1");
+        $docGateStmt->execute([(int)$user["user_id"]]);
+        $docGateRow = $docGateStmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($docGateRow) {
+            $approvalStatus = strtolower($docGateRow["approval_status"] ?? "pending");
+            if ($approvalStatus === "pending") {
+                if (session_id()) session_destroy();
+                header("Location: ../login.php?error=pending_approval");
+                exit();
+            }
+            if ($approvalStatus === "rejected") {
+                if (session_id()) session_destroy();
+                header("Location: ../login.php?error=account_declined");
+                exit();
+            }
+            if ($approvalStatus !== "approved") {
+                if (session_id()) session_destroy();
+                header("Location: ../login.php?error=account_inactive");
+                exit();
+            }
+        }
     }
 
     // d. Role Matching Check (After valid password and active status check)
@@ -146,11 +175,11 @@ try {
             $bmdcCandidate = 'BMDC-A-' . mt_rand(20000, 99999);
             $insProfile = $pdo->prepare("
                 INSERT INTO doctor_profiles 
-                    (user_id, specialty, bmdc_license_number, consultation_fee, room_number, available_days, shift_timings)
+                    (user_id, specialty, designation, qualifications, bmdc_license_number, bmdc_reg_number, approval_status, consultation_fee, room_number, available_days, shift_timings)
                 VALUES 
-                    (?, 'General Surgery & Critical Care', ?, 1200.00, 'Room-302', 'Mon,Tue,Wed,Thu,Fri', '09:00 AM - 05:00 PM')
+                    (?, 'General Surgery & Critical Care', 'Consultant', 'MBBS', ?, ?, 'approved', 1200.00, 'Room-302', 'Mon,Tue,Wed,Thu,Fri', '09:00 AM - 05:00 PM')
             ");
-            $insProfile->execute([(int)$user["user_id"], $bmdcCandidate]);
+            $insProfile->execute([(int)$user["user_id"], $bmdcCandidate, $bmdcCandidate]);
             $docProfileId = (int)$pdo->lastInsertId();
         }
         $_SESSION["doctor_id"] = (int)$docProfileId;

@@ -22,19 +22,19 @@
     $serverMsg = '';
     $serverClass = '';
     if ($err === 'pending_approval') {
-        $serverMsg = 'Your account is awaiting administrative approval. Our hospital authority will review your medical credentials before granting portal access.';
+        $serverMsg = 'Your account is currently under administrative verification. Please wait for official approval before accessing the clinical portal.';
         $serverClass = 'alert-error';
     } elseif ($err === 'account_suspended') {
         $serverMsg = 'Your account has been suspended by hospital administration. Please contact hospital HR.';
         $serverClass = 'alert-error';
     } elseif ($err === 'account_declined') {
-        $serverMsg = 'Your account request has been declined. Please contact administration.';
+        $serverMsg = 'Your registration credentials were rejected by the hospital administration. Contact hospital admin.';
         $serverClass = 'alert-error';
     } elseif ($err === 'invalid_credentials') {
         $serverMsg = 'Invalid credentials. Please verify your email/phone and password.';
         $serverClass = 'alert-error';
     } elseif ($msg === 'pending_verification') {
-        $serverMsg = 'Registration received! Your account is awaiting administrative approval before activation.';
+        $serverMsg = 'Registration successful. Your medical credentials (BMDC) have been submitted to the Admin Treasury & Credentialing Board for verification. You will gain portal access once approved.';
         $serverClass = 'alert-success';
     } elseif ($msg === 'registered') {
         $serverMsg = 'Registration successful! Please sign in with your credentials.';

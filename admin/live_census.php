@@ -272,57 +272,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || (isset($_GET['_action']) && in_arra
     // Action: discharge_patient
     // -------------------------------------------------------------------------
     if ($action === 'discharge_patient') {
-        $bedId = (int)($_POST['bed_id'] ?? 0);
-        if (!$bedId) {
-            echo json_encode(['success' => false, 'message' => 'Bed ID is required.']);
-            exit;
-        }
-
-        try {
-            $bedRow = $pdo->prepare("SELECT bed_number, status FROM hospital_beds WHERE bed_id = :id LIMIT 1");
-            $bedRow->execute([':id' => $bedId]);
-            $bed = $bedRow->fetch(PDO::FETCH_ASSOC);
-
-            if (!$bed || $bed['status'] !== 'Occupied') {
-                echo json_encode(['success' => false, 'message' => 'Bed is not currently occupied. Please refresh.']);
-                exit;
-            }
-
-            $pdo->beginTransaction();
-
-            // 1. Move bed to Maintenance (UV-C Sanitization protocol)
-            $upd = $pdo->prepare("UPDATE hospital_beds SET status = 'Maintenance' WHERE bed_id = :bid AND status = 'Occupied'");
-            $upd->execute([':bid' => $bedId]);
-
-            // 2. Close active allocation record
-            $close = $pdo->prepare("
-                UPDATE bed_allocations
-                SET discharged_at = NOW(), status = 'Discharged'
-                WHERE bed_id = :bid AND status = 'Active'
-            ");
-            $close->execute([':bid' => $bedId]);
-
-            // 3. Audit log
-            pushAuditLog(
-                $pdo, $actorId,
-                'PATIENT_DISCHARGE',
-                "Patient discharged from Bed {$bed['bed_number']}. Bed moved to UV-C Sanitization protocol.",
-                'ADMISSION', 'Patient Discharge',
-                $bed['bed_number'], $clientIp
-            );
-
-            $pdo->commit();
-            echo json_encode([
-                'success' => true,
-                'message' => "✓ Patient discharged from Bed {$bed['bed_number']}. Sanitization protocol activated.",
-            ]);
-        } catch (Throwable $e) {
-            if ($pdo->inTransaction()) $pdo->rollBack();
-            error_log("Discharge Error: " . $e->getMessage());
-            echo json_encode(['success' => false, 'message' => 'Discharge failed due to a server error.']);
-        }
+        require_once __DIR__ . '/discharge_patient_action.php';
         exit;
     }
+
 
     // -------------------------------------------------------------------------
     // Action: mark_bed_ready
