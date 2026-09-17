@@ -123,3 +123,76 @@
     justify-content: flex-start;
   }
 }
+
+/* --- Dynamic Telemetry States (Warning & Critical) --- */
+/* Elevated / High Load (ICU Load >= 85%) */
+.ecg-pulse-monitor.ecg-pulse-warning {
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
+.ecg-pulse-monitor.ecg-pulse-warning .ecg-wave-bg {
+  stroke: rgba(217, 119, 6, 0.2);
+}
+
+.ecg-pulse-monitor.ecg-pulse-warning .ecg-wave-active {
+  stroke: #d97706;
+  animation-duration: 1.4s;
+  filter: drop-shadow(0 0 2px rgba(217, 119, 6, 0.4));
+}
+
+.ecg-pulse-monitor.ecg-pulse-warning .ecg-label {
+  color: #b45309;
+}
+
+.ecg-pulse-monitor.ecg-pulse-warning .ecg-bpm-dot {
+  background: #d97706;
+}
+
+/* Critical Fallback (DB Error / Disconnected) */
+.ecg-pulse-monitor.ecg-pulse-critical {
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+.ecg-pulse-monitor.ecg-pulse-critical .ecg-wave-bg {
+  stroke: rgba(239, 68, 68, 0.2);
+}
+
+.ecg-pulse-monitor.ecg-pulse-critical .ecg-wave-active {
+  stroke: #ef4444;
+  animation: none;
+  stroke-dashoffset: 0;
+  filter: drop-shadow(0 0 2px rgba(239, 68, 68, 0.4));
+}
+
+.ecg-pulse-monitor.ecg-pulse-critical .ecg-label {
+  color: #b91c1c;
+}
+
+.ecg-pulse-monitor.ecg-pulse-critical .ecg-bpm-dot {
+  background: #ef4444;
+  animation: none;
+}
+
+/* Status Pill Dynamic Variations */
+.live-status-pill.status-high-load {
+  background: #fffbeb;
+  border-color: #fde68a;
+  color: #b45309;
+}
+
+.live-status-pill.status-high-load .radar-pulse-dot {
+  background: #f59e0b;
+}
+
+.live-status-pill.status-offline {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.live-status-pill.status-offline .radar-pulse-dot {
+  background: #ef4444;
+  animation: none;
+}
