@@ -6,14 +6,47 @@
 
 require_once __DIR__ . '/../includes/admin_auth.php';
 
-// Mock Bed Matrix Dataset (12 Representative Beds)
+// Query live hospital capacity aggregates from database (500 Bed Capacity)
+try {
+    $statRow = $pdo->query("
+        SELECT 
+            COUNT(*) as total_beds,
+            SUM(status = 'Occupied') as occupied_beds,
+            SUM(status = 'Available') as available_beds,
+            ROUND(SUM(ward_type = 'ICU' AND status = 'Occupied') / NULLIF(SUM(ward_type = 'ICU'), 0) * 100) as icu_occupancy_pct
+        FROM hospital_beds
+    ")->fetch(PDO::FETCH_ASSOC);
+
+    $totalHospitalBeds = (int)($statRow['total_beds'] ?? 500);
+    $totalOccupiedBeds = (int)($statRow['occupied_beds'] ?? 93);
+    $totalAvailableBeds = (int)($statRow['available_beds'] ?? 392);
+    $icuOccupancyPct = (int)($statRow['icu_occupancy_pct'] ?? 85);
+} catch (Throwable $e) {
+    $totalHospitalBeds = 500;
+    $totalOccupiedBeds = 93;
+    $totalAvailableBeds = 392;
+    $icuOccupancyPct = 85;
+}
+
+// Representative Bed Matrix Dataset across all 5 Floors (including Presidential Suite)
 $bedSlots = [
     [
+        'code'      => 'PRES-401',
+        'ward'      => 'Presidential Suite (Floor 4)',
+        'ward_key'  => 'VIP & Presidential',
+        'status'    => 'available',
+        'patient'   => '',
+        'patient_id'=> '',
+        'doctor'    => 'Chief Medical Officer',
+        'vitals'    => 'Exclusive Presidential Wing • ৳ 50,000/day',
+        'since'     => 'VIP Dignitary Ready'
+    ],
+    [
         'code'      => 'BED-ICU-01',
-        'ward'      => 'ICU - Critical Care',
+        'ward'      => 'ICU - Critical Care (Floor 5)',
         'ward_key'  => 'ICU - Critical Care',
         'status'    => 'occupied',
-        'patient'   => 'Tamim Iqbal',
+        'patient'   => 'Robert Downey Jr.',
         'patient_id'=> '#P-4012',
         'doctor'    => 'Dr. Ayesha Siddiqua',
         'vitals'    => 'Cardiac Monitored • O2 98%',
@@ -21,7 +54,7 @@ $bedSlots = [
     ],
     [
         'code'      => 'BED-ICU-02',
-        'ward'      => 'ICU - Critical Care',
+        'ward'      => 'ICU - Critical Care (Floor 5)',
         'ward_key'  => 'ICU - Critical Care',
         'status'    => 'occupied',
         'patient'   => 'Nusrat Jahan',
@@ -32,7 +65,7 @@ $bedSlots = [
     ],
     [
         'code'      => 'BED-ICU-03',
-        'ward'      => 'ICU - Critical Care',
+        'ward'      => 'ICU - Critical Care (Floor 5)',
         'ward_key'  => 'ICU - Critical Care',
         'status'    => 'maintenance',
         'patient'   => '',
@@ -43,10 +76,10 @@ $bedSlots = [
     ],
     [
         'code'      => 'BED-EMG-01',
-        'ward'      => 'Emergency Ward 3B',
+        'ward'      => 'Emergency Ward 3B (Floor 1)',
         'ward_key'  => 'Emergency Ward 3B',
         'status'    => 'occupied',
-        'patient'   => 'Farhana Akter',
+        'patient'   => 'Agatsuma Zenitsu',
         'patient_id'=> '#P-4881',
         'doctor'    => 'Dr. Mahbubur Rahman',
         'vitals'    => 'Trauma Triage • Stable',
@@ -54,7 +87,7 @@ $bedSlots = [
     ],
     [
         'code'      => 'BED-EMG-02',
-        'ward'      => 'Emergency Ward 3B',
+        'ward'      => 'Emergency Ward 3B (Floor 1)',
         'ward_key'  => 'Emergency Ward 3B',
         'status'    => 'available',
         'patient'   => '',
@@ -64,52 +97,41 @@ $bedSlots = [
         'since'     => 'Rapid Intake Ready'
     ],
     [
-        'code'      => 'BED-EMG-03',
-        'ward'      => 'Emergency Ward 3B',
-        'ward_key'  => 'Emergency Ward 3B',
-        'status'    => 'occupied',
-        'patient'   => 'Kazi Nazrul',
-        'patient_id'=> '#P-4902',
-        'doctor'    => 'Dr. Mahbubur Rahman',
-        'vitals'    => 'Observation • IV Fluid On',
-        'since'     => 'Adm: 3h ago'
-    ],
-    [
         'code'      => 'BED-GEN-01',
-        'ward'      => 'General Ward A',
-        'ward_key'  => 'General Ward A',
-        'status'    => 'available',
-        'patient'   => '',
-        'patient_id'=> '',
-        'doctor'    => '',
-        'vitals'    => 'Standard Ward Allocation Ready',
-        'since'     => 'Open Bed'
-    ],
-    [
-        'code'      => 'BED-GEN-02',
-        'ward'      => 'General Ward A',
+        'ward'      => 'General Ward Male (Floor 2)',
         'ward_key'  => 'General Ward A',
         'status'    => 'occupied',
-        'patient'   => 'Anisur Zaman',
+        'patient'   => 'Jahid Hasan',
         'patient_id'=> '#P-3819',
         'doctor'    => 'Dr. Ayesha Siddiqua',
-        'vitals'    => 'Post-Op Recovery • Day 3',
+        'vitals'    => 'Standard Inpatient Care',
         'since'     => 'Adm: 3d ago'
     ],
     [
-        'code'      => 'BED-GEN-03',
-        'ward'      => 'General Ward A',
+        'code'      => 'BED-GEN-02',
+        'ward'      => 'General Ward Male (Floor 2)',
         'ward_key'  => 'General Ward A',
         'status'    => 'available',
         'patient'   => '',
         'patient_id'=> '',
         'doctor'    => '',
-        'vitals'    => 'Full Linen & Monitor Arm Check',
+        'vitals'    => 'Clean & Sanitized',
+        'since'     => 'Open Bed'
+    ],
+    [
+        'code'      => 'BED-GEN-03',
+        'ward'      => 'General Ward Female (Floor 2)',
+        'ward_key'  => 'General Ward A',
+        'status'    => 'available',
+        'patient'   => '',
+        'patient_id'=> '',
+        'doctor'    => '',
+        'vitals'    => 'Full Linen & Monitor Check',
         'since'     => 'Open Bed'
     ],
     [
         'code'      => 'BED-GEN-04',
-        'ward'      => 'General Ward A',
+        'ward'      => 'General Ward Female (Floor 2)',
         'ward_key'  => 'General Ward A',
         'status'    => 'maintenance',
         'patient'   => '',
@@ -120,7 +142,7 @@ $bedSlots = [
     ],
     [
         'code'      => 'BED-PED-01',
-        'ward'      => 'Pediatrics',
+        'ward'      => 'Pediatrics (Floor 3)',
         'ward_key'  => 'Pediatrics',
         'status'    => 'occupied',
         'patient'   => 'Master Rayan',
@@ -131,7 +153,7 @@ $bedSlots = [
     ],
     [
         'code'      => 'BED-PED-02',
-        'ward'      => 'Pediatrics',
+        'ward'      => 'Pediatrics (Floor 3)',
         'ward_key'  => 'Pediatrics',
         'status'    => 'available',
         'patient'   => '',
@@ -148,7 +170,8 @@ $wardCounts = [
     'ICU - Critical Care' => 0,
     'Emergency Ward 3B' => 0,
     'General Ward A' => 0,
-    'Pediatrics' => 0
+    'Pediatrics' => 0,
+    'VIP & Presidential' => 0
 ];
 foreach ($bedSlots as $b) {
     if (isset($wardCounts[$b['ward_key']])) {
@@ -223,10 +246,10 @@ foreach ($bedSlots as $b) {
             <svg class="ui-ico" viewBox="0 0 24 24"><path d="M2 4v16"></path><path d="M2 8h18a2 2 0 0 1 2 2v10"></path><path d="M2 17h20"></path></svg>
           </div>
         </div>
-        <div class="census-card-value">67</div>
+        <div class="census-card-value"><?= number_format($totalHospitalBeds) ?></div>
         <div class="census-card-badge badge-active">
           <svg class="ui-ico ui-ico-sm" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
-          Total Hospital Capacity
+          5-Floor Tertiary Capacity
         </div>
       </div>
 
@@ -238,7 +261,7 @@ foreach ($bedSlots as $b) {
             <svg class="ui-ico" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle></svg>
           </div>
         </div>
-        <div class="census-card-value">22</div>
+        <div class="census-card-value"><?= number_format($totalOccupiedBeds) ?></div>
         <div class="census-card-badge badge-warning">
           <span>Active Inpatient Care</span>
         </div>
@@ -252,7 +275,7 @@ foreach ($bedSlots as $b) {
             <svg class="ui-ico" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
           </div>
         </div>
-        <div class="census-card-value" style="color: #16a34a;">45</div>
+        <div class="census-card-value" style="color: #16a34a;"><?= number_format($totalAvailableBeds) ?></div>
         <div class="census-card-badge badge-open">
           <span>Open for Allocation</span>
         </div>
@@ -266,9 +289,9 @@ foreach ($bedSlots as $b) {
             <svg class="ui-ico" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
           </div>
         </div>
-        <div class="census-card-value" style="color: #dc2626;">85%</div>
+        <div class="census-card-value" style="color: #dc2626;"><?= (int)$icuOccupancyPct ?>%</div>
         <div class="census-card-badge badge-critical">
-          <span>High Load Pressure</span>
+          <span>Critical Care Load</span>
         </div>
       </div>
     </div>
@@ -299,6 +322,11 @@ foreach ($bedSlots as $b) {
           <svg class="ui-ico ui-ico-sm" style="width: 14px; height: 14px;" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"></circle><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"></path></svg>
           <span>Pediatrics</span>
           <span class="ward-tab-count"><?= $wardCounts['Pediatrics'] ?></span>
+        </button>
+        <button class="ward-filter-tab" data-ward="VIP & Presidential">
+          <svg class="ui-ico ui-ico-sm" style="width: 14px; height: 14px;" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+          <span>VIP & Presidential</span>
+          <span class="ward-tab-count"><?= $wardCounts['VIP & Presidential'] ?></span>
         </button>
       </div>
 

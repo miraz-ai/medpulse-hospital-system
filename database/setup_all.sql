@@ -10,13 +10,16 @@ CREATE DATABASE IF NOT EXISTS `medpulse_hms`
 
 USE `medpulse_hms`;
 
+-- Temporarily disable foreign key constraints for clean modular ingestion
+SET FOREIGN_KEY_CHECKS = 0;
+
 -- 1. Core Users Table & Identity Anchor (Strict ENUM('Male', 'Female'))
 SOURCE 01_users.sql;
 
 -- 2. Doctor Profiles & Clinical Credentialing
 SOURCE 02_doctor_profiles.sql;
 
--- 3. Hospital Beds Inventory
+-- 3. Hospital Beds Inventory (500-Bed Modern Tertiary Capacity)
 SOURCE 03_hospital_beds.sql;
 
 -- 4. Consultation Bookings & Outpatient Appointments
@@ -39,3 +42,6 @@ SOURCE 09_audit_logs.sql;
 
 -- 10. Verified Mock Seed Data Ingestion
 SOURCE 10_seed_data.sql;
+
+-- Re-enable foreign key constraints
+SET FOREIGN_KEY_CHECKS = 1;
