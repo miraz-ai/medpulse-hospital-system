@@ -546,54 +546,139 @@
   box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.12);
 }
 
-.doctor-checkbox-list {
+/* --- Selected Doctors Clinical Tag Chips --- */
+.selected-doctors-chips {
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
   gap: 8px;
+  min-height: 38px;
+  padding: 6px 8px;
+  border: 1px dashed var(--ipc-slate-200);
+  border-radius: 8px;
+  background: #f8fafc;
+  margin-bottom: 12px;
+  align-items: center;
+}
+
+.selected-doctors-chips:empty::before {
+  content: 'No consultants currently selected. Search and select physicians below.';
+  color: var(--ipc-slate-400);
+  font-size: 0.78rem;
+  font-style: italic;
+  padding-left: 4px;
+}
+
+.doctor-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #eff6ff;
+  color: #1e40af;
+  border: 1px solid #bfdbfe;
+  border-radius: 20px;
+  padding: 4px 8px 4px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  animation: chipPop 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes chipPop {
+  0% { transform: scale(0.85); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.doctor-chip.is-primary-chip {
+  background: #fef3c7;
+  color: #92400e;
+  border-color: #fde68a;
+}
+
+.doctor-chip .chip-spec {
+  font-size: 0.72rem;
+  color: #3b82f6;
+  font-weight: 500;
+}
+
+.doctor-chip.is-primary-chip .chip-spec {
+  color: #b45309;
+}
+
+.doctor-chip .chip-remove-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  color: #64748b;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+
+.doctor-chip .chip-remove-btn:hover {
+  background: #fee2e2;
+  color: #ef4444;
+}
+
+/* --- Searchable Combobox & Floating Dropdown --- */
+.doctor-combobox-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.doctor-search-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
   max-height: 220px;
   overflow-y: auto;
-  border: 1px solid var(--ipc-slate-200);
-  border-radius: 8px;
-  padding: 8px;
-  background: #f8fafc;
-}
-
-.doc-pick-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
   background: #ffffff;
   border: 1px solid var(--ipc-slate-200);
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background 0.15s;
+  border-radius: 8px;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.05);
+  z-index: 1000;
+  padding: 6px;
 }
 
-.doc-pick-item:hover {
+.doctor-dropdown-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.doctor-dropdown-item:hover, .doctor-dropdown-item.is-focused {
   background: #f0fdfa;
 }
 
-.doc-pick-item input[type="checkbox"] {
-  accent-color: var(--ipc-teal-600);
-  width: 16px;
-  height: 16px;
-  cursor: pointer;
-}
-
-.doc-pick-info {
-  flex: 1;
-}
-
-.doc-pick-name {
-  font-size: 0.86rem;
+.doctor-dropdown-name {
   font-weight: 700;
+  font-size: 0.86rem;
   color: var(--ipc-slate-900);
 }
 
-.doc-pick-spec {
-  font-size: 0.74rem;
+.doctor-dropdown-spec {
+  font-size: 0.72rem;
+  color: #0d9488;
+  background: #ccfbf1;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-weight: 600;
+}
+
+.doctor-dropdown-empty {
+  padding: 12px;
+  font-size: 0.82rem;
   color: var(--ipc-slate-400);
+  text-align: center;
 }
 
 .inpatient-modal-footer {

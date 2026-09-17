@@ -111,13 +111,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || (isset($_GET['_action']) && in_arra
         }
 
         try {
-            // Fetch bed and doctor/patient names for the audit description
+            // 1. Business-Rule Validation: Check if patient is already admitted in an active bed
+            $checkPat = $pdo->prepare("
+                SELECT ba.bed_id, b.bed_number 
+                FROM bed_allocations ba 
+                JOIN hospital_beds b ON ba.bed_id = b.bed_id 
+                WHERE ba.patient_id = :pid AND ba.status = 'Active' 
+                LIMIT 1
+            ");
+            $checkPat->execute([':pid' => $patId]);
+            $currentBed = $checkPat->fetch(PDO::FETCH_ASSOC);
+
+            if ($currentBed) {
+                echo json_encode([
+                    'success' => false,
+                    'message' => "Patient is currently admitted in Bed {$currentBed['bed_number']}. Please use Transfer Bed."
+                ]);
+                exit;
+            }
+
+            // 2. Business-Rule Validation: Verify destination bed availability
             $bedRow = $pdo->prepare("SELECT bed_number, status FROM hospital_beds WHERE bed_id = :id LIMIT 1");
             $bedRow->execute([':id' => $bedId]);
             $bed = $bedRow->fetch(PDO::FETCH_ASSOC);
 
             if (!$bed || $bed['status'] !== 'Available') {
-                echo json_encode(['success' => false, 'message' => 'Bed is no longer available. Please refresh.']);
+                echo json_encode(['success' => false, 'message' => 'Bed is already occupied by another patient.']);
                 exit;
             }
 
@@ -141,7 +160,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || (isset($_GET['_action']) && in_arra
             $upd->execute([':bid' => $bedId]);
             if ($upd->rowCount() === 0) {
                 $pdo->rollBack();
-                echo json_encode(['success' => false, 'message' => 'Bed status changed concurrently. Please refresh.']);
+                echo json_encode(['success' => false, 'message' => 'Bed is already occupied by another patient.']);
                 exit;
             }
 
@@ -151,6 +170,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || (isset($_GET['_action']) && in_arra
                 VALUES (:bid, :pid, :did, NOW(), 'Active')
             ");
             $ins->execute([':bid' => $bedId, ':pid' => $patId, ':did' => $docId]);
+
+            // Sync attending doctor to patient_doctor_assignments junction table
+            if ($docId) {
+                $pdaStmt = $pdo->prepare("
+                    INSERT INTO patient_doctor_assignments (patient_id, doctor_id, assigned_by, is_primary, status, assigned_at)
+                    VALUES (:pid, :did, :aid, 1, 'Active', NOW())
+                    ON DUPLICATE KEY UPDATE status = 'Active', is_primary = 1
+                ");
+                $pdaStmt->execute([':pid' => $patId, ':did' => $docId, ':aid' => $actorId]);
+            }
 
             // 3. Audit log
             $auditDesc = "Patient {$patName} (#{$patId}) allocated to Bed {$bed['bed_number']} under {$docName}.";
@@ -170,10 +199,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || (isset($_GET['_action']) && in_arra
                 'success' => true,
                 'message' => "✓ {$patName} successfully allocated to Bed {$bed['bed_number']}.",
             ]);
+        } catch (PDOException $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            error_log("Allocate Bed PDOException: " . $e->getMessage());
+
+            if ($e->getCode() == 23000 || str_contains($e->getMessage(), '1062')) {
+                if (str_contains($e->getMessage(), 'uq_active_bed')) {
+                    echo json_encode(['success' => false, 'message' => 'Bed is already occupied by another patient.']);
+                    exit;
+                }
+                if (str_contains($e->getMessage(), 'uq_active_patient')) {
+                    $lookup = $pdo->prepare("
+                        SELECT b.bed_number 
+                        FROM bed_allocations ba 
+                        JOIN hospital_beds b ON ba.bed_id = b.bed_id 
+                        WHERE ba.patient_id = :pid AND ba.status = 'Active' 
+                        LIMIT 1
+                    ");
+                    $lookup->execute([':pid' => $patId]);
+                    $activeBedNum = $lookup->fetchColumn() ?: 'Unknown';
+                    echo json_encode([
+                        'success' => false,
+                        'message' => "Patient is currently admitted in Bed {$activeBedNum}. Please use Transfer Bed."
+                    ]);
+                    exit;
+                }
+            }
+
+            echo json_encode(['success' => false, 'message' => 'Database operation error: ' . $e->getMessage()]);
+            exit;
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();
             error_log("Allocate Bed Error: " . $e->getMessage());
-            echo json_encode(['success' => false, 'message' => 'Allocation failed due to a server error. Please try again.']);
+            echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+            exit;
         }
         exit;
     }

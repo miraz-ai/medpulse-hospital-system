@@ -216,8 +216,18 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ---------------------------------------------------------------------------
-  // Action 2: Open Multi-Doctor Care Team Modal
   // ---------------------------------------------------------------------------
+  // Action 2: Open Multi-Doctor Care Team Modal (Modern Searchable Combobox & Chips)
+  // ---------------------------------------------------------------------------
+  let selectedDoctorIds = [];
+  let currentPrimaryDocId = null;
+
+  const chipsContainer = document.getElementById('selected-doctors-chips');
+  const searchInput    = document.getElementById('doctor-search-input');
+  const searchDropdown = document.getElementById('doctor-search-dropdown');
+  const primarySelect  = document.getElementById('primaryDoctorSelect');
+  const hiddenInputsBox = document.getElementById('doctor-hidden-inputs');
+
   window.openDoctorModal = function(patientId, patientName, bedNumber, activeDocIdsJson, primaryDocId) {
     document.getElementById('doctorPatientId').value = patientId;
     document.getElementById('doctorPatientName').textContent = patientName;
@@ -230,48 +240,171 @@ document.addEventListener('DOMContentLoaded', () => {
       activeDocIds = [];
     }
 
-    renderDoctorCheckboxes(activeDocIds, primaryDocId);
+    selectedDoctorIds = activeDocIds.map(Number);
+    currentPrimaryDocId = primaryDocId ? Number(primaryDocId) : (selectedDoctorIds[0] || null);
+
+    renderSelectedChips();
+    syncPrimarySelect();
+    syncHiddenInputs();
+
+    if (searchInput) searchInput.value = '';
+    if (searchDropdown) searchDropdown.style.display = 'none';
+
     openModal(doctorsModal);
   };
 
-  function renderDoctorCheckboxes(activeDocIds, primaryDocId) {
-    const container = document.getElementById('doctorCheckboxList');
-    const primarySelect = document.getElementById('primaryDoctorSelect');
-    container.innerHTML = '';
-    primarySelect.innerHTML = '<option value="">-- Select Primary Attending Doctor --</option>';
+  function renderSelectedChips() {
+    if (!chipsContainer) return;
+    chipsContainer.innerHTML = '';
 
-    activeDoctorsCache.forEach(doc => {
-      const isChecked = activeDocIds.includes(parseInt(doc.user_id));
-      const isPrimary = (parseInt(primaryDocId) === parseInt(doc.user_id));
+    selectedDoctorIds.forEach(id => {
+      const doc = activeDoctorsCache.find(d => Number(d.user_id) === Number(id));
+      if (!doc) return;
 
-      // 1. Checkbox item
-      const item = document.createElement('label');
-      item.className = 'doc-pick-item';
-      item.innerHTML = `
-        <input type="checkbox" name="doctor_ids[]" value="${doc.user_id}" ${isChecked ? 'checked' : ''} onchange="handleDocCheckChange(this)">
-        <div class="doc-pick-info">
-          <div class="doc-pick-name">${doc.full_name}</div>
-          <div class="doc-pick-spec">${doc.specialty || 'General Medicine'} ${doc.room_number ? '• ' + doc.room_number : ''}</div>
-        </div>
+      const isPrimary = (Number(currentPrimaryDocId) === Number(id));
+      const chip = document.createElement('div');
+      chip.className = `doctor-chip ${isPrimary ? 'is-primary-chip' : ''}`;
+      chip.innerHTML = `
+        ${isPrimary ? '<svg class="ui-ico" style="width:12px;height:12px;color:#d97706;" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>' : ''}
+        <span>${doc.full_name} <span class="chip-spec">(${doc.specialty || 'General'})</span></span>
+        <button type="button" class="chip-remove-btn" title="Remove ${doc.full_name}" onclick="removeDoctorChip(${doc.user_id})">&times;</button>
       `;
-      container.appendChild(item);
+      chipsContainer.appendChild(chip);
+    });
+  }
 
-      // 2. Primary dropdown option
+  function syncPrimarySelect() {
+    if (!primarySelect) return;
+    primarySelect.innerHTML = '<option value="">-- None / Unassigned --</option>';
+
+    selectedDoctorIds.forEach(id => {
+      const doc = activeDoctorsCache.find(d => Number(d.user_id) === Number(id));
+      if (!doc) return;
+
       const opt = document.createElement('option');
       opt.value = doc.user_id;
       opt.textContent = `${doc.full_name} (${doc.specialty || 'General'})`;
-      if (isPrimary) opt.selected = true;
+      if (Number(currentPrimaryDocId) === Number(id)) {
+        opt.selected = true;
+      }
       primarySelect.appendChild(opt);
     });
   }
 
-  window.handleDocCheckChange = function(checkbox) {
-    // If a doctor is checked and no primary is selected, suggest it
-    const primarySelect = document.getElementById('primaryDoctorSelect');
-    if (checkbox.checked && !primarySelect.value) {
-      primarySelect.value = checkbox.value;
+  if (primarySelect) {
+    primarySelect.addEventListener('change', (e) => {
+      currentPrimaryDocId = e.target.value ? Number(e.target.value) : null;
+      renderSelectedChips();
+    });
+  }
+
+  function syncHiddenInputs() {
+    if (!hiddenInputsBox) return;
+    hiddenInputsBox.innerHTML = '';
+    selectedDoctorIds.forEach(id => {
+      const inp = document.createElement('input');
+      inp.type = 'hidden';
+      inp.name = 'doctor_ids[]';
+      inp.value = id;
+      hiddenInputsBox.appendChild(inp);
+    });
+  }
+
+  window.removeDoctorChip = function(doctorId) {
+    selectedDoctorIds = selectedDoctorIds.filter(id => Number(id) !== Number(doctorId));
+    if (Number(currentPrimaryDocId) === Number(doctorId)) {
+      currentPrimaryDocId = selectedDoctorIds[0] || null;
+    }
+    renderSelectedChips();
+    syncPrimarySelect();
+    syncHiddenInputs();
+
+    // Re-filter dropdown so the removed doctor is immediately searchable again
+    if (searchDropdown && searchDropdown.style.display !== 'none') {
+      filterDoctorDropdown(searchInput ? searchInput.value : '');
     }
   };
+
+  window.addDoctorChip = function(doctorId) {
+    doctorId = Number(doctorId);
+    if (!selectedDoctorIds.includes(doctorId)) {
+      selectedDoctorIds.push(doctorId);
+      if (!currentPrimaryDocId) {
+        currentPrimaryDocId = doctorId;
+      }
+      renderSelectedChips();
+      syncPrimarySelect();
+      syncHiddenInputs();
+    }
+
+    if (searchInput) {
+      searchInput.value = '';
+      filterDoctorDropdown('');
+      searchInput.focus();
+    }
+  };
+
+  function filterDoctorDropdown(query) {
+    if (!searchDropdown) return;
+    const term = (query || '').trim().toLowerCase();
+
+    // Exclude already-selected doctors from search dropdown
+    const available = activeDoctorsCache.filter(doc => !selectedDoctorIds.includes(Number(doc.user_id)));
+
+    const matches = (term === '')
+      ? available
+      : available.filter(doc => {
+          const nameMatch = doc.full_name.toLowerCase().includes(term);
+          const specMatch = (doc.specialty || '').toLowerCase().includes(term);
+          return nameMatch || specMatch;
+        });
+
+    if (matches.length === 0) {
+      searchDropdown.innerHTML = `<div class="doctor-dropdown-empty">${available.length === 0 ? 'All hospital physicians already selected.' : 'No matching doctors found.'}</div>`;
+    } else {
+      searchDropdown.innerHTML = '';
+      matches.forEach(doc => {
+        const item = document.createElement('div');
+        item.className = 'doctor-dropdown-item';
+        item.innerHTML = `
+          <span class="doctor-dropdown-name">${doc.full_name}</span>
+          <span class="doctor-dropdown-spec">${doc.specialty || 'General'}</span>
+        `;
+        item.addEventListener('mousedown', (e) => {
+          e.preventDefault(); // Prevent blur before selection
+          addDoctorChip(doc.user_id);
+        });
+        searchDropdown.appendChild(item);
+      });
+    }
+
+    searchDropdown.style.display = 'block';
+  }
+
+  if (searchInput) {
+    // Search input listener: fires smoothly on typing, backspace, and clear!
+    searchInput.addEventListener('input', (e) => {
+      filterDoctorDropdown(e.target.value);
+    });
+
+    searchInput.addEventListener('focus', (e) => {
+      filterDoctorDropdown(e.target.value);
+    });
+
+    searchInput.addEventListener('blur', () => {
+      // Delay closing slightly so mousedown on item registers
+      setTimeout(() => {
+        if (searchDropdown) searchDropdown.style.display = 'none';
+      }, 200);
+    });
+  }
+
+  // Close floating dropdown when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.doctor-combobox-wrapper')) {
+      if (searchDropdown) searchDropdown.style.display = 'none';
+    }
+  });
 
   // Submit Doctor Assignments
   if (doctorsForm) {
@@ -281,9 +414,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const origText = submitBtn.innerHTML;
 
       const patientId = document.getElementById('doctorPatientId').value;
-      const primaryDocId = document.getElementById('primaryDoctorSelect').value;
-      const checkedBoxes = document.querySelectorAll('#doctorCheckboxList input[type="checkbox"]:checked');
-      const docIds = Array.from(checkedBoxes).map(cb => cb.value);
+      const primaryDocId = primarySelect ? primarySelect.value : '';
 
       submitBtn.disabled = true;
       submitBtn.innerHTML = '<svg class="ui-ico spin" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg> Updating Team...';
@@ -292,7 +423,7 @@ document.addEventListener('DOMContentLoaded', () => {
       formData.append('csrf_token', csrfToken);
       formData.append('patient_id', patientId);
       formData.append('primary_doctor_id', primaryDocId || '');
-      docIds.forEach(id => formData.append('doctor_ids[]', id));
+      selectedDoctorIds.forEach(id => formData.append('doctor_ids[]', id));
 
       fetch('../backend/api/doctor_assignment.php', {
         method: 'POST',
@@ -307,7 +438,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (data.success) {
           closeModal(doctorsModal);
           if (typeof showToast === 'function') showToast(data.message, 'success');
-          updateRowDoctors(patientId, docIds, primaryDocId);
+          updateRowDoctors(patientId, selectedDoctorIds, primaryDocId);
         } else {
           if (typeof showToast === 'function') showToast(data.message || 'Update failed.', 'error');
         }

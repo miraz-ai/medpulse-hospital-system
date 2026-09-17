@@ -95,7 +95,7 @@ if (!isset($pendingCount) && isset($pdo)) {
           <svg class="ui-ico" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
           Inpatient Care & Teams
         </div>
-        <span class="live-chip-sm" style="background: var(--brand-teal);">CARE</span>
+        <span class="live-chip-sm" style="background-color: #0f766e; color: #ffffff !important; font-weight: 700; font-size: 10px; padding: 2px 6px; border-radius: 4px;">CARE</span>
       </a>
     </li>
     <li class="nav-item <?= in_array($currentRoute, ['live_census.php', 'bed_management.php'], true) ? 'active' : '' ?>">

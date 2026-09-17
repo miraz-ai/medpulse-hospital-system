@@ -57,15 +57,168 @@ if (empty($_SESSION['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $csr
 // 4. Input Validation
 $userId = filter_var($_POST['user_id'] ?? null, FILTER_VALIDATE_INT);
 $action = trim($_POST['action'] ?? '');
-$allowedActions = ['approve', 'reject', 'suspend', 'activate', 'delete'];
+$allowedActions = ['approve', 'reject', 'suspend', 'activate', 'delete', 'allocate_patient', 'allocate_bed'];
+
+// Support allocate_patient where patient_id may be passed instead of user_id
+if (($action === 'allocate_patient' || $action === 'allocate_bed') && !$userId) {
+    $userId = filter_var($_POST['patient_id'] ?? null, FILTER_VALIDATE_INT);
+}
 
 if (!$userId || !in_array($action, $allowedActions, true)) {
     http_response_code(400);
     echo json_encode([
         'status'  => 'error',
-        'message' => 'Invalid parameters. Valid user_id and supported action are required.'
+        'success' => false,
+        'message' => 'Invalid parameters. Valid user_id/patient_id and supported action are required.'
     ]);
     exit;
+}
+
+// Dedicated Handler: allocate_patient / allocate_bed
+if ($action === 'allocate_patient' || $action === 'allocate_bed') {
+    $patientId = $userId;
+    $bedId     = filter_var($_POST['bed_id'] ?? null, FILTER_VALIDATE_INT);
+    $docId     = filter_var($_POST['doctor_id'] ?? null, FILTER_VALIDATE_INT) ?: null;
+    $notes     = trim((string)($_POST['notes'] ?? ''));
+    $actorId   = (int)($_SESSION['user_id'] ?? 0);
+    $clientIp  = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+
+    if (!$bedId || !$patientId) {
+        http_response_code(422);
+        echo json_encode([
+            'success' => false,
+            'status'  => 'error',
+            'message' => 'Bed ID and Patient ID are required.'
+        ]);
+        exit;
+    }
+
+    try {
+        // 1. Business-Rule Validation: Check if patient is already admitted elsewhere
+        $checkPat = $pdo->prepare("
+            SELECT ba.bed_id, b.bed_number 
+            FROM bed_allocations ba 
+            JOIN hospital_beds b ON ba.bed_id = b.bed_id 
+            WHERE ba.patient_id = :pid AND ba.status = 'Active' 
+            LIMIT 1
+        ");
+        $checkPat->execute([':pid' => $patientId]);
+        $currentBed = $checkPat->fetch(PDO::FETCH_ASSOC);
+
+        if ($currentBed) {
+            http_response_code(409);
+            echo json_encode([
+                'success' => false,
+                'status'  => 'error',
+                'message' => "Patient is currently admitted in Bed {$currentBed['bed_number']}. Please use Transfer Bed."
+            ]);
+            exit;
+        }
+
+        // 2. Business-Rule Validation: Check if bed is already occupied
+        $bedRow = $pdo->prepare("SELECT bed_number, status FROM hospital_beds WHERE bed_id = :id LIMIT 1");
+        $bedRow->execute([':id' => $bedId]);
+        $bed = $bedRow->fetch(PDO::FETCH_ASSOC);
+
+        if (!$bed || $bed['status'] !== 'Available') {
+            http_response_code(409);
+            echo json_encode([
+                'success' => false,
+                'status'  => 'error',
+                'message' => 'Bed is already occupied by another patient.'
+            ]);
+            exit;
+        }
+
+        $patRow = $pdo->prepare("SELECT full_name FROM users WHERE user_id = :id AND role = 'Patient' LIMIT 1");
+        $patRow->execute([':id' => $patientId]);
+        $patient = $patRow->fetch(PDO::FETCH_ASSOC);
+        $patName = $patient['full_name'] ?? "Patient #$patientId";
+
+        $pdo->beginTransaction();
+
+        // 3. Mark bed as Occupied
+        $upd = $pdo->prepare("UPDATE hospital_beds SET status = 'Occupied' WHERE bed_id = :bid AND status = 'Available'");
+        $upd->execute([':bid' => $bedId]);
+        if ($upd->rowCount() === 0) {
+            $pdo->rollBack();
+            http_response_code(409);
+            echo json_encode([
+                'success' => false,
+                'status'  => 'error',
+                'message' => 'Bed is already occupied by another patient.'
+            ]);
+            exit;
+        }
+
+        // 4. Insert allocation record
+        $ins = $pdo->prepare("
+            INSERT INTO bed_allocations (bed_id, patient_id, attending_doctor_id, admitted_at, status)
+            VALUES (:bid, :pid, :did, NOW(), 'Active')
+        ");
+        $ins->execute([':bid' => $bedId, ':pid' => $patientId, ':did' => $docId]);
+
+        // Sync attending doctor to patient_doctor_assignments junction table
+        if ($docId) {
+            $pdaStmt = $pdo->prepare("
+                INSERT INTO patient_doctor_assignments (patient_id, doctor_id, assigned_by, is_primary, status, assigned_at)
+                VALUES (:pid, :did, :aid, 1, 'Active', NOW())
+                ON DUPLICATE KEY UPDATE status = 'Active', is_primary = 1
+            ");
+            $pdaStmt->execute([':pid' => $patientId, ':did' => $docId, ':aid' => $actorId]);
+        }
+
+        $pdo->commit();
+
+        echo json_encode([
+            'success' => true,
+            'status'  => 'success',
+            'message' => "✓ {$patName} successfully allocated to Bed {$bed['bed_number']}."
+        ]);
+        exit;
+
+    } catch (PDOException $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        error_log("Admin action allocate PDOException: " . $e->getMessage());
+
+        if ($e->getCode() == 23000 || str_contains($e->getMessage(), '1062')) {
+            if (str_contains($e->getMessage(), 'uq_active_bed')) {
+                http_response_code(409);
+                echo json_encode([
+                    'success' => false,
+                    'status'  => 'error',
+                    'message' => 'Bed is already occupied by another patient.'
+                ]);
+                exit;
+            }
+            if (str_contains($e->getMessage(), 'uq_active_patient')) {
+                $lookup = $pdo->prepare("
+                    SELECT b.bed_number 
+                    FROM bed_allocations ba 
+                    JOIN hospital_beds b ON ba.bed_id = b.bed_id 
+                    WHERE ba.patient_id = :pid AND ba.status = 'Active' 
+                    LIMIT 1
+                ");
+                $lookup->execute([':pid' => $patientId]);
+                $activeBedNum = $lookup->fetchColumn() ?: 'Unknown';
+                http_response_code(409);
+                echo json_encode([
+                    'success' => false,
+                    'status'  => 'error',
+                    'message' => "Patient is currently admitted in Bed {$activeBedNum}. Please use Transfer Bed."
+                ]);
+                exit;
+            }
+        }
+
+        http_response_code(500);
+        echo json_encode([
+            'success' => false,
+            'status'  => 'error',
+            'message' => 'Database operation error: ' . $e->getMessage()
+        ]);
+        exit;
+    }
 }
 
 try {

@@ -447,10 +447,18 @@ try {
           </div>
 
           <div class="form-group-ipc">
-            <label>Assigned Care Team Physicians (Select all that apply)</label>
-            <div class="doctor-checkbox-list" id="doctorCheckboxList">
-              <!-- Rendered dynamically -->
+            <label>Assigned Care Team Physicians (Consultants)</label>
+            <!-- Selected Doctors Clinical Chips Container -->
+            <div id="selected-doctors-chips" class="selected-doctors-chips flex flex-wrap gap-2"></div>
+
+            <!-- Modern Searchable Combobox Input & Floating Dropdown -->
+            <div class="doctor-combobox-wrapper">
+              <input type="text" id="doctor-search-input" class="ipc-input" placeholder="Type doctor name or specialty (e.g. Cardio, Surgery)..." autocomplete="off">
+              <div id="doctor-search-dropdown" class="doctor-search-dropdown" style="display: none;"></div>
             </div>
+
+            <!-- Dynamically Synced Hidden Inputs -->
+            <div id="doctor-hidden-inputs"></div>
           </div>
         </div>
         <div class="inpatient-modal-footer">
