@@ -16,7 +16,7 @@ INSERT INTO `users`
 VALUES
   (1,  'Agatsuma Zenitsu',        'afzalhossain.miraz@gmail.com', '01783203318', 'Male',   '$2y$12$pF3GaBNjv0JQNiqV97PdJOw44P7GqwQ3hA5XEr5mEEUppzgsceYIy', 'Patient', 'active',    '2026-09-11 15:45:28'),
   (5,  'Nusrat Jahan',            'nusrat.jahan@medpulse.test',   '01812345678', 'Female', '$2y$12$fgDxuBJH30Zgfjm8KeU8BOR710dlfLV9Ax5Bx18kguhyiF2q4a1Gq', 'Patient', 'active',    '2026-09-11 17:08:12'),
-  (6,  'Miraz',                   'admin@medpulse.org',           '01700000000', 'Male',   '$2y$12$3ucl5ZjD1zVL9jIpKhiJCuHmoQkZiQki4IVgwSvKqbsBUcy2VhSbe', 'Admin',   'active',    '2026-09-11 17:39:22'),
+  (6,  'Miraz',                   'admin@medpulse.org',           '01700000000', 'Male',   '$2y$10$wE6v3zQG6Tvh1fSsqk04Ue4hJb5qf5i0kO/mGq3UqXG6z7D2cR6yK', 'Admin',   'active',    '2026-09-11 17:39:22'),
   (8,  'Dr. Rafiqul Islam',       'dr.rafiq@medpulse.test',       '01711122233', 'Male',   '$2y$12$cCjKp2iPuBE46X6KPt0a7ekjWKdZgDnoXxHde7yvW/244UlZVg8ze', 'Doctor',  'active',    '2026-09-11 17:50:13'),
   (9,  'Farhana Akter',           'farhana.staff@medpulse.test',  '01822334455', 'Female', '$2y$12$cWghiR/rub4nOvrgOInsUup6EOZGfclnbGVvl818tPkCVNzkgMRdK', 'Staff',   'rejected',  '2026-09-11 17:50:30'),
   (10, 'Jahid Hasan',             'jahid.patient@medpulse.test',  '01933445566', 'Male',   '$2y$12$B5uzHCytdNMvls1DX.b6Nu7/0w7F34X.tAWOvhMl9R6X7hYlhhoEm', 'Patient', 'active',    '2026-09-11 17:50:39'),

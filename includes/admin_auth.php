@@ -76,7 +76,7 @@ try {
     $authStmt->execute([':id' => $_SESSION['user_id']]);
     $currentAdmin = $authStmt->fetch(PDO::FETCH_ASSOC);
 
-    if (!$currentAdmin || $currentAdmin['status'] !== 'active') {
+    if (!$currentAdmin || strtolower($currentAdmin['status']) !== 'active') {
         session_destroy();
         header("Location: ../login.php");
         exit();
