@@ -252,21 +252,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
   </main>
 
-  <script>
-    function handleSettingsSave(event) {
-      event.preventDefault();
-      const btn = document.getElementById('btnSaveConfig');
-      const originalText = btn.innerHTML;
-      btn.disabled = true;
-      btn.innerHTML = '<span style="font-size: 0.75rem;">Saving...</span>';
-
-      setTimeout(() => {
-        btn.disabled = false;
-        btn.innerHTML = originalText;
-        showToast('Hospital infrastructure parameters and security policies saved successfully.', 'success');
-      }, 500);
-    }
-  </script>
+  <!-- Dedicated settings view script -->
+  <script src="../assets/js/admin/settings.js"></script>
 
 </body>
 </html>
