@@ -1173,3 +1173,104 @@
     border-radius: 12px;
   }
 }
+
+/* ==========================================================================
+   Telemetry Pill Dynamic Clinical Load States
+   ========================================================================== */
+.telemetry-pill {
+  transition: all 0.25s ease;
+}
+
+/* 1. Normal / Stable State (< 70% occupancy): #10b981, 2s */
+.telemetry-normal,
+.telemetry-pill.telemetry-normal {
+  background: #f0fdf4 !important;
+  border-color: #a7f3d0 !important;
+}
+
+.telemetry-normal svg,
+.telemetry-normal .ecg-wave-active {
+  stroke: #10b981 !important;
+  animation: ecgPulseAnim 2s linear infinite !important;
+  filter: drop-shadow(0 0 2px rgba(16, 185, 129, 0.45));
+}
+
+.telemetry-normal .ecg-wave-bg {
+  stroke: rgba(16, 185, 129, 0.2) !important;
+}
+
+.telemetry-normal .ecg-label {
+  color: #047857 !important;
+}
+
+.telemetry-normal .ecg-bpm-dot {
+  background: #10b981 !important;
+  animation: bpmBlink 1.2s ease-in-out infinite !important;
+}
+
+/* 2. Elevated / Warning State (70% - 89% occupancy): #f59e0b, 1.2s */
+.telemetry-warning,
+.telemetry-pill.telemetry-warning {
+  background: #fffbeb !important;
+  border-color: #fde68a !important;
+}
+
+.telemetry-warning svg,
+.telemetry-warning .ecg-wave-active {
+  stroke: #f59e0b !important;
+  animation: ecgPulseAnim 1.2s linear infinite !important;
+  filter: drop-shadow(0 0 2.5px rgba(245, 158, 11, 0.5));
+}
+
+.telemetry-warning .ecg-wave-bg {
+  stroke: rgba(245, 158, 11, 0.22) !important;
+}
+
+.telemetry-warning .ecg-label {
+  color: #b45309 !important;
+}
+
+.telemetry-warning .ecg-bpm-dot {
+  background: #f59e0b !important;
+  animation: bpmBlink 0.8s ease-in-out infinite !important;
+}
+
+/* 3. Critical State (>= 90% occupancy or 0 ICU beds available): #ef4444, 0.7s with pulse glow */
+.telemetry-critical,
+.telemetry-pill.telemetry-critical {
+  background: #fef2f2 !important;
+  border-color: #fecaca !important;
+  animation: telemetryPulseGlow 1.4s ease-in-out infinite alternate !important;
+}
+
+@keyframes telemetryPulseGlow {
+  0% {
+    box-shadow: 0 0 4px rgba(239, 68, 68, 0.2);
+    border-color: #fecaca;
+  }
+  100% {
+    box-shadow: 0 0 14px rgba(239, 68, 68, 0.5);
+    border-color: #f87171;
+  }
+}
+
+.telemetry-critical svg,
+.telemetry-critical .ecg-wave-active {
+  stroke: #ef4444 !important;
+  animation: ecgPulseAnim 0.7s linear infinite !important;
+  filter: drop-shadow(0 0 3px rgba(239, 68, 68, 0.7));
+}
+
+.telemetry-critical .ecg-wave-bg {
+  stroke: rgba(239, 68, 68, 0.25) !important;
+}
+
+.telemetry-critical .ecg-label {
+  color: #b91c1c !important;
+  font-weight: 700 !important;
+}
+
+.telemetry-critical .ecg-bpm-dot {
+  background: #ef4444 !important;
+  animation: bpmBlink 0.4s ease-in-out infinite !important;
+}

@@ -53,6 +53,20 @@
       if (vals[1]) vals[1].textContent = Number(s.occupied_beds).toLocaleString();
       if (vals[2]) vals[2].textContent = Number(s.available_beds).toLocaleString();
       // vals[3] = ICU% — server doesn't return it in get_stats (complex), skip live update
+
+      // Update dynamic clinical telemetry pill
+      if (data.telemetry) {
+        const t = data.telemetry;
+        const pill = document.querySelector('.telemetry-pill');
+        if (pill) {
+          pill.className = `ecg-pulse-monitor telemetry-pill ${t.class}`;
+          pill.title = `Real-time clinical telemetry: ${t.label} (${t.bpm})`;
+          const lbl = pill.querySelector('.ecg-label');
+          if (lbl) {
+            lbl.innerHTML = `<span class="ecg-bpm-dot"></span>${escHtml(t.bpm)} &bull; ${escHtml(t.label)} &bull; ${escHtml(String(t.active_beds))} BEDS ACTIVE`;
+          }
+        }
+      }
     } catch (_) { /* silent — chip values remain from last render */ }
   }
 

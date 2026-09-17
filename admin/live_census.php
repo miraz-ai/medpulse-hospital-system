@@ -52,7 +52,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || (isset($_GET['_action']) && in_arra
                     SUM(status = 'Maintenance') AS maintenance_beds
                 FROM hospital_beds
             ")->fetch(PDO::FETCH_ASSOC);
-            echo json_encode(['success' => true, 'stats' => $row]);
+
+            $icuRow = $pdo->query("
+                SELECT 
+                    COUNT(*) AS total_icu,
+                    SUM(status = 'Occupied') AS occupied_icu
+                FROM hospital_beds
+                WHERE ward_type IN ('ICU', 'CCU')
+            ")->fetch(PDO::FETCH_ASSOC);
+
+            $totIcu = (int)($icuRow['total_icu'] ?? 0);
+            $occIcu = (int)($icuRow['occupied_icu'] ?? 0);
+            $icuPct = $totIcu > 0 ? ($occIcu / $totIcu) * 100 : 0;
+            $availIcu = max(0, $totIcu - $occIcu);
+
+            if ($totIcu > 0 && ($availIcu === 0 || $icuPct >= 90)) {
+                $tBpm = '124 BPM'; $tClass = 'telemetry-critical'; $tLabel = 'CODE SURGE';
+            } elseif ($icuPct >= 70) {
+                $tBpm = '98 BPM'; $tClass = 'telemetry-warning'; $tLabel = 'HIGH LOAD';
+            } else {
+                $tBpm = '72 BPM'; $tClass = 'telemetry-normal'; $tLabel = 'STABLE';
+            }
+
+            echo json_encode([
+                'success' => true,
+                'stats' => $row,
+                'telemetry' => [
+                    'bpm' => $tBpm,
+                    'class' => $tClass,
+                    'label' => $tLabel,
+                    'active_beds' => (int)($row['total_beds'] ?? 500)
+                ]
+            ]);
         } catch (Throwable $e) {
             echo json_encode(['success' => false, 'message' => 'Stats query failed.']);
         }
@@ -380,6 +411,34 @@ try {
     $occupiedIcuCcu = (int)($icuRow['occupied_icu_ccu'] ?? 0);
     $icuOccupancyPct = $totalIcuCcu > 0 ? round(($occupiedIcuCcu / $totalIcuCcu) * 100) : 0;
 
+    // Clinical stress index & ECG pulse telemetry calculations
+    $total_critical_beds = $totalIcuCcu;
+    $occupied_critical_beds = $occupiedIcuCcu;
+    $available_critical_beds = max(0, $total_critical_beds - $occupied_critical_beds);
+    $critical_occupancy_rate = $total_critical_beds > 0 ? ($occupied_critical_beds / $total_critical_beds) * 100 : 0;
+    $total_active_beds = $totalHospitalBeds > 0 ? $totalHospitalBeds : 500;
+
+    // Threshold classification:
+    // 1. Critical (>= 90% occupancy or 0 ICU beds available)
+    if ($total_critical_beds > 0 && ($available_critical_beds === 0 || $critical_occupancy_rate >= 90)) {
+        $telemetry_bpm = '124 BPM';
+        $telemetry_class = 'telemetry-critical';
+        $telemetry_label = 'CODE SURGE';
+        $telemetry_speed = '0.7s';
+    // 2. Elevated (70% - 89% occupancy)
+    } elseif ($critical_occupancy_rate >= 70) {
+        $telemetry_bpm = '98 BPM';
+        $telemetry_class = 'telemetry-warning';
+        $telemetry_label = 'HIGH LOAD';
+        $telemetry_speed = '1.2s';
+    // 3. Normal (< 70% occupancy)
+    } else {
+        $telemetry_bpm = '72 BPM';
+        $telemetry_class = 'telemetry-normal';
+        $telemetry_label = 'STABLE';
+        $telemetry_speed = '2s';
+    }
+
     // Dynamic Ward Counts for tab badges
     $wardCounts = [
         'all' => $totalHospitalBeds,
@@ -397,6 +456,11 @@ try {
     $totalAvailableBeds = 392;
     $totalMaintenanceBeds = 15;
     $icuOccupancyPct = 20;
+    $total_active_beds = 500;
+    $telemetry_bpm = '72 BPM';
+    $telemetry_class = 'telemetry-normal';
+    $telemetry_label = 'STABLE';
+    $telemetry_speed = '2s';
     $wardCounts = ['all' => 500, 'icu' => 120, 'emergency' => 40, 'general' => 160, 'pediatrics' => 100, 'vip' => 80];
 }
 
@@ -591,12 +655,12 @@ if (!function_exists('getDoctorPastelBadgeClass')) {
       <div class="welcome-text">
         <h1 style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
           Live Bed & Clinical Census
-          <div class="ecg-pulse-monitor" style="cursor: default;" title="Real-time cardiac telemetry monitor">
+          <div class="ecg-pulse-monitor telemetry-pill <?= htmlspecialchars($telemetry_class) ?>" style="cursor: default;" title="Real-time clinical telemetry: <?= htmlspecialchars($telemetry_label) ?> (<?= htmlspecialchars($telemetry_bpm) ?>)">
             <svg class="ecg-wave-svg" viewBox="0 0 60 18" width="60" height="18" aria-hidden="true">
               <path class="ecg-wave-bg" d="M 0 9 L 10 9 L 13 6.5 L 16 9 L 20 9 L 22 11 L 25 2 L 28 16 L 31 9 L 35 9 L 40 5.5 L 45 9 L 60 9" pathLength="100"></path>
               <path class="ecg-wave-active" d="M 0 9 L 10 9 L 13 6.5 L 16 9 L 20 9 L 22 11 L 25 2 L 28 16 L 31 9 L 35 9 L 40 5.5 L 45 9 L 60 9" pathLength="100"></path>
             </svg>
-            <span class="ecg-label"><span class="ecg-bpm-dot"></span>72 BPM &bull; 500 BEDS ACTIVE</span>
+            <span class="ecg-label"><span class="ecg-bpm-dot"></span><?= htmlspecialchars($telemetry_bpm) ?> &bull; <?= htmlspecialchars($telemetry_label) ?> &bull; <?= htmlspecialchars((string)$total_active_beds) ?> BEDS ACTIVE</span>
           </div>
         </h1>
         <p>Real-time inpatient occupancy, emergency admission allocations, intensive care load, and rapid triage routing across MedPulse.</p>
