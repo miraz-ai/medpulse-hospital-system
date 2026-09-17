@@ -46,6 +46,7 @@ try {
   
   <!-- Single Source of Truth External CSS -->
   <link rel="stylesheet" href="../assets/css/patient_dashboard.css">
+  <link rel="stylesheet" href="../assets/css/live-ticker.css?v=<?= time() ?>">
 </head>
 <body>
 
@@ -74,6 +75,51 @@ try {
           Register Staff
         </button>
       </div>
+    </div>
+
+    <!-- Live Event Telemetry Ticker -->
+    <div class="telemetry-ticker-bar" id="telemetryTicker" aria-label="Live event telemetry ticker">
+      <div class="ticker-indicator">
+        <div class="ticker-pulse-wrapper">
+          <span class="ticker-pulse-ring"></span>
+          <span class="ticker-pulse-dot"></span>
+        </div>
+        <span class="indicator-label">Live Telemetry</span>
+      </div>
+
+      <div class="ticker-viewport">
+        <div class="ticker-track" id="tickerTrack">
+          <div class="ticker-item">
+            <span class="ticker-cat-badge cat-admission">Admission</span>
+            <span class="ticker-text">Patient registered to Emergency Ward 3B</span>
+            <span class="ticker-separator">&bull;</span>
+            <span class="ticker-time">Just now</span>
+          </div>
+          <div class="ticker-item">
+            <span class="ticker-cat-badge cat-verification">Verification</span>
+            <span class="ticker-text">Dr. Ayesha Siddiqua credentials approved</span>
+            <span class="ticker-separator">&bull;</span>
+            <span class="ticker-time">2m ago</span>
+          </div>
+          <div class="ticker-item">
+            <span class="ticker-cat-badge cat-pharmacy">Pharmacy</span>
+            <span class="ticker-text">Medication batch #409 released</span>
+            <span class="ticker-separator">&bull;</span>
+            <span class="ticker-time">5m ago</span>
+          </div>
+          <div class="ticker-item">
+            <span class="ticker-cat-badge cat-census">Census</span>
+            <span class="ticker-text">Bed #14 sanitized and ready for allocation</span>
+            <span class="ticker-separator">&bull;</span>
+            <span class="ticker-time">8m ago</span>
+          </div>
+        </div>
+      </div>
+
+      <a href="audit_logs.php" class="ticker-audit-link" title="View dedicated audit logs">
+        <span>View All Logs</span>
+        <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
+      </a>
     </div>
 
     <!-- Executive 4-Metric Vital Stats Cards -->
@@ -381,5 +427,6 @@ try {
     }
   </script>
 
+  <script src="../assets/js/live-ticker.js?v=<?= time() ?>"></script>
 </body>
 </html>
