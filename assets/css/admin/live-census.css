@@ -444,6 +444,10 @@
   box-shadow: 0 0 0 2px rgba(13, 148, 136, 0.35);
 }
 
+.bed-slot-card.has-active-popover {
+  z-index: 9999 !important;
+}
+
 .care-team-popover-card {
   position: absolute;
   top: calc(100% + 6px);
@@ -453,11 +457,18 @@
   background: #ffffff;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
-  box-shadow: 0 12px 28px -4px rgba(15, 23, 42, 0.18), 0 8px 12px -6px rgba(15, 23, 42, 0.12);
+  box-shadow: 0 12px 28px -4px rgba(15, 23, 42, 0.22), 0 8px 12px -6px rgba(15, 23, 42, 0.15);
   padding: 10px 12px;
-  z-index: 50;
+  z-index: 99999 !important;
   animation: careTeamPopIn 0.16s cubic-bezier(0.16, 1, 0.3, 1);
   text-align: left;
+  pointer-events: auto !important;
+}
+
+.care-team-popover-card.is-open {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
 }
 
 @keyframes careTeamPopIn {

@@ -846,12 +846,13 @@ if (!function_exists('getDoctorPastelBadgeClass')) {
                           <div class="care-team-popover-wrapper">
                             <button type="button" 
                                     class="extra-docs-badge btn-care-team-popover" 
+                                    onclick="toggleCareTeamPopover(event, this)"
                                     aria-haspopup="true" 
                                     aria-expanded="false" 
                                     title="Click to view assigned care team">
                               +<?= $extraCount ?> more
                             </button>
-                            <div class="care-team-popover-card" role="tooltip" style="display: none;">
+                            <div class="care-team-popover-card" role="tooltip" onclick="event.stopPropagation();" style="display: none;">
                               <div class="care-team-popover-header">
                                 <span>Assigned Care Team</span>
                                 <span class="popover-badge-pill"><?= $extraCount ?> additional</span>
@@ -1096,8 +1097,37 @@ if (!function_exists('getDoctorPastelBadgeClass')) {
   <!-- ========================================================
        BED LIFECYCLE ACTION JAVASCRIPT
        ======================================================== -->
-  <!-- Dedicated live census view script -->
-  <script src="../assets/js/admin/live_census.js"></script>
+  <!-- Immediate fallback for care team popover toggle -->
+  <script>
+    window.toggleCareTeamPopover = window.toggleCareTeamPopover || function(e, btn) {
+      if (e) { e.preventDefault(); e.stopPropagation(); }
+      if (!btn) return;
+      const wrapper = btn.closest('.care-team-popover-wrapper');
+      if (!wrapper) return;
+      const popover = wrapper.querySelector('.care-team-popover-card');
+      if (!popover) return;
+      const bedCard = wrapper.closest('.bed-slot-card');
+      const isCurrentlyOpen = popover.classList.contains('is-open') || popover.style.display === 'block';
+
+      if (typeof window.closeAllCareTeamPopovers === 'function') {
+        window.closeAllCareTeamPopovers();
+      } else {
+        document.querySelectorAll('.care-team-popover-card').forEach(c => { c.style.display = 'none'; c.classList.remove('is-open'); });
+        document.querySelectorAll('.btn-care-team-popover').forEach(b => { b.setAttribute('aria-expanded', 'false'); b.classList.remove('is-active'); });
+        document.querySelectorAll('.bed-slot-card.has-active-popover').forEach(c => c.classList.remove('has-active-popover'));
+      }
+
+      if (!isCurrentlyOpen) {
+        popover.style.display = 'block';
+        popover.classList.add('is-open');
+        btn.setAttribute('aria-expanded', 'true');
+        btn.classList.add('is-active');
+        if (bedCard) bedCard.classList.add('has-active-popover');
+      }
+    };
+  </script>
+  <!-- Dedicated live census view script with cache-busting -->
+  <script src="../assets/js/admin/live_census.js?v=<?= time() ?>"></script>
 
 </body>
 </html>
