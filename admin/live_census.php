@@ -503,6 +503,34 @@ try {
     $stmt->bindValue(':offset', (int)$offset, PDO::PARAM_INT);
     $stmt->execute();
     $bedSlots = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Fetch multi-doctor care team assignments for all active patients on current page
+    $activePatientIds = array_values(array_unique(array_filter(array_map(function($slot) {
+        return !empty($slot['patient_user_id']) ? (int)$slot['patient_user_id'] : null;
+    }, $bedSlots))));
+
+    $bedCareTeams = [];
+    if (!empty($activePatientIds)) {
+        $inPlaceholders = implode(',', array_fill(0, count($activePatientIds), '?'));
+        $teamStmt = $pdo->prepare("
+            SELECT 
+                pda.patient_id,
+                pda.doctor_id,
+                pda.is_primary,
+                doc.full_name AS doctor_name,
+                COALESCE(dp.specialty, doc.department, 'General Medicine') AS specialty
+            FROM patient_doctor_assignments pda
+            JOIN users doc ON pda.doctor_id = doc.user_id
+            LEFT JOIN doctor_profiles dp ON doc.user_id = dp.user_id
+            WHERE pda.status = 'Active' AND pda.patient_id IN ($inPlaceholders)
+            ORDER BY pda.patient_id ASC, pda.is_primary DESC, doc.full_name ASC
+        ");
+        $teamStmt->execute($activePatientIds);
+        $teamRows = $teamStmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($teamRows as $tr) {
+            $bedCareTeams[(int)$tr['patient_id']][] = $tr;
+        }
+    }
 } catch (Throwable $e) {
     error_log("Live Census Query Error: " . $e->getMessage());
     if (!$dbError) {
@@ -728,9 +756,22 @@ try {
           $patientDisplayId = !empty($slot['patient_user_id']) 
               ? '#P-' . str_pad($slot['patient_user_id'], 4, '0', STR_PAD_LEFT) 
               : ($rawStatus === 'occupied' ? '#P-' . (4000 + (int)$slot['bed_id']) : '');
-          $doctorDisplayName = !empty($slot['doctor_name']) 
-              ? $slot['doctor_name'] 
-              : ($rawStatus === 'occupied' ? 'Attending Physician (F' . $slot['floor_number'] . ')' : '');
+          $slotPatientId = !empty($slot['patient_user_id']) ? (int)$slot['patient_user_id'] : null;
+          $careTeam = ($slotPatientId && isset($bedCareTeams[$slotPatientId])) ? $bedCareTeams[$slotPatientId] : [];
+          
+          if (!empty($careTeam)) {
+              $leadDoctor = $careTeam[0]['doctor_name'];
+              $extraDocs = array_slice($careTeam, 1);
+              $extraCount = count($extraDocs);
+              $extraNames = array_map(function($d) { return $d['doctor_name']; }, $extraDocs);
+              $extraTooltip = 'Care Team: ' . implode(', ', $extraNames);
+          } else {
+              $leadDoctor = !empty($slot['doctor_name']) 
+                  ? $slot['doctor_name'] 
+                  : ($rawStatus === 'occupied' ? 'Attending Physician (F' . $slot['floor_number'] . ')' : '');
+              $extraCount = 0;
+              $extraTooltip = '';
+          }
           $admissionDate = !empty($slot['admitted_at']) 
               ? date('M j, Y', strtotime($slot['admitted_at'])) 
               : 'Active Care';
@@ -777,10 +818,17 @@ try {
                       <span class="patient-id"><?= htmlspecialchars($patientDisplayId, ENT_QUOTES, 'UTF-8') ?></span>
                     </div>
                     <div class="patient-meta">
-                      <span class="attending-doctor">
-                        <svg class="ui-ico" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle></svg>
-                        <?= htmlspecialchars($doctorDisplayName, ENT_QUOTES, 'UTF-8') ?>
-                      </span>
+                      <div class="attending-doctor-team">
+                        <span class="attending-doctor" title="<?= htmlspecialchars($leadDoctor, ENT_QUOTES, 'UTF-8') ?>">
+                          <svg class="ui-ico" style="width: 12px; height: 12px; flex-shrink: 0;" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle></svg>
+                          <span class="lead-doctor-name"><?= htmlspecialchars($leadDoctor, ENT_QUOTES, 'UTF-8') ?></span>
+                        </span>
+                        <?php if ($extraCount > 0): ?>
+                          <span class="extra-docs-badge" title="<?= htmlspecialchars($extraTooltip, ENT_QUOTES, 'UTF-8') ?>">
+                            +<?= $extraCount ?> more
+                          </span>
+                        <?php endif; ?>
+                      </div>
                     </div>
                   </div>
                   <div style="font-size: 0.74rem; color: #475569; display: flex; justify-content: space-between; margin-top: 4px;">

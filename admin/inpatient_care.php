@@ -9,6 +9,26 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../includes/admin_auth.php';
 
+/**
+ * Map doctor specialty or ID hash to clean, soft pastel badge classes
+ */
+function getDoctorPastelBadgeClass(?string $specialty, int $doctorId = 0): string {
+    $spec = strtolower(trim((string)$specialty));
+    if (preg_match('/cardio|emerg|anesthe|critical|icu/i', $spec)) {
+        return 'doc-badge-rose';
+    } elseif (preg_match('/med|general|diabet|pediatr|nephro|pulmon/i', $spec)) {
+        return 'doc-badge-sky';
+    } elseif (preg_match('/surg|ortho|trauma|plastic|uro/i', $spec)) {
+        return 'doc-badge-amber';
+    } elseif (preg_match('/neuro|special|derma|psych|onc/i', $spec)) {
+        return 'doc-badge-purple';
+    } elseif ($spec !== '') {
+        return 'doc-badge-teal';
+    }
+    $variants = ['doc-badge-rose', 'doc-badge-sky', 'doc-badge-amber', 'doc-badge-purple', 'doc-badge-teal'];
+    return $variants[abs($doctorId) % 5];
+}
+
 try {
     // 1. Fetch Inpatient Vital Metrics
     $totalInpatients = (int)$pdo->query("SELECT COUNT(*) FROM bed_allocations WHERE status = 'Active'")->fetchColumn();
@@ -50,7 +70,7 @@ try {
             pda.doctor_id,
             pda.is_primary,
             doc.full_name AS doctor_name,
-            dp.specialty
+            COALESCE(dp.specialty, doc.department, 'General Medicine') AS specialty
         FROM patient_doctor_assignments pda
         JOIN users doc ON pda.doctor_id = doc.user_id
         LEFT JOIN doctor_profiles dp ON doc.user_id = dp.user_id
@@ -312,10 +332,12 @@ try {
                     <?php else: ?>
                       <div class="care-team-cluster">
                         <?php foreach ($docs as $d): ?>
-                          <span class="doc-tag <?= $d['is_primary'] ? 'doc-primary' : '' ?>" title="<?= htmlspecialchars($d['specialty'] ?? '', ENT_QUOTES, 'UTF-8') ?>">
-                            <?php if ($d['is_primary']): ?>
-                              <svg class="ui-ico" style="width:12px;height:12px;" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
-                            <?php endif; ?>
+                          <?php 
+                            $badgeClass = getDoctorPastelBadgeClass($d['specialty'] ?? '', (int)$d['doctor_id']);
+                            $leadLabel = !empty($d['is_primary']) ? ' [Lead Attending]' : '';
+                            $tooltipText = (!empty($d['specialty']) ? $d['specialty'] : 'Attending Physician') . $leadLabel;
+                          ?>
+                          <span class="doc-tag <?= $badgeClass ?>" title="<?= htmlspecialchars($tooltipText, ENT_QUOTES, 'UTF-8') ?>">
                             <?= htmlspecialchars(str_replace('Dr. ', '', $d['doctor_name']), ENT_QUOTES, 'UTF-8') ?>
                           </span>
                         <?php endforeach; ?>

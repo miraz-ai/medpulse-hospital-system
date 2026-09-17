@@ -262,6 +262,18 @@ document.addEventListener('DOMContentLoaded', () => {
   // Alias for Care Team Modal
   window.openCareTeamModal = window.openDoctorModal;
 
+  function getDoctorPastelBadgeClass(specialty, doctorId = 0) {
+    const spec = String(specialty || '').toLowerCase().trim();
+    if (/cardio|emerg|anesthe|critical|icu/i.test(spec)) return 'doc-badge-rose';
+    if (/med|general|diabet|pediatr|nephro|pulmon/i.test(spec)) return 'doc-badge-sky';
+    if (/surg|ortho|trauma|plastic|uro/i.test(spec)) return 'doc-badge-amber';
+    if (/neuro|special|derma|psych|onc/i.test(spec)) return 'doc-badge-purple';
+    if (spec.length > 0) return 'doc-badge-teal';
+
+    const variants = ['doc-badge-rose', 'doc-badge-sky', 'doc-badge-amber', 'doc-badge-purple', 'doc-badge-teal'];
+    return variants[Math.abs(Number(doctorId) || 0) % 5];
+  }
+
   function updateCareTeamCount() {
     if (careTeamCountLabel) {
       careTeamCountLabel.textContent = `${selectedDoctorIds.length} Assigned`;
@@ -277,11 +289,11 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!doc) return;
 
       const isPrimary = (Number(currentPrimaryDocId) === Number(id));
+      const pastelClass = getDoctorPastelBadgeClass(doc.specialty, doc.user_id);
       const chip = document.createElement('div');
-      chip.className = `doctor-chip ${isPrimary ? 'is-primary-chip' : ''}`;
+      chip.className = `doctor-chip ${pastelClass} ${isPrimary ? 'is-primary-chip' : ''}`;
       chip.innerHTML = `
-        ${isPrimary ? '<svg class="ui-ico" style="width:12px;height:12px;color:#d97706;" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>' : ''}
-        <span>${doc.full_name} <span class="chip-spec">(${doc.specialty || 'General'})</span></span>
+        <span>${doc.full_name} <span class="chip-spec">(${doc.specialty || 'General'}${isPrimary ? ' • Lead' : ''})</span></span>
         <button type="button" class="chip-remove-btn" title="Remove ${doc.full_name}" onclick="removeDoctorChip(${doc.user_id})">&times;</button>
       `;
       chipsContainer.appendChild(chip);
@@ -572,9 +584,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const docObj = activeDoctorsCache.find(d => parseInt(d.user_id) === parseInt(id));
         if (docObj) {
           const isPrimary = (parseInt(id) === parseInt(primaryDocId));
+          const badgeClass = getDoctorPastelBadgeClass(docObj.specialty, docObj.user_id);
+          const leadLabel = isPrimary ? ' [Lead Attending]' : '';
+          const tooltipText = (docObj.specialty || 'Attending Physician') + leadLabel;
           html += `
-            <span class="doc-tag ${isPrimary ? 'doc-primary' : ''}" title="${docObj.specialty || ''}">
-              ${isPrimary ? '<svg class="ui-ico" style="width:12px;height:12px;" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>' : ''}
+            <span class="doc-tag ${badgeClass}" title="${tooltipText}">
               ${docObj.full_name.replace('Dr. ', '')}
             </span>
           `;
