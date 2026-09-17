@@ -264,7 +264,7 @@ if ($hour < 12) {
         </a>
       </li>
       <li class="nav-item">
-        <a href="#">
+        <a href="my_bills.php">
           <div class="nav-item-inner">
             <svg class="ui-ico" viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect><line x1="1" y1="10" x2="23" y2="10"></line></svg>
             Automated Billing

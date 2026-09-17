@@ -292,16 +292,17 @@ class EventDispatcher
     ): void {
         try {
             $stmt = $pdo->prepare("
-                INSERT INTO audit_logs (user_id, action, description, category, target_entity, ip_address, created_at)
-                VALUES (:uid, :act, :desc, :cat, :tgt, :ip, NOW())
+                INSERT INTO audit_logs (actor_id, actor_role, action, action_name, description, category, target_entity, ip_address)
+                VALUES (:actor_id, 'System', :act, :action_name, :desc, :cat, :tgt, :ip)
             ");
             $stmt->execute([
-                ':uid'  => $actorId > 0 ? $actorId : null,
-                ':act'  => mb_substr($actionKey, 0, 50),
-                ':desc' => mb_substr($description, 0, 255),
-                ':cat'  => mb_substr($category, 0, 50),
-                ':tgt'  => mb_substr($targetEntity, 0, 100),
-                ':ip'   => mb_substr($ip, 0, 45)
+                ':actor_id'   => $actorId > 0 ? $actorId : null,
+                ':act'        => mb_substr($actionKey,    0, 150),
+                ':action_name'=> mb_substr($actionName,   0, 100),
+                ':desc'       => mb_substr($description,  0, 255),
+                ':cat'        => mb_substr($category,     0, 50),
+                ':tgt'        => mb_substr($targetEntity, 0, 150),
+                ':ip'         => mb_substr($ip,           0, 45),
             ]);
         } catch (Throwable $e) {
             error_log("Audit log failed in EventDispatcher: " . $e->getMessage());
