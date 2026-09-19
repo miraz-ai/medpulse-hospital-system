@@ -227,6 +227,10 @@ $patientName = htmlspecialchars($patient['full_name'], ENT_QUOTES, 'UTF-8');
     .btn-pay-gateway{display:inline-flex;align-items:center;gap:6px;background:linear-gradient(135deg,#059669,#047857);color:#fff;border:none;cursor:pointer;border-radius:8px;padding:7px 12px;font-size:.74rem;font-weight:700;transition:opacity .18s,transform .18s;font-family:inherit;white-space:nowrap;}
     .btn-pay-gateway:hover{opacity:.88;transform:scale(1.02);}
     .btn-pay-gateway svg{stroke:#fff;width:13px;height:13px;}
+    /* Download Official Receipt (PDF) — routes to centralized generate_invoice_pdf.php */
+    .btn-download-pdf{display:inline-flex;align-items:center;gap:6px;background:#0f172a;color:#fff;border-radius:8px;padding:7px 14px;font-size:.74rem;font-weight:700;text-decoration:none;transition:opacity .18s,transform .18s;justify-content:center;width:100%;white-space:nowrap;}
+    .btn-download-pdf:hover{opacity:.85;transform:scale(1.02);color:#fff;}
+    .btn-download-pdf svg{stroke:#fff;width:14px;height:14px;flex-shrink:0;}
     .empty-bills{text-align:center;padding:64px 24px;}
     .empty-bills svg{stroke:#cbd5e1;margin-bottom:16px;}
     .empty-bills h3{font-size:1rem;font-weight:700;color:#64748b;margin-bottom:6px;}
@@ -410,7 +414,7 @@ $patientName = htmlspecialchars($patient['full_name'], ENT_QUOTES, 'UTF-8');
               <td class="<?= $dueClass ?>">&#2547;<?= number_format((float)$inv['due_amount'], 2) ?></td>
               <td><?= $statusBadge ?></td>
               <td>
-                <div style="display:flex;flex-direction:column;gap:5px;align-items:stretch;min-width:160px;max-width:210px;">
+                <div style="display:flex;flex-direction:column;gap:5px;align-items:stretch;min-width:160px;max-width:215px;">
                   <button
                     class="btn-view-receipt"
                     id="btn-receipt-<?= (int)$inv['invoice_id'] ?>"
@@ -423,6 +427,19 @@ $patientName = htmlspecialchars($patient['full_name'], ENT_QUOTES, 'UTF-8');
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                     View Breakdown
                   </button>
+                  <!-- Download Official Receipt via centralized PDF engine (session-gated, ownership-checked) -->
+                  <a
+                    href="../includes/generate_invoice_pdf.php?invoice_id=<?= (int)$inv['invoice_id'] ?>&download=1"
+                    class="btn-download-pdf"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    id="btn-pdf-<?= (int)$inv['invoice_id'] ?>"
+                    aria-label="Download Official Receipt PDF for invoice <?= htmlspecialchars($inv['invoice_number'], ENT_QUOTES, 'UTF-8') ?>"
+                    title="Download Official Receipt (PDF)"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    Download Official Receipt
+                  </a>
                   <?php if ((float)$inv['due_amount'] > 0 || strtolower($inv['status']) !== 'paid'): ?>
                     <button
                       class="btn-pay-gateway"
@@ -556,10 +573,17 @@ function renderReceipt(inv, items) {
         Do not pay cash to any individual. All payments must go through the official cashier or online portal.
       </div>
       <div style="display:flex;gap:12px;flex-wrap:wrap;">
-        <button class="btn-print-receipt" style="flex:1;" onclick="printReceipt()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="17" height="17"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
-          Print / Save as PDF
-        </button>
+        <!-- Official PDF receipt via centralized generator (opens new tab, auto-triggers print dialog) -->
+        <a
+          href="../includes/generate_invoice_pdf.php?invoice_id=${encodeURIComponent(inv.invoice_id)}&download=1"
+          class="btn-print-receipt"
+          style="flex:1;text-decoration:none;justify-content:center;"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="17" height="17"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Download Official Receipt (PDF)
+        </a>
         ${parseFloat(inv.due_amount||0) > 0 ? `
         <button class="btn-pay-gateway" style="flex:1;justify-content:center;padding:11px 22px;font-size:.84rem;" onclick="openPaymentGuidance('${escHtml(inv.invoice_number)}', ${parseFloat(inv.due_amount)})">
           <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
@@ -624,13 +648,7 @@ function openPaymentGuidance(invNumber, dueAmount) {
   document.body.style.overflow = 'hidden';
 }
 
-function printReceipt() {
-  const pr = document.getElementById('printRegion');
-  pr.innerHTML = document.getElementById('modalContent').innerHTML;
-  pr.style.display = 'block';
-  window.print();
-  pr.style.display = 'none';
-}
+// printReceipt() removed — PDF generation is handled by includes/generate_invoice_pdf.php (centralized engine)
 
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && backdrop.classList.contains('open')) closeReceipt(); });
 backdrop.addEventListener('click', e => { if (e.target === backdrop) closeReceipt(); });
