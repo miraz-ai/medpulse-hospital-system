@@ -338,6 +338,17 @@ if (!function_exists('getHospitalCrest')) {
       50%      { transform: scale(1.5); opacity:.5; }
     }
 
+    .btn-declare-emergency {
+      background: linear-gradient(135deg, #e11d48 0%, #dc2626 100%) !important;
+      box-shadow: 0 4px 16px rgba(225, 29, 72, 0.40) !important;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+    }
+    .btn-declare-emergency:hover {
+      background: linear-gradient(135deg, #be123c 0%, #b91c1c 100%) !important;
+      transform: translateY(-2px);
+      box-shadow: 0 6px 22px rgba(225, 29, 72, 0.55) !important;
+    }
+
     .sa-switcher-group {
       display: flex;
       align-items: center;
@@ -468,7 +479,7 @@ if (!function_exists('getHospitalCrest')) {
       transition: background .15s;
     }
 
-    .sa-data-table tbody tr:hover { background: rgba(2,132,199,.03); }
+    .sa-data-table tbody tr:hover { background: rgba(124, 58, 237, 0.04); }
 
     .sa-data-table tbody td {
       padding: 13px 18px;
@@ -559,12 +570,17 @@ if (!function_exists('getHospitalCrest')) {
       background: var(--surface-border-subtle);
       border: 1px solid var(--surface-border);
       border-radius: var(--radius-md);
-      transition: border-color .2s, box-shadow .2s;
+      transition: border-color .2s, box-shadow .2s, transform .2s;
+      cursor: pointer;
+      text-decoration: none;
+      display: block;
+      color: inherit;
     }
 
     .ward-card:hover {
       border-color: var(--sa-accent-border);
-      box-shadow: 0 4px 14px var(--sa-accent-soft);
+      box-shadow: 0 8px 20px rgba(124, 58, 237, 0.12);
+      transform: translateY(-3px);
     }
 
     .ward-card-label {
@@ -697,8 +713,103 @@ if (!function_exists('getHospitalCrest')) {
     }
 
     /* =========================================================
-       DYNAMIC ECG WAVEFORM LIVE TELEMETRY BAR
+       CROSS-HOSPITAL NETWORK TELEMETRY STREAM TICKER
        ========================================================= */
+    .net-ticker-strip {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 18px;
+      background: var(--surface);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-lg);
+      margin-bottom: 18px;
+      overflow: hidden;
+      min-height: 40px;
+      position: relative;
+    }
+    .net-ticker-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.68rem;
+      font-weight: 800;
+      color: var(--sa-accent);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      white-space: nowrap;
+      flex-shrink: 0;
+      padding-right: 10px;
+      border-right: 1px solid var(--surface-border);
+    }
+    .net-ticker-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--sa-accent);
+      animation: saPulse 1.6s ease infinite;
+      flex-shrink: 0;
+    }
+    .net-ticker-viewport {
+      flex: 1;
+      overflow: hidden;
+      position: relative;
+      height: 22px;
+    }
+    .net-ticker-item {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      opacity: 0;
+      transform: translateY(6px);
+      transition: opacity 0.4s ease, transform 0.4s ease;
+      white-space: nowrap;
+    }
+    .net-ticker-item.active {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    .ticker-facility-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .ticker-dot-normal   { background: #10b981; animation: saPulse 2s ease infinite; }
+    .ticker-dot-high     { background: #f59e0b; animation: saPulse 1.2s ease infinite; }
+    .ticker-dot-critical { background: #ef4444; animation: saPulse 0.8s ease infinite; }
+    .net-ticker-text {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text-body);
+    }
+    .net-ticker-text strong {
+      font-weight: 800;
+      color: var(--text-heading);
+    }
+    .net-ticker-text .ticker-tag {
+      display: inline-block;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 0.68rem;
+      font-weight: 700;
+      margin-left: 4px;
+      vertical-align: middle;
+    }
+    .tag-critical { background: #fee2e2; color: #b91c1c; }
+    .tag-high     { background: #fef3c7; color: #92400e; }
+    .tag-normal   { background: #dcfce7; color: #15803d; }
+    .tag-surge    { background: #fce7f3; color: #9d174d; }
+    .net-ticker-counter {
+      font-size: 0.68rem;
+      color: var(--text-muted);
+      font-weight: 600;
+      white-space: nowrap;
+      flex-shrink: 0;
+      font-variant-numeric: tabular-nums;
+    }
     .sa-telemetry-badge {
       display: inline-flex;
       align-items: center;
@@ -1253,9 +1364,12 @@ if (!function_exists('getHospitalCrest')) {
       </div>
       <div class="banner-actions">
         <?php if ($activeCount === 0): ?>
-          <a href="bed_monitor.php" class="btn-action-gradient" style="background:linear-gradient(135deg,#059669 0%,#0d9488 100%);text-decoration:none;display:inline-flex;align-items:center;gap:6px;">
-            <svg class="ui-ico ui-ico-sm" style="stroke:white;width:15px;height:15px;" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
-            Declare Emergency
+          <a href="bed_monitor.php" class="btn-action-gradient btn-declare-emergency" style="background:linear-gradient(135deg, #e11d48 0%, #dc2626 100%);color:#ffffff;text-decoration:none;display:inline-flex;align-items:center;gap:8px;font-weight:800;letter-spacing:0.04em;text-transform:uppercase;box-shadow:0 4px 16px rgba(225,29,72,0.40);border:1px solid rgba(255,255,255,0.22);padding:9px 18px;border-radius:10px;transition:all 0.2s cubic-bezier(0.16, 1, 0.3, 1);">
+            <svg class="ui-ico ui-ico-sm" style="stroke:white;fill:none;stroke-width:2.2;width:17px;height:17px;animation:saPulse 1.2s infinite;flex-shrink:0;" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+            <span style="display:inline-flex;align-items:center;gap:6px;">
+              <span style="display:inline-block;animation:saPulse 1s infinite;">🚨</span>
+              DECLARE EMERGENCY PROTOCOL
+            </span>
           </a>
         <?php elseif ($activeCount === 1): ?>
           <a href="bed_monitor.php" class="btn-action-gradient" style="background:linear-gradient(135deg,#e11d48 0%,#b91c1c 100%);text-decoration:none;display:inline-flex;align-items:center;gap:6px;box-shadow:0 4px 14px rgba(225,29,72,.35);">
@@ -1301,6 +1415,20 @@ if (!function_exists('getHospitalCrest')) {
       </div>
     </div>
 
+    <!-- Cross-Hospital Network Situation Telemetry Stream -->
+    <div class="net-ticker-strip" id="netTickerStrip">
+      <div class="net-ticker-label">
+        <span class="net-ticker-dot"></span>
+        LIVE NETWORK
+      </div>
+      <div class="net-ticker-viewport" id="tickerViewport">
+        <!-- Facility telemetry items injected by JS -->
+      </div>
+      <div class="net-ticker-counter">
+        <span id="tickerCurrent">1</span> / <span id="tickerTotal">6</span>
+      </div>
+    </div>
+
     <!-- Active Emergency Broadcast / Animated Alert Carousel Ticker -->
     <?php if ($activeCount === 1):
       $proto = $activeProtocols[0];
@@ -1312,7 +1440,7 @@ if (!function_exists('getHospitalCrest')) {
         }
       }
     ?>
-    <div style="background:linear-gradient(135deg,#881337 0%,#4c0519 100%);border:1.5px solid #f43f5e;border-radius:16px;padding:16px 20px;color:#fff;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;box-shadow:0 8px 24px rgba(136,19,55,.4);">
+    <div class="single-disaster-banner" id="singleDisasterBanner" data-protocol-id="<?= (int)$proto['id'] ?>" style="background:linear-gradient(135deg,#881337 0%,#4c0519 100%);border:1.5px solid #f43f5e;border-radius:16px;padding:16px 20px;color:#fff;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;box-shadow:0 8px 24px rgba(136,19,55,.4);">
       <div style="display:flex;align-items:center;gap:14px;">
         <div style="font-size:1.8rem;width:44px;height:44px;border-radius:10px;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;">🚨</div>
         <div>
@@ -1344,13 +1472,13 @@ if (!function_exists('getHospitalCrest')) {
             <span class="ping-ring"></span>
             <span class="ping-core"></span>
           </span>
-          <span class="carousel-header-title">NATIONAL DISASTER PROTOCOL SURGE &bull; <?= $activeCount ?> CONCURRENT THREATS ACTIVE (<?= number_format($totalSurgeHeldBeds) ?> TOTAL BEDS LOCKED)</span>
+          <span class="carousel-header-title" id="carouselHeaderTitle">NATIONAL DISASTER PROTOCOL SURGE &bull; <?= $activeCount ?> CONCURRENT THREATS ACTIVE (<?= number_format($totalSurgeHeldBeds) ?> TOTAL BEDS LOCKED)</span>
         </div>
         <div class="carousel-pills" id="carouselPills">
           <?php foreach ($activeProtocols as $idx => $proto): 
             $badgeColor = $proto['meta']['badge_color'] ?? '#e11d48';
           ?>
-          <button type="button" class="carousel-pill-btn <?= $idx === 0 ? 'active' : '' ?>" onclick="switchCarouselSlide(<?= $idx ?>)" data-slide="<?= $idx ?>">
+          <button type="button" class="carousel-pill-btn <?= $idx === 0 ? 'active' : '' ?>" onclick="switchCarouselSlide(<?= $idx ?>)" data-slide="<?= $idx ?>" data-protocol-id="<?= (int)$proto['id'] ?>">
             <span class="pill-dot" style="background:<?= $badgeColor ?>;"></span>
             <?= htmlspecialchars($proto['title'], ENT_QUOTES, 'UTF-8') ?>
           </button>
@@ -1369,7 +1497,7 @@ if (!function_exists('getHospitalCrest')) {
             }
           }
         ?>
-        <div class="carousel-slide <?= $idx === 0 ? 'active' : '' ?>" id="carouselSlide-<?= $idx ?>">
+        <div class="carousel-slide <?= $idx === 0 ? 'active' : '' ?>" id="carouselSlide-<?= $idx ?>" data-protocol-id="<?= (int)$proto['id'] ?>" data-slide-index="<?= $idx ?>">
           <div class="slide-content-grid">
             <div class="slide-main">
               <div class="slide-title-row">
@@ -1683,15 +1811,16 @@ if (!function_exists('getHospitalCrest')) {
             $wAvail  = (int)($wd['available'] ?? 0);
             $wOccPct = $wTotal > 0 ? round((($wTotal - $wAvail) / $wTotal) * 100) : 0;
             $wFill   = $wOccPct >= 85 ? 'fill-red' : ($wOccPct >= 60 ? 'fill-amber' : 'fill-green');
+            $wardSlug = urlencode($wd['ward_type']);
           ?>
-          <div class="ward-card">
+          <a href="bed_monitor.php?ward=<?= $wardSlug ?>" class="ward-card" title="View all <?= htmlspecialchars($wd['ward_type'], ENT_QUOTES, 'UTF-8') ?> beds in Bed Monitor">
             <div class="ward-card-label"><?= htmlspecialchars($wd['ward_type'], ENT_QUOTES, 'UTF-8') ?></div>
             <div class="ward-card-avail"><?= $wAvail ?></div>
             <div class="ward-card-total">of <?= $wTotal ?> available</div>
             <div style="margin-top:8px;" class="occ-bar-bg">
               <div class="occ-bar-fill <?= $wFill ?>" style="width:<?= $wOccPct ?>%;"></div>
             </div>
-          </div>
+          </a>
           <?php endforeach; ?>
           <?php endif; ?>
         </div>
@@ -1743,6 +1872,79 @@ if (!function_exists('getHospitalCrest')) {
   <script src="../assets/js/medpulse_dialog.js?v=<?= time() ?>"></script>
 
   <script>
+    // ── Cross-Hospital Network Telemetry Stream Ticker ────────────────────────
+    const TICKER_FACILITIES = [
+      {
+        name: 'Square Hospital',
+        text: 'ICU at <strong>100% Capacity</strong> &mdash; 0/91 Vacant',
+        tag:  '<span class="ticker-tag tag-critical">Critical Triage Priority</span>',
+        dot:  'ticker-dot-critical'
+      },
+      {
+        name: 'NIBPS',
+        text: 'Apex Burn Pavilion Active &mdash; <strong>116 General Recovery</strong> beds ready',
+        tag:  '<span class="ticker-tag tag-surge">Burn Protocol Active</span>',
+        dot:  'ticker-dot-high'
+      },
+      {
+        name: 'United Hospital',
+        text: 'Cardiac &amp; Nephrology Wards Stable &mdash; <strong>37 beds available</strong>',
+        tag:  '<span class="ticker-tag tag-normal">Stable</span>',
+        dot:  'ticker-dot-normal'
+      },
+      {
+        name: 'UMCH',
+        text: 'Academic Teaching Wards on Standby for <strong>Dengue HDU</strong> conversion',
+        tag:  '<span class="ticker-tag tag-high">HDU Standby</span>',
+        dot:  'ticker-dot-high'
+      },
+      {
+        name: 'Evercare Hospital',
+        text: 'Multi-disciplinary Trauma &amp; PICU <strong>fully operational</strong>',
+        tag:  '<span class="ticker-tag tag-normal">Operational</span>',
+        dot:  'ticker-dot-normal'
+      },
+      {
+        name: 'MedPulse Hospital',
+        text: 'Flagship Triage Active &mdash; <strong><?= number_format($emergencyHoldBeds) ?> beds</strong> in Surge Hold',
+        tag:  '<span class="ticker-tag tag-surge">Surge Active</span>',
+        dot:  '<?= $emergencyHoldBeds > 0 ? 'ticker-dot-critical' : 'ticker-dot-normal' ?>'
+      }
+    ];
+
+    let tickerIdx  = 0;
+    const viewport = document.getElementById('tickerViewport');
+    const tickerCurrentEl = document.getElementById('tickerCurrent');
+    const tickerTotalEl   = document.getElementById('tickerTotal');
+
+    function buildTickerItems() {
+      if (!viewport) return;
+      tickerTotalEl.textContent = TICKER_FACILITIES.length;
+      TICKER_FACILITIES.forEach((f, i) => {
+        const el = document.createElement('div');
+        el.className = 'net-ticker-item' + (i === 0 ? ' active' : '');
+        el.dataset.tickerIdx = i;
+        el.innerHTML = `
+          <span class="ticker-facility-dot ${f.dot}"></span>
+          <span class="net-ticker-text"><strong>[${f.name}]</strong> ${f.text} ${f.tag}</span>
+        `;
+        viewport.appendChild(el);
+      });
+    }
+
+    function advanceTicker() {
+      const items = viewport ? viewport.querySelectorAll('.net-ticker-item') : [];
+      if (!items.length) return;
+      items[tickerIdx].classList.remove('active');
+      tickerIdx = (tickerIdx + 1) % items.length;
+      items[tickerIdx].classList.add('active');
+      if (tickerCurrentEl) tickerCurrentEl.textContent = tickerIdx + 1;
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      buildTickerItems();
+      setInterval(advanceTicker, 4000);
+    });
     // Auto-refresh the page every 60 seconds to keep data live
     let autoRefreshTimer = setTimeout(() => location.reload(), 60000);
 
@@ -1774,12 +1976,22 @@ if (!function_exists('getHospitalCrest')) {
     const PROGRESS_INTERVAL = 50;
 
     function switchCarouselSlide(idx) {
-      if (totalSlides <= 1) return;
-      currentSlideIdx = (idx + totalSlides) % totalSlides;
-      document.querySelectorAll('.carousel-slide').forEach((s, i) => {
+      const slides = document.querySelectorAll('.carousel-slide');
+      const pills  = document.querySelectorAll('.carousel-pill-btn');
+      const count  = slides.length;
+      if (count <= 1) {
+        if (count === 1) {
+          slides[0].classList.add('active');
+          if (pills[0]) pills[0].classList.add('active');
+        }
+        resetProgress();
+        return;
+      }
+      currentSlideIdx = (idx + count) % count;
+      slides.forEach((s, i) => {
         s.classList.toggle('active', i === currentSlideIdx);
       });
-      document.querySelectorAll('.carousel-pill-btn').forEach((p, i) => {
+      pills.forEach((p, i) => {
         p.classList.toggle('active', i === currentSlideIdx);
       });
       resetProgress();
@@ -1792,7 +2004,8 @@ if (!function_exists('getHospitalCrest')) {
     }
 
     function startCarousel() {
-      if (totalSlides <= 1) return;
+      const count = document.querySelectorAll('.carousel-slide').length;
+      if (count <= 1) return;
       clearInterval(progressTimer);
       progressTimer = setInterval(() => {
         progressPct += (PROGRESS_INTERVAL / SLIDE_DURATION) * 100;
@@ -1817,21 +2030,60 @@ if (!function_exists('getHospitalCrest')) {
     }
 
     // Stand Down Single Emergency Protocol
-    function standDownSingleProtocol(protoId, title) {
-      if (typeof showConfirmModal === 'function') {
-        showConfirmModal({
-          title: 'Stand Down Emergency Protocol',
-          message: `Are you sure you want to stand down <strong>${title}</strong>? Unassigned hold beds will immediately revert to Available, and treated beds will move to Sanitizing.`,
-          confirmText: '⚡ Stand Down Protocol',
-          danger: true,
-          onConfirm: () => executeStandDown(protoId)
-        });
-      } else if (confirm(`Stand down ${title}?`)) {
-        executeStandDown(protoId);
+    async function standDownSingleProtocol(protoId, title) {
+      if (typeof pauseCarousel === 'function') pauseCarousel();
+
+      const escapeHtml = (str) => {
+        if (!str) return '';
+        return String(str)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      };
+
+      const confirmed = await MedPulseDialog.confirm({
+        title: 'Confirm Protocol De-escalation',
+        subtitle: `Disaster Protocol Stand-Down (Protocol ID #${protoId})`,
+        type: 'danger',
+        confirmText: '⚡ Execute Stand-Down',
+        cancelText: 'Abort / Keep Active',
+        html: `
+          <div style="font-size:0.88rem;color:#334155;line-height:1.55;margin-bottom:12px;">
+            You are initiating the official de-escalation for active emergency surge protocol:
+          </div>
+          <div style="margin-bottom:16px;">
+            <span style="display:inline-flex;align-items:center;gap:7px;padding:6px 14px;background:#fef2f2;border:1px solid #fecaca;border-radius:10px;font-size:0.88rem;font-weight:700;color:#991b1b;box-shadow:0 1px 3px rgba(225,29,72,0.08);">
+              <span style="width:8px;height:8px;border-radius:50%;background:#e11d48;display:inline-block;box-shadow:0 0 8px #e11d48;"></span>
+              ${escapeHtml(title)}
+            </span>
+          </div>
+          <div style="background:#fff1f2;border:1px solid #ffe4e6;border-radius:12px;padding:12px 14px;margin-bottom:14px;">
+            <p style="font-size:0.82rem;color:#9f1239;line-height:1.5;margin:0 0 6px;font-weight:700;">
+              Operational Protocol De-escalation Directives:
+            </p>
+            <ul style="font-size:0.8rem;color:#881337;line-height:1.6;margin:0;padding-left:18px;">
+              <li>Standing down will <strong>release all held emergency beds</strong> allocated for this surge, immediately restoring them to <em>Available</em>.</li>
+              <li>Active beds used during this surge will transition directly to the <strong>sanitization protocol</strong> for clinical decontamination.</li>
+              <li>Other active disaster protocols (if any) will remain strictly enforced across the network.</li>
+            </ul>
+          </div>
+          <div style="font-size:0.78rem;color:#64748b;">
+            Zero orphaned allocations will remain. This action is permanently audited. Proceed with stand-down?
+          </div>
+        `
+      });
+
+      if (!confirmed) {
+        if (typeof resumeCarousel === 'function') resumeCarousel();
+        return;
       }
+
+      await executeStandDown(protoId, title);
     }
 
-    function executeStandDown(protoId) {
+    async function executeStandDown(protoId, title) {
       const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
       const fd = new FormData();
       fd.append('_action', 'terminate_emergency');
@@ -1840,28 +2092,124 @@ if (!function_exists('getHospitalCrest')) {
         fd.append('protocol_id', protoId);
       }
 
-      fetch('../backend/api/emergency_surge_action.php', {
-        method: 'POST',
-        body: fd
-      })
-      .then(r => r.json())
-      .then(res => {
+      try {
+        const r = await fetch('../backend/api/emergency_surge_action.php', {
+          method: 'POST',
+          body: fd
+        });
+        const res = await r.json();
+
         if (res.success) {
-          if (typeof showToast === 'function') {
-            showToast(res.message, 'success');
-          }
-          setTimeout(() => location.reload(), 900);
+          MedPulseDialog.toast({
+            title: 'Protocol De-escalated',
+            message: 'Protocol de-escalated successfully. Bed capacities restored.',
+            type: 'success',
+            duration: 4000
+          });
+
+          handleDashboardStandDownSuccess(protoId, res);
         } else {
-          if (typeof showToast === 'function') {
-            showToast(res.message || 'Stand-down failed', 'error');
+          MedPulseDialog.toast({
+            title: 'De-escalation Failed',
+            message: res.message || 'Stand-down operation failed.',
+            type: 'error',
+            duration: 5000
+          });
+          if (typeof resumeCarousel === 'function') resumeCarousel();
+        }
+      } catch (err) {
+        MedPulseDialog.toast({
+          title: 'Communication Failure',
+          message: 'Network error communicating with emergency triage API.',
+          type: 'error',
+          duration: 5000
+        });
+        if (typeof resumeCarousel === 'function') resumeCarousel();
+      }
+    }
+
+    function handleDashboardStandDownSuccess(protoId, res) {
+      // 1. Smoothly update KPI metric cards
+      const kpiAvail = document.getElementById('kpiAvailBeds');
+      const reverted = parseInt(res.reverted_available, 10) || 0;
+      if (kpiAvail && reverted > 0) {
+        const curVal = parseInt(kpiAvail.textContent.replace(/,/g, ''), 10) || 0;
+        kpiAvail.textContent = (curVal + reverted).toLocaleString();
+        kpiAvail.style.transition = 'color 0.3s ease, transform 0.3s ease';
+        kpiAvail.style.color = 'var(--status-green)';
+        kpiAvail.style.transform = 'scale(1.08)';
+        setTimeout(() => { kpiAvail.style.transform = 'scale(1)'; }, 400);
+      }
+
+      // 2. Smoothly update Carousel or Single Banner
+      const singleBanner = document.getElementById('singleDisasterBanner');
+      if (singleBanner) {
+        singleBanner.style.transition = 'opacity 0.4s ease, max-height 0.4s ease, margin 0.4s ease, padding 0.4s ease';
+        singleBanner.style.opacity = '0';
+        singleBanner.style.maxHeight = '0';
+        singleBanner.style.overflow = 'hidden';
+        singleBanner.style.padding = '0';
+        singleBanner.style.margin = '0';
+        setTimeout(() => { singleBanner.remove(); }, 450);
+        setTimeout(() => { location.reload(); }, 1200);
+        return;
+      }
+
+      const carousel = document.getElementById('disasterCarousel');
+      if (carousel) {
+        const targetSlide = document.querySelector(`.carousel-slide[data-protocol-id="${protoId}"]`);
+        const targetPill  = document.querySelector(`.carousel-pill-btn[data-protocol-id="${protoId}"]`);
+
+        if (targetSlide) {
+          targetSlide.style.transition = 'all 0.35s ease';
+          targetSlide.style.opacity = '0';
+          targetSlide.style.transform = 'scale(0.96)';
+        }
+        if (targetPill) {
+          targetPill.style.transition = 'all 0.3s ease';
+          targetPill.style.opacity = '0';
+          targetPill.style.transform = 'scale(0.8)';
+        }
+
+        setTimeout(() => {
+          if (targetSlide) targetSlide.remove();
+          if (targetPill) targetPill.remove();
+
+          const remainingSlides = document.querySelectorAll('.carousel-slide');
+          const remainingPills  = document.querySelectorAll('.carousel-pill-btn');
+          const remainingCount  = remainingSlides.length;
+
+          if (remainingCount > 0) {
+            const headerTitle = document.getElementById('carouselHeaderTitle');
+            if (headerTitle) {
+              headerTitle.innerHTML = remainingCount === 1 
+                ? 'NATIONAL DISASTER PROTOCOL SURGE &bull; 1 THREAT ACTIVE' 
+                : `NATIONAL DISASTER PROTOCOL SURGE &bull; ${remainingCount} CONCURRENT THREATS ACTIVE`;
+            }
+
+            remainingPills.forEach((p, idx) => {
+              p.setAttribute('data-slide', idx);
+              p.setAttribute('onclick', `switchCarouselSlide(${idx})`);
+            });
+            remainingSlides.forEach((s, idx) => {
+              s.id = `carouselSlide-${idx}`;
+              s.setAttribute('data-slide-index', idx);
+            });
+
+            switchCarouselSlide(0);
+            startCarousel();
+          } else {
+            carousel.style.transition = 'opacity 0.4s ease, max-height 0.4s ease, margin 0.4s ease, padding 0.4s ease';
+            carousel.style.opacity = '0';
+            carousel.style.maxHeight = '0';
+            carousel.style.overflow = 'hidden';
+            carousel.style.padding = '0';
+            carousel.style.margin = '0';
+            setTimeout(() => { carousel.remove(); }, 450);
+            setTimeout(() => { location.reload(); }, 1200);
           }
-        }
-      })
-      .catch(err => {
-        if (typeof showToast === 'function') {
-          showToast('Network communication failure', 'error');
-        }
-      });
+        }, 380);
+      }
     }
   </script>
 

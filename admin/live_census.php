@@ -786,19 +786,26 @@ if (!function_exists('getDoctorPastelBadgeClass')) {
         <?php endforeach; ?>
       </div>
 
-      <?php if ($branchActiveCount > 1): ?>
-      <!-- Interactive Carousel Dot Pills -->
-      <div style="position: absolute; top: 12px; right: 18px; display: flex; align-items: center; gap: 6px; z-index: 10; background: rgba(0,0,0,0.4); padding: 4px 8px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.2);">
-        <span style="font-size: 0.65rem; color: #fecdd3; font-weight: 700; text-transform: uppercase; margin-right: 2px;">DISASTERS (<?= $branchActiveCount ?>):</span>
-        <?php foreach ($branchActiveProtocols as $idx => $proto): 
-          $shortName = explode(' ', trim($proto['title']))[0] ?? "P#{$proto['id']}";
-        ?>
-        <button type="button" onclick="switchBranchSlide(<?= $idx ?>)" class="branch-pill-btn <?= $idx === 0 ? 'active' : '' ?>" data-pill-idx="<?= $idx ?>" style="font-size: 0.68rem; font-weight: 700; padding: 2px 8px; border-radius: 12px; border: none; cursor: pointer; transition: all 0.2s; <?= $idx === 0 ? 'background: #f43f5e; color: #fff;' : 'background: rgba(255,255,255,0.15); color: #cbd5e1;' ?>">
-          <?= $idx === 0 ? '●' : '○' ?> <?= htmlspecialchars($shortName) ?>
-        </button>
-        <?php endforeach; ?>
+      <!-- Persistent Stand-Down Strip (always visible regardless of active slide) -->
+      <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 20px; background: rgba(0,0,0,0.35); border-top: 1px solid rgba(255,255,255,0.12); flex-wrap: wrap; gap: 8px;">
+        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+          <?php if ($branchActiveCount > 1): ?>
+          <!-- Carousel Dot Pills -->
+          <span style="font-size: 0.64rem; color: #fda4af; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">ACTIVE (<?= $branchActiveCount ?>):</span>
+          <?php foreach ($branchActiveProtocols as $idx => $proto):
+            $shortName = explode(' ', trim($proto['title']))[0] ?? "P#{$proto['id']}";
+          ?>
+          <button type="button" onclick="switchBranchSlide(<?= $idx ?>)" class="branch-pill-btn <?= $idx === 0 ? 'active' : '' ?>" data-pill-idx="<?= $idx ?>" style="font-size: 0.68rem; font-weight: 700; padding: 3px 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.25); cursor: pointer; transition: all 0.2s; white-space: nowrap; <?= $idx === 0 ? 'background: #f43f5e; color: #fff;' : 'background: rgba(255,255,255,0.12); color: #cbd5e1;' ?>">
+            <?= $idx === 0 ? '●' : '○' ?> <?= htmlspecialchars($shortName) ?>
+          </button>
+          <?php endforeach; ?>
+          <?php endif; ?>
+        </div>
+        <!-- Stand-Down button — always visible -->
+        <a href="<?= htmlspecialchars($_SERVER['REQUEST_URI'], ENT_QUOTES, 'UTF-8') ?>" onclick="event.preventDefault(); if(window.MedPulseDialog && MedPulseDialog.confirm) { MedPulseDialog.confirm({ title: 'Stand Down Protocol', message: 'Confirm: restore all Emergency Hold beds to Available status and cancel all active disaster protocols for this branch?', confirmText: 'Stand Down', cancelText: 'Cancel', type: 'danger', onConfirm: function() { window.location.href = '?action=stand_down_branch'; } }); }" style="display: inline-flex; align-items: center; gap: 7px; padding: 7px 16px; background: #fff; color: #991b1b; border-radius: 10px; font-size: 0.8rem; font-weight: 800; text-decoration: none; white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,0.18); transition: background 0.15s; cursor: pointer;" onmouseover="this.style.background='#fee2e2'" onmouseout="this.style.background='#fff'">
+          ⚡ Stand Down / Restore Operations
+        </a>
       </div>
-      <?php endif; ?>
     </div>
     <?php endif; ?>
 
@@ -1004,22 +1011,23 @@ if (!function_exists('getDoctorPastelBadgeClass')) {
             if ($rawStatus === 'emergency hold') {
                 if (strpos($epCode, 'DENGUE') !== false) {
                     $surgeClass = 'badge-surge-dengue';
-                    $surgeLabel = 'SURGE: DENGUE ISOLATION';
+                    $surgeLabel = 'Dengue HDU';
                 } elseif (strpos($epCode, 'ACCIDENT') !== false || strpos($epCode, 'MASS_CASUALTY') !== false || strpos($epCode, 'TRAUMA') !== false) {
                     $surgeClass = 'badge-surge-trauma';
-                    $surgeLabel = 'SURGE: TRAUMA / ACCIDENT';
+                    $surgeLabel = 'Trauma';
                 } elseif (strpos($epCode, 'BURN') !== false) {
                     $surgeClass = 'badge-surge-burn';
-                    $surgeLabel = 'SURGE: BURN DISASTER';
+                    $surgeLabel = 'Burn Unit';
                 } elseif (strpos($epCode, 'HAZMAT') !== false || strpos($epCode, 'BIO') !== false) {
                     $surgeClass = 'badge-surge-hazmat';
-                    $surgeLabel = 'SURGE: HAZMAT QUARANTINE';
+                    $surgeLabel = 'Hazmat';
                 } elseif (strpos($epCode, 'NATURAL') !== false || strpos($epCode, 'FLOOD') !== false || strpos($epCode, 'CYCLONE') !== false) {
                     $surgeClass = 'badge-surge-natural';
-                    $surgeLabel = 'SURGE: NATURAL DISASTER';
+                    $surgeLabel = 'Nat. Disaster';
                 } else {
                     $surgeClass = 'badge-surge-default';
-                    $surgeLabel = !empty($slot['ep_title']) ? 'SURGE: ' . strtoupper($slot['ep_title']) : 'SURGE: EMERGENCY HOLD';
+                    $shortTitle = !empty($slot['ep_title']) ? mb_substr($slot['ep_title'], 0, 10) : 'Surge Hold';
+                    $surgeLabel = $shortTitle;
                 }
             } else {
                 $surgeClass = '';
@@ -1553,7 +1561,7 @@ if (!function_exists('getDoctorPastelBadgeClass')) {
       branchCarouselTimer = setInterval(() => {
         const next = (branchSlideIdx + 1) % branchSlides.length;
         switchBranchSlide(next);
-      }, 5000);
+      }, 4500);
 
       const cWrap = document.getElementById('branchDisasterCarousel');
       if (cWrap) {
@@ -1563,7 +1571,7 @@ if (!function_exists('getDoctorPastelBadgeClass')) {
           branchCarouselTimer = setInterval(() => {
             const next = (branchSlideIdx + 1) % branchSlides.length;
             switchBranchSlide(next);
-          }, 5000);
+          }, 4500);
         });
       }
     }

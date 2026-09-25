@@ -489,6 +489,159 @@ try {
       }
     }
 
+    /* ── Emergency Alert Carousel Styles & Utilities ──────────────────────── */
+    .opacity-0 { opacity: 0 !important; }
+    .opacity-100 { opacity: 1 !important; }
+    .opacity-80 { opacity: 0.8 !important; }
+    .transform { transform: translateZ(0); }
+    .translate-x-3 { transform: translateX(0.75rem) !important; }
+    .translate-x-0 { transform: translateX(0) !important; }
+    .transition-all { transition-property: all; }
+    .transition-opacity { transition-property: opacity, transform !important; }
+    .duration-500 { transition-duration: 500ms; }
+    .ease-in-out { transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    .w-2 { width: 0.5rem; height: 0.5rem; }
+    .h-2 { height: 0.5rem; }
+    .rounded-full { border-radius: 9999px; }
+    .bg-white { background-color: #ffffff; }
+    .font-medium { font-weight: 600; }
+    .border { border-width: 1px; border-style: solid; }
+    .border-rose-300\/60,
+    [class*="border-rose-300/60"],
+    .border-white\/60,
+    [class*="border-white/60"] {
+      border-color: rgba(255, 255, 255, 0.6) !important;
+    }
+
+    @keyframes saPulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.92); }
+    }
+    .animate-pulse {
+      animation: saPulse 1.6s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+
+    /* Container for Banner Carousel */
+    #saDisasterCarousel.emergency-broadcast-banner {
+      display: flex;
+      flex-direction: column;
+      padding: 0;
+      overflow: hidden;
+      gap: 0;
+      margin-bottom: 24px;
+      position: relative;
+    }
+
+    /* Slides Track - Stacked in single grid cell for zero-layout-shift cross-fading */
+    .sa-carousel-slides-track {
+      display: grid;
+      grid-template-columns: 1fr;
+      grid-template-rows: 1fr;
+      position: relative;
+      width: 100%;
+      min-height: 88px;
+    }
+    .sa-carousel-slide {
+      grid-column: 1 / -1;
+      grid-row: 1 / -1;
+      padding: 18px 22px;
+      color: #fff;
+      box-sizing: border-box;
+      width: 100%;
+      transition: opacity 0.5s ease-in-out, visibility 0.5s ease-in-out;
+      pointer-events: none;
+      visibility: hidden;
+      opacity: 0;
+    }
+    .sa-carousel-slide.active {
+      pointer-events: auto;
+      visibility: visible;
+      opacity: 1;
+    }
+    .sa-slide-wrapper {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      flex-wrap: wrap;
+      width: 100%;
+      box-sizing: border-box;
+      will-change: opacity, transform;
+      transform: translateZ(0);
+      backface-visibility: hidden;
+    }
+
+    /* Persistent Footer Strip */
+    .sa-carousel-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 9px 20px;
+      background: rgba(0, 0, 0, 0.35);
+      border-top: 1px solid rgba(255, 255, 255, 0.12);
+      flex-wrap: wrap;
+      gap: 8px;
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    /* Navigation Indicator Pills */
+    .sa-carousel-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.68rem;
+      font-weight: 700;
+      padding: 4px 11px;
+      border-radius: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      cursor: pointer;
+      transition: all 0.2s ease;
+      white-space: nowrap;
+      text-decoration: none;
+      font-family: inherit;
+    }
+    .sa-carousel-pill::before,
+    .sa-carousel-pill::after {
+      content: none !important;
+      display: none !important;
+    }
+    .sa-carousel-pill.sa-pill-active {
+      background: #f43f5e;
+      color: #ffffff;
+      border-color: rgba(255, 255, 255, 0.4);
+      box-shadow: 0 2px 8px rgba(244, 63, 94, 0.35);
+    }
+    .sa-carousel-pill:not(.sa-pill-active) {
+      background: rgba(255, 255, 255, 0.12);
+      color: #cbd5e1;
+    }
+    .sa-carousel-pill:hover:not(.sa-pill-active) {
+      background: rgba(255, 255, 255, 0.22);
+      color: #ffffff;
+    }
+
+    /* Carousel timer progress bar */
+    .sa-carousel-progress-track {
+      width: 100%;
+      height: 3px;
+      background: rgba(255, 255, 255, 0.12);
+      position: relative;
+      flex-shrink: 0;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+    }
+    .sa-carousel-progress-bar {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #f43f5e 0%, #fb923c 100%);
+      box-shadow: 0 0 8px rgba(251, 146, 60, 0.6);
+      transition: width 0.08s linear;
+      border-radius: 0 2px 2px 0;
+    }
+
     /* Dynamic ECG Waveform Live Telemetry Bar */
     .sa-telemetry-badge {
       display: inline-flex;
@@ -629,16 +782,16 @@ try {
         </div>
         <div class="banner-actions" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
           <!-- Dynamic ECG Waveform Live Telemetry Bar -->
-          <div class="sa-telemetry-badge <?= $activeCount > 0 ? 'telemetry-surge' : 'telemetry-normal' ?>" title="<?= $activeCount > 0 ? 'National Emergency Surge Protocol Active: ' . $activeCount . ' protocol(s)' : 'Bed Telemetry Synchronized across all 6 facilities' ?>">
+          <div class="sa-telemetry-badge <?= $activeCount > 0 ? 'telemetry-surge' : 'telemetry-normal' ?>" id="saTelemetryBadge" title="<?= $activeCount > 0 ? 'National Emergency Surge Protocol Active: ' . $activeCount . ' protocol(s)' : 'Bed Telemetry Synchronized across all 6 facilities' ?>">
             <div class="ecg-track">
               <svg class="ecg-svg" viewBox="0 0 54 18" preserveAspectRatio="none">
                 <path class="ecg-pulse-line" d="M0,9 L12,9 L15,3 L18,15 L21,2 L24,16 L27,9 L32,9 L35,6 L38,11 L41,9 L54,9" />
               </svg>
             </div>
             <div class="telemetry-info">
-              <span class="telemetry-bpm font-mono"><?= $activeCount > 0 ? '118 BPM' : '72 BPM' ?></span>
+              <span class="telemetry-bpm font-mono" id="saTelemetryBpm"><?= $activeCount > 0 ? '118 BPM' : '72 BPM' ?></span>
               <span class="telemetry-sep">•</span>
-              <span class="telemetry-status">
+              <span class="telemetry-status" id="saTelemetryStatus">
                 <?php if ($activeCount === 0): ?>
                   SYSTEM NORMAL
                 <?php elseif ($activeCount === 1): ?>
@@ -655,17 +808,17 @@ try {
           </div>
 
           <?php if ($activeCount === 1): ?>
-            <button type="button" class="btn-active-surge-pill" onclick="openEmergencyModal()">
+            <button type="button" class="btn-active-surge-pill" id="saHeaderSurgeBtn" onclick="openEmergencyModal()">
               <span class="bd-dot bd-hold" style="animation:beaconBounce 1s infinite;"></span>
               SURGE ACTIVE: <?= htmlspecialchars($activeProtocols[0]['title'], ENT_QUOTES, 'UTF-8') ?> (<?= (int)$activeProtocols[0]['severity_quota'] ?>%)
             </button>
           <?php elseif ($activeCount > 1): ?>
-            <button type="button" class="btn-active-surge-pill" onclick="openEmergencyModal()">
+            <button type="button" class="btn-active-surge-pill" id="saHeaderSurgeBtn" onclick="openEmergencyModal()">
               <span class="bd-dot bd-hold" style="animation:beaconBounce 0.8s infinite;"></span>
               SURGE ACTIVE: <?= $activeCount ?> CONCURRENT PROTOCOLS (<?= number_format($totalSurgeHeldBeds) ?> BEDS)
             </button>
           <?php else: ?>
-            <button type="button" class="btn-declare-emergency" onclick="openEmergencyModal()">
+            <button type="button" class="btn-declare-emergency" id="saHeaderSurgeBtn" onclick="openEmergencyModal()">
               <svg class="ui-ico" style="width:16px;height:16px;stroke:#fff;" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
               Declare National Emergency / Triage Surge
             </button>
@@ -674,50 +827,100 @@ try {
       </div>
     </div>
 
-    <!-- Active Emergency Broadcast Banner -->
+    <!-- Active Emergency Broadcast Banner (Auto-Carousel for multi-protocol) -->
     <?php if ($activeCount > 0): ?>
-    <div class="emergency-broadcast-banner">
-      <div class="eb-left">
-        <div class="eb-icon-beacon">🚨</div>
-        <div class="eb-title-group">
-          <h2>
-            <?php if ($activeCount === 1): ?>
-              <?= htmlspecialchars($activeProtocols[0]['title'], ENT_QUOTES, 'UTF-8') ?>
-              <span class="eb-tag"><?= htmlspecialchars($activeProtocols[0]['severity_level'], ENT_QUOTES, 'UTF-8') ?> (<?= (int)$activeProtocols[0]['severity_quota'] ?>% QUOTA)</span>
-            <?php else: ?>
-              <?= $activeCount ?> Concurrent National Emergency Protocols Active
-              <span class="eb-tag" style="background:#dc2626;">CONCURRENT SURGE</span>
-            <?php endif; ?>
-          </h2>
-          <p class="eb-sub">
-            <?php if ($activeCount === 1): ?>
-              <?= htmlspecialchars($activeProtocols[0]['notes'] ?: 'National Emergency Protocol currently enforced across MedPulse Network facilities.', ENT_QUOTES, 'UTF-8') ?>
-            <?php else: ?>
-              Concurrent crisis protocols currently locked: <?= implode(', ', array_map(fn($p) => htmlspecialchars($p['title']), $activeProtocols)) ?>.
-            <?php endif; ?>
-          </p>
+    <div class="emergency-broadcast-banner" id="saDisasterCarousel">
+      <!-- Slides Track -->
+      <div class="sa-carousel-slides-track">
+        <?php foreach ($activeProtocols as $idx => $proto):
+          $pSeverity   = htmlspecialchars(strtoupper($proto['severity_level'] ?? 'CODE RED'), ENT_QUOTES, 'UTF-8');
+          $pQuota      = (int)($proto['severity_quota'] ?? 20);
+          $pHeld       = (int)($proto['live_held_count'] ?? 0);
+          $pReloc      = (int)($proto['live_relocating_count'] ?? 0);
+          $pTitle      = htmlspecialchars($proto['title'], ENT_QUOTES, 'UTF-8');
+          $pNotes      = htmlspecialchars($proto['notes'] ?: 'National emergency protocol enforced across the MedPulse network.', ENT_QUOTES, 'UTF-8');
+        ?>
+        <div class="sa-carousel-slide <?= $idx === 0 ? 'active' : '' ?>" 
+             data-slide-index="<?= $idx ?>" 
+             data-protocol-id="<?= (int)$proto['id'] ?>"
+             data-protocol-title="<?= $pTitle ?>"
+             data-protocol-quota="<?= $pQuota ?>"
+             data-held-count="<?= $pHeld ?>"
+             data-reloc-count="<?= $pReloc ?>"
+             style="<?= $idx === 0 ? 'opacity: 1; visibility: visible; pointer-events: auto;' : 'opacity: 0; visibility: hidden; pointer-events: none;' ?>">
+          <div class="sa-slide-wrapper <?= $idx === 0 ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-3' ?> transform transition-opacity transition-all duration-500 ease-in-out">
+            <div class="eb-left">
+              <div class="eb-icon-beacon">🚨</div>
+              <div class="eb-title-group">
+                <h2>
+                  <?= $pTitle ?>
+                  <span class="eb-tag"><?= $pSeverity ?> (<?= $pQuota ?>% QUOTA)</span>
+                  <?php if ($activeCount > 1): ?>
+                  <span class="sa-proto-idx-badge" style="font-size: 0.63rem; padding: 2px 7px; border-radius: 6px; background: rgba(255,255,255,0.2); color: #e2e8f0; font-weight: 700;">Protocol <?= $idx + 1 ?>/<?= $activeCount ?></span>
+                  <?php endif; ?>
+                </h2>
+                <p class="eb-sub"><?= $pNotes ?></p>
+              </div>
+            </div>
+            <div class="eb-stats-bar">
+              <div class="eb-stat-item">
+                <span class="eb-stat-num" style="color:#fda4af;"><?= number_format($pHeld) ?></span>
+                <span class="eb-stat-label">Beds Held</span>
+              </div>
+              <div class="eb-stat-item">
+                <span class="eb-stat-num" style="color:#fde047;"><?= number_format($pReloc) ?></span>
+                <span class="eb-stat-label">Relocating</span>
+              </div>
+            </div>
+          </div>
         </div>
+        <?php endforeach; ?>
       </div>
 
-      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
-        <div class="eb-stats-bar">
-          <div class="eb-stat-item">
-            <span class="eb-stat-num" style="color:#fda4af;"><?= number_format($totalSurgeHeldBeds) ?></span>
-            <span class="eb-stat-label">Total Held</span>
-          </div>
-          <div class="eb-stat-item">
-            <span class="eb-stat-num" style="color:#fde047;"><?= number_format($totalSurgeRelocBeds) ?></span>
-            <span class="eb-stat-label">Pending Reloc</span>
-          </div>
-          <div class="eb-stat-item">
-            <span class="eb-stat-num" style="color:#7dd3fc;"><?= $activeCount ?></span>
-            <span class="eb-stat-label">Protocols</span>
-          </div>
+      <!-- Persistent Footer Strip: nav pills + stand-down (always visible) -->
+      <div class="sa-carousel-footer">
+        <div id="saPillsContainer" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+          <?php if ($activeCount > 1): ?>
+          <span id="saActiveLabel" style="font-size: 0.63rem; color: #fda4af; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">ACTIVE (<?= $activeCount ?>):</span>
+          <?php foreach ($activeProtocols as $idx => $proto):
+            $rawTitle = trim($proto['title']);
+            if (stripos($rawTitle, 'Dengue') !== false) {
+                $pillLabel = 'Dengue';
+            } elseif (stripos($rawTitle, 'Mass Casualty') !== false) {
+                $pillLabel = 'Mass Casualty';
+            } elseif (stripos($rawTitle, 'Burn') !== false || stripos($rawTitle, 'Fire') !== false) {
+                $pillLabel = 'Burn Disaster';
+            } else {
+                $cleaned = preg_replace('/^[•●○\s\-_]+/', '', $rawTitle);
+                $parts = explode(' ', $cleaned);
+                $pillLabel = count($parts) > 1 ? $parts[0] . ' ' . $parts[1] : $parts[0];
+                $pillLabel = trim(explode('/', $pillLabel)[0]);
+            }
+          ?>
+          <button type="button" 
+                  onclick="switchSaSlide(<?= $idx ?>)" 
+                  class="sa-carousel-pill <?= $idx === 0 ? 'sa-pill-active' : '' ?>" 
+                  data-sa-pill="<?= $idx ?>"
+                  data-protocol-id="<?= (int)$proto['id'] ?>"
+                  data-pill-label="<?= htmlspecialchars($pillLabel, ENT_QUOTES, 'UTF-8') ?>">
+            <?php if ($idx === 0): ?>
+              <span class="w-2 h-2 rounded-full bg-white animate-pulse"></span> <span class="font-medium"><?= htmlspecialchars($pillLabel, ENT_QUOTES, 'UTF-8') ?></span>
+            <?php else: ?>
+              <span class="w-2 h-2 rounded-full border border-white/60"></span> <span class="opacity-80"><?= htmlspecialchars($pillLabel, ENT_QUOTES, 'UTF-8') ?></span>
+            <?php endif; ?>
+          </button>
+          <?php endforeach; ?>
+          <?php else: ?>
+          <span id="saActiveLabel" style="font-size: 0.72rem; color: #fda4af; font-weight: 700;">🔴 1 Active Emergency Protocol</span>
+          <?php endif; ?>
         </div>
-
-        <button type="button" class="btn-stand-down" onclick="confirmStandDown()">
+        <button type="button" class="btn-stand-down" id="btnStandDownSlide" onclick="triggerActiveSlideStandDown()">
           ⚡ Stand Down &amp; Restore Operations
         </button>
+      </div>
+      <!-- Animated Timer Progress Bar -->
+      <div class="sa-carousel-progress-track">
+        <div class="sa-carousel-progress-bar" id="saProgressBar"></div>
       </div>
     </div>
     <?php endif; ?>
@@ -729,7 +932,7 @@ try {
         <span class="net-chip-label">Total Beds</span>
       </div>
       <div class="net-chip">
-        <span class="net-chip-val" style="color:var(--status-green);"><?= number_format((int)($netStats['avail'] ?? 0)) ?></span>
+        <span class="net-chip-val" id="chipValAvail" style="color:var(--status-green);"><?= number_format((int)($netStats['avail'] ?? 0)) ?></span>
         <span class="net-chip-label">Available</span>
       </div>
       <div class="net-chip">
@@ -737,11 +940,11 @@ try {
         <span class="net-chip-label">Occupied</span>
       </div>
       <div class="net-chip">
-        <span class="net-chip-val" style="color:#e11d48;"><?= number_format((int)($netStats['hold'] ?? 0)) ?></span>
+        <span class="net-chip-val" id="chipValHold" style="color:#e11d48;"><?= number_format((int)($netStats['hold'] ?? 0)) ?></span>
         <span class="net-chip-label">Emergency Hold</span>
       </div>
       <div class="net-chip">
-        <span class="net-chip-val" style="color:#0284c7;"><?= number_format((int)($netStats['sanitizing'] ?? 0)) ?></span>
+        <span class="net-chip-val" id="chipValSanitizing" style="color:#0284c7;"><?= number_format((int)($netStats['sanitizing'] ?? 0)) ?></span>
         <span class="net-chip-label">Sanitizing</span>
       </div>
       <div class="net-chip">
@@ -847,7 +1050,7 @@ try {
         };
         $isReloc = ($bed['relocation_status'] === 'PENDING_RELOCATION');
       ?>
-      <div class="bed-tile <?= $tc ?>" id="tile-<?= (int)$bed['bed_id'] ?>" onclick="openBedModal(<?= (int)$bed['bed_id'] ?>)">
+      <div class="bed-tile <?= $tc ?>" id="tile-<?= (int)$bed['bed_id'] ?>" data-protocol-id="<?= (int)($bed['emergency_protocol_id'] ?? 0) ?>" onclick="openBedModal(<?= (int)$bed['bed_id'] ?>)">
         <?php if ($isReloc): ?>
           <span class="reloc-badge-pill">⚠️ RELOCATE</span>
         <?php endif; ?>
@@ -857,26 +1060,26 @@ try {
         <div class="bed-status-row">
           <?php if ($st === 'emergency hold'): 
             $epCode = strtoupper($bed['ep_code'] ?? '');
-            $surgeLabel = 'SURGE: EMERGENCY HOLD';
+            $surgeLabel = 'Emergency';
             $surgeBadgeClass = 'badge-surge-crimson';
 
             if ($epCode === 'DENGUE_EPIDEMIC') {
-                $surgeLabel = 'SURGE: DENGUE ISOLATION';
+                $surgeLabel = 'Dengue HDU';
                 $surgeBadgeClass = 'badge-surge-amber';
             } elseif ($epCode === 'MASS_CASUALTY') {
-                $surgeLabel = 'SURGE: TRAUMA / ACCIDENT';
+                $surgeLabel = 'Trauma';
                 $surgeBadgeClass = 'badge-surge-crimson';
             } elseif ($epCode === 'BURN_DISASTER') {
-                $surgeLabel = 'SURGE: BURN DISASTER';
+                $surgeLabel = 'Burn Unit';
                 $surgeBadgeClass = 'badge-surge-vermillion';
             } elseif ($epCode === 'NATURAL_DISASTER') {
-                $surgeLabel = 'SURGE: NATURAL DISASTER';
+                $surgeLabel = 'Nat. Disaster';
                 $surgeBadgeClass = 'badge-surge-sky';
             } elseif ($epCode === 'HAZMAT') {
-                $surgeLabel = 'SURGE: HAZMAT QUARANTINE';
+                $surgeLabel = 'Hazmat';
                 $surgeBadgeClass = 'badge-surge-purple';
             } elseif (!empty($bed['ep_title'])) {
-                $surgeLabel = 'SURGE: ' . strtoupper(htmlspecialchars($bed['ep_title']));
+                $surgeLabel = mb_substr($bed['ep_title'], 0, 10);
             }
           ?>
             <span class="sa-hold-badge <?= $surgeBadgeClass ?>">
@@ -1322,42 +1525,64 @@ try {
       }
     }
 
-    async function confirmStandDown(protoId = null, protoTitle = null) {
-      const isSingle = !!protoId;
-      const targetLabel = protoTitle || (isSingle ? `Protocol #${protoId}` : 'ALL ACTIVE PROTOCOLS');
-      
+    // ── Stand-Down Controller (Selective Per-Slide Stand-Down) ───────────────────
+    function triggerActiveSlideStandDown() {
+      const currentSlide = document.querySelector('.sa-carousel-slide.active') || (typeof saSlides !== 'undefined' && saSlides[saSlideIdx]);
+      if (!currentSlide) {
+        MedPulseDialog.toast({
+          title: 'No Active Protocol',
+          message: 'No active disaster protocol is currently selected.',
+          type: 'warning'
+        });
+        return;
+      }
+
+      const protoId = parseInt(currentSlide.getAttribute('data-protocol-id'), 10);
+      const protoTitle = currentSlide.getAttribute('data-protocol-title') || `Protocol #${protoId}`;
+      const heldCount = parseInt(currentSlide.getAttribute('data-held-count'), 10) || 0;
+
+      confirmStandDown(protoId, protoTitle, heldCount);
+    }
+
+    async function confirmStandDown(protoId = null, protoTitle = null, heldCount = null) {
+      if (!protoId) {
+        const currentSlide = document.querySelector('.sa-carousel-slide.active') || (typeof saSlides !== 'undefined' && saSlides[saSlideIdx]);
+        if (currentSlide) {
+          protoId = parseInt(currentSlide.getAttribute('data-protocol-id'), 10);
+          protoTitle = currentSlide.getAttribute('data-protocol-title');
+          heldCount = parseInt(currentSlide.getAttribute('data-held-count'), 10) || 0;
+        }
+      }
+
+      if (!protoId) {
+        MedPulseDialog.toast({
+          title: 'No Active Protocol',
+          message: 'No active emergency protocol was found to stand down.',
+          type: 'warning'
+        });
+        return;
+      }
+
+      const countStr = (heldCount !== null && heldCount !== undefined) ? Number(heldCount).toLocaleString() : '0';
+      const targetLabel = protoTitle || `Protocol #${protoId}`;
+
+      const modalTitle = `Confirm Stand-Down: ${targetLabel}`;
+      const modalDesc = `Are you sure you want to terminate this protocol? This will release the ${countStr} beds held specifically for this surge. Other active protocols will remain enforced.`;
+
       const confirmed = await MedPulseDialog.confirm({
-        title: isSingle ? `Terminate Protocol: ${targetLabel}` : 'Terminate All Emergency Protocols',
-        subtitle: isSingle ? 'Disaster Stand-Down & Bed Capacity Restoration' : 'Network-Wide Stand-Down & Normal Operations Restoration',
-        type: 'warning',
-        confirmText: isSingle ? 'Stand-Down Protocol' : 'Execute Stand-Down All',
-        cancelText: 'Keep Active',
-        html: `
-          <div style="font-size:0.86rem;color:#334155;line-height:1.55;margin-bottom:14px;">
-            ${isSingle 
-              ? `You are about to terminate active disaster protocol <strong>${targetLabel}</strong> and restore its locked capacity.` 
-              : 'You are about to terminate <strong>ALL</strong> active national emergency protocols across all facilities.'}
-          </div>
-          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px;margin-bottom:14px;">
-            <ul style="font-size:0.8rem;color:#475569;line-height:1.6;margin:0;padding-left:18px;">
-              <li><strong>Revert Holds:</strong> Unassigned Emergency Hold beds for this protocol immediately revert to <em>'Available'</em> for public discovery.</li>
-              <li><strong>Clinical Sanitization:</strong> Active disaster treatment beds transition to <em>'Sanitizing'</em> for clinical decontamination.</li>
-              <li><strong>Selective Dismissal:</strong> ${isSingle ? 'Broadcast alerts for this protocol will be cleared.' : 'All broadcast alert banners will be dismissed across all hospital censuses.'}</li>
-            </ul>
-          </div>
-          <div style="font-size:0.78rem;color:#64748b;">
-            Zero orphaned allocations will remain. Proceed with stand-down?
-          </div>
-        `
+        title: modalTitle,
+        subtitle: `Disaster Protocol Stand-Down (Protocol ID #${protoId})`,
+        type: 'danger',
+        confirmText: '⚡ Stand Down Protocol',
+        cancelText: 'Cancel',
+        message: modalDesc
       });
 
       if (!confirmed) return;
 
       const fd = new FormData();
       fd.append('_action', 'terminate_emergency');
-      if (protoId) {
-        fd.append('protocol_id', protoId);
-      }
+      fd.append('protocol_id', protoId);
       fd.append('csrf_token', CSRF);
 
       try {
@@ -1366,12 +1591,14 @@ try {
 
         if (d.success) {
           MedPulseDialog.toast({
-            title: 'Protocol Terminated',
-            message: d.message,
+            title: 'Protocol Stood Down',
+            message: d.message || 'Protocol stood down successfully.',
             type: 'success',
             duration: 3500
           });
-          setTimeout(() => location.reload(), 1400);
+
+          // Update UI & Carousel State selectively without full page disruption
+          handleProtocolRemoved(protoId, d);
         } else {
           MedPulseDialog.toast({
             title: 'Stand-Down Error',
@@ -1387,6 +1614,187 @@ try {
           type: 'error'
         });
       }
+    }
+
+    function handleProtocolRemoved(protoId, responseData) {
+      if (typeof pauseSaCarousel === 'function') pauseSaCarousel();
+
+      const targetSlide = document.querySelector(`.sa-carousel-slide[data-protocol-id="${protoId}"]`);
+      const targetPill  = document.querySelector(`.sa-carousel-pill[data-protocol-id="${protoId}"]`);
+
+      if (targetSlide) {
+        targetSlide.style.transition = 'all 0.35s ease';
+        targetSlide.style.opacity = '0';
+        targetSlide.style.transform = 'scale(0.96)';
+      }
+      if (targetPill) {
+        targetPill.style.transition = 'all 0.3s ease';
+        targetPill.style.opacity = '0';
+        targetPill.style.transform = 'scale(0.8)';
+      }
+
+      // Revert bed cards that belonged to this protocol
+      const freedBeds = document.querySelectorAll(`.bed-tile[data-protocol-id="${protoId}"]`);
+      freedBeds.forEach(tile => {
+        tile.classList.remove('t-hold');
+        tile.classList.add('t-avail');
+        tile.removeAttribute('data-protocol-id');
+
+        const reloc = tile.querySelector('.reloc-badge-pill');
+        if (reloc) reloc.remove();
+
+        const statusRow = tile.querySelector('.bed-status-row');
+        if (statusRow) {
+          const floorBadge = statusRow.querySelector('.floor-badge');
+          const floorHtml = floorBadge ? floorBadge.outerHTML : '';
+          statusRow.innerHTML = `
+            <span style="display:flex;align-items:center;gap:4px;">
+              <span class="bd-dot bd-avail"></span>
+              <span style="font-size:.72rem;font-weight:700;color:var(--text-heading);">Available</span>
+            </span>
+            ${floorHtml}
+          `;
+        }
+      });
+
+      // Dynamically adjust network chips
+      if (responseData) {
+        const reverted = parseInt(responseData.reverted_available, 10) || 0;
+        const sanitizing = parseInt(responseData.set_sanitizing, 10) || 0;
+        const chipHold = document.getElementById('chipValHold');
+        const chipAvail = document.getElementById('chipValAvail');
+        const chipSanit = document.getElementById('chipValSanitizing');
+        if (chipHold && reverted > 0) {
+          const curHold = parseInt(chipHold.textContent.replace(/,/g, ''), 10) || 0;
+          chipHold.textContent = Math.max(0, curHold - reverted).toLocaleString();
+        }
+        if (chipAvail && reverted > 0) {
+          const curAvail = parseInt(chipAvail.textContent.replace(/,/g, ''), 10) || 0;
+          chipAvail.textContent = (curAvail + reverted).toLocaleString();
+        }
+        if (chipSanit && sanitizing > 0) {
+          const curSanit = parseInt(chipSanit.textContent.replace(/,/g, ''), 10) || 0;
+          chipSanit.textContent = (curSanit + sanitizing).toLocaleString();
+        }
+      }
+
+      setTimeout(() => {
+        if (targetSlide) targetSlide.remove();
+        if (targetPill) targetPill.remove();
+
+        saSlides = document.querySelectorAll('.sa-carousel-slide');
+        saPills  = document.querySelectorAll('.sa-carousel-pill');
+        const remainingCount = saSlides.length;
+
+        if (remainingCount > 0) {
+          // Re-index remaining slides
+          saSlides.forEach((slide, idx) => {
+            slide.setAttribute('data-slide-index', idx);
+            const idxBadge = slide.querySelector('.sa-proto-idx-badge');
+            if (remainingCount > 1) {
+              if (idxBadge) {
+                idxBadge.textContent = `Protocol ${idx + 1}/${remainingCount}`;
+                idxBadge.style.display = '';
+              }
+            } else {
+              if (idxBadge) idxBadge.style.display = 'none';
+            }
+          });
+
+          // Update footer pills container & label
+          const saActiveLabel = document.getElementById('saActiveLabel');
+          if (saActiveLabel) {
+            if (remainingCount > 1) {
+              saActiveLabel.textContent = `ACTIVE (${remainingCount}):`;
+              saActiveLabel.style.fontSize = '0.63rem';
+              saActiveLabel.style.textTransform = 'uppercase';
+              saActiveLabel.style.letterSpacing = '0.05em';
+            } else {
+              saActiveLabel.innerHTML = '🔴 1 Active Emergency Protocol';
+              saActiveLabel.style.fontSize = '0.72rem';
+              saActiveLabel.style.textTransform = 'none';
+              saActiveLabel.style.letterSpacing = 'normal';
+              saPills.forEach(p => p.remove());
+              saPills = document.querySelectorAll('.sa-carousel-pill');
+            }
+          }
+
+          if (remainingCount > 1) {
+            saPills.forEach((p, idx) => {
+              p.setAttribute('data-sa-pill', idx);
+              p.setAttribute('onclick', `switchSaSlide(${idx})`);
+            });
+          }
+
+          // Update header telemetry and surge button
+          const telemetryStatus = document.getElementById('saTelemetryStatus');
+          const headerSurgeBtn = document.getElementById('saHeaderSurgeBtn');
+          if (remainingCount === 1) {
+            const firstTitle = saSlides[0].getAttribute('data-protocol-title') || 'Active Protocol';
+            const firstQuota = saSlides[0].getAttribute('data-protocol-quota') || '20';
+            if (telemetryStatus) {
+              telemetryStatus.textContent = `SURGE ACTIVE: ${firstTitle}`;
+            }
+            if (headerSurgeBtn) {
+              headerSurgeBtn.innerHTML = `
+                <span class="bd-dot bd-hold" style="animation:beaconBounce 1s infinite;"></span>
+                SURGE ACTIVE: ${firstTitle} (${firstQuota}%)
+              `;
+            }
+          } else {
+            if (telemetryStatus) {
+              telemetryStatus.textContent = `${remainingCount} PROTOCOLS CONCURRENT SURGE`;
+            }
+            if (headerSurgeBtn) {
+              headerSurgeBtn.innerHTML = `
+                <span class="bd-dot bd-hold" style="animation:beaconBounce 0.8s infinite;"></span>
+                SURGE ACTIVE: ${remainingCount} CONCURRENT PROTOCOLS
+              `;
+            }
+          }
+
+          // Seamlessly transition carousel to remaining protocol slide 0 without reload
+          saSlideIdx = 0;
+          switchSaSlide(0);
+          startSaCarousel();
+        } else {
+          // All concurrent active protocols reach 0 -> return to green SYSTEM NORMAL
+          const carousel = document.getElementById('saDisasterCarousel');
+          if (carousel) {
+            carousel.style.transition = 'opacity 0.4s ease, max-height 0.5s ease, margin 0.5s ease, padding 0.5s ease';
+            carousel.style.opacity = '0';
+            carousel.style.maxHeight = '0';
+            carousel.style.paddingTop = '0';
+            carousel.style.paddingBottom = '0';
+            carousel.style.marginTop = '0';
+            carousel.style.marginBottom = '0';
+            carousel.style.overflow = 'hidden';
+            setTimeout(() => carousel.remove(), 550);
+          }
+
+          const badge = document.getElementById('saTelemetryBadge');
+          if (badge) {
+            badge.classList.remove('telemetry-surge');
+            badge.classList.add('telemetry-normal');
+            badge.title = 'Bed Telemetry Synchronized across all 6 facilities';
+          }
+          const bpm = document.getElementById('saTelemetryBpm');
+          if (bpm) bpm.textContent = '72 BPM';
+          const status = document.getElementById('saTelemetryStatus');
+          if (status) status.textContent = 'SYSTEM NORMAL';
+
+          const surgeBtn = document.getElementById('saHeaderSurgeBtn');
+          if (surgeBtn) {
+            surgeBtn.className = 'btn-declare-emergency';
+            surgeBtn.innerHTML = `
+              <svg class="ui-ico" style="width:16px;height:16px;stroke:#fff;" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+              Declare National Emergency / Triage Surge
+            `;
+          }
+
+          setTimeout(() => location.reload(), 1400);
+        }
+      }, 380);
     }
 
     // ── Bed Modal Details & Override ─────────────────────────────────────────
@@ -1527,6 +1935,108 @@ try {
         });
       }
     }
+
+    // ── Disaster Banner Carousel ──────────────────────────────────────────────
+    let saSlideIdx    = 0;
+    let saSlides      = document.querySelectorAll('.sa-carousel-slide');
+    let saPills       = document.querySelectorAll('.sa-carousel-pill');
+    let saTimer       = null;
+    let saProgressPct = 0;
+    const SA_SLIDE_DURATION = 4500;
+    const SA_TICK_INTERVAL  = 50;
+
+    function switchSaSlide(idx) {
+      if (!saSlides.length) return;
+      saSlideIdx = idx;
+
+      saSlides.forEach((slide, i) => {
+        const wrapper = slide.querySelector('.sa-slide-wrapper');
+        if (i === idx) {
+          slide.classList.add('active');
+          slide.style.visibility = 'visible';
+          slide.style.pointerEvents = 'auto';
+          slide.style.opacity = '1';
+          if (wrapper) {
+            wrapper.classList.remove('opacity-0', 'translate-x-3');
+            wrapper.classList.add('opacity-100', 'translate-x-0');
+          }
+        } else {
+          slide.classList.remove('active');
+          slide.style.pointerEvents = 'none';
+          slide.style.opacity = '0';
+          if (wrapper) {
+            wrapper.classList.remove('opacity-100', 'translate-x-0');
+            wrapper.classList.add('opacity-0', 'translate-x-3');
+          }
+          setTimeout(() => {
+            if (!slide.classList.contains('active')) {
+              slide.style.visibility = 'hidden';
+            }
+          }, 500);
+        }
+      });
+
+      saPills.forEach((p, i) => {
+        const label = p.getAttribute('data-pill-label') || p.textContent.replace(/[●○•\s]+/g, ' ').trim();
+        if (i === idx) {
+          p.classList.add('sa-pill-active');
+          p.style.background = '#f43f5e';
+          p.style.color      = '#fff';
+          p.innerHTML        = `<span class="w-2 h-2 rounded-full bg-white animate-pulse"></span> <span class="font-medium">${label}</span>`;
+        } else {
+          p.classList.remove('sa-pill-active');
+          p.style.background = 'rgba(255,255,255,0.12)';
+          p.style.color      = '#cbd5e1';
+          p.innerHTML        = `<span class="w-2 h-2 rounded-full border border-white/60"></span> <span class="opacity-80">${label}</span>`;
+        }
+      });
+
+      resetSaProgress();
+    }
+
+    function resetSaProgress() {
+      saProgressPct = 0;
+      const bar = document.getElementById('saProgressBar');
+      if (bar) {
+        bar.style.transition = 'none';
+        bar.style.width = '0%';
+        void bar.offsetWidth; // Force CSS reflow to prevent backwards transition animation
+        bar.style.transition = 'width 0.08s linear';
+      }
+    }
+
+    function initSaCarousel() {
+      if (!saSlides.length) return;        // only skip if no banner at all
+      startSaCarousel();
+      const wrap = document.getElementById('saDisasterCarousel');
+      if (wrap) {
+        wrap.addEventListener('mouseenter', () => pauseSaCarousel());
+        wrap.addEventListener('mouseleave', () => startSaCarousel());
+      }
+    }
+
+    function startSaCarousel() {
+      clearInterval(saTimer);
+      saTimer = setInterval(() => {
+        saProgressPct += (SA_TICK_INTERVAL / SA_SLIDE_DURATION) * 100;
+        const bar = document.getElementById('saProgressBar');
+        if (bar) bar.style.width = `${Math.min(100, saProgressPct)}%`;
+        if (saProgressPct >= 100) {
+          if (saSlides.length > 1) {
+            switchSaSlide((saSlideIdx + 1) % saSlides.length);
+          } else {
+            // Single protocol — just loop the bar for visual pulse
+            resetSaProgress();
+          }
+        }
+      }, SA_TICK_INTERVAL);
+    }
+
+    function pauseSaCarousel() {
+      clearInterval(saTimer);
+    }
+
+    document.addEventListener('DOMContentLoaded', initSaCarousel);
   </script>
   <!-- Dedicated MedPulse Modern Dialog & Toast Engine -->
   <script src="../assets/js/medpulse_dialog.js"></script>

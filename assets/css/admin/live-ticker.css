@@ -246,3 +246,181 @@
     margin-left: auto;
   }
 }
+
+/* --- Enterprise Clinical Status Bar: Surge Styles --- */
+.telemetry-ticker-bar.ticker-surge-alert {
+  background: linear-gradient(135deg, rgba(255, 241, 242, 0.92) 0%, rgba(255, 228, 230, 0.78) 45%, rgba(254, 242, 242, 0.95) 100%) !important;
+  backdrop-filter: blur(14px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(180%) !important;
+  border: 1px solid rgba(244, 63, 94, 0.35) !important;
+  border-left: 4px solid #e11d48 !important;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px -2px rgba(225, 29, 72, 0.14), 0 2px 6px -1px rgba(225, 29, 72, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.7) !important;
+}
+
+.telemetry-ticker-bar.ticker-surge-alert:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px -2px rgba(225, 29, 72, 0.22), 0 3px 8px -1px rgba(225, 29, 72, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;
+  border-color: rgba(225, 29, 72, 0.5) !important;
+}
+
+.ticker-indicator.indicator-surge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  background: rgba(225, 29, 72, 0.1);
+  border: 1px solid rgba(225, 29, 72, 0.28);
+  border-radius: 9999px;
+  flex-shrink: 0;
+  box-shadow: 0 1px 3px rgba(225, 29, 72, 0.08);
+}
+
+.ticker-indicator.indicator-surge .ticker-pulse-dot {
+  background-color: #e11d48;
+  box-shadow: 0 0 8px #e11d48;
+}
+
+.ticker-indicator.indicator-surge .ticker-pulse-ring {
+  background-color: #f43f5e;
+}
+
+.ticker-indicator.indicator-surge .indicator-label {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #be123c;
+  text-transform: uppercase;
+}
+
+.ticker-item-surge {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 40px;
+  width: 100%;
+}
+
+.ticker-cat-badge.badge-emergency {
+  background: linear-gradient(135deg, #e11d48 0%, #be123c 100%);
+  color: #ffffff;
+  font-weight: 800;
+  font-size: 0.68rem;
+  letter-spacing: 0.05em;
+  padding: 3px 8px;
+  border-radius: 6px;
+  box-shadow: 0 2px 6px rgba(225, 29, 72, 0.3);
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.ticker-narrative-text {
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: #881337;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.clinical-ecg-monitor {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 10px;
+  background: rgba(225, 29, 72, 0.08);
+  border: 1px solid rgba(225, 29, 72, 0.22);
+  border-radius: 9999px;
+  flex-shrink: 0;
+}
+
+.clinical-ecg-canvas {
+  width: 44px;
+  height: 15px;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.clinical-ecg-svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.clinical-ecg-bg {
+  fill: none;
+  stroke: rgba(225, 29, 72, 0.25);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.clinical-ecg-pulse {
+  fill: none;
+  stroke: #e11d48;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 100;
+  stroke-dashoffset: 100;
+  animation: ecgSurgeFast 1.3s linear infinite;
+  filter: drop-shadow(0 0 3px rgba(225, 29, 72, 0.6));
+}
+
+@keyframes ecgSurgeFast {
+  0% { stroke-dashoffset: 100; }
+  50% { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: -100; }
+}
+
+.clinical-bpm-val {
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #be123c;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.clinical-pulse-dot {
+  width: 6px;
+  height: 6px;
+  background-color: #e11d48;
+  border-radius: 50%;
+  display: inline-block;
+  animation: clinicalDotPulse 0.9s ease-in-out infinite;
+  box-shadow: 0 0 6px rgba(225, 29, 72, 0.6);
+}
+
+@keyframes clinicalDotPulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(0.65); opacity: 0.35; }
+}
+
+.ticker-audit-link.audit-btn-surge {
+  background: rgba(244, 63, 94, 0.08);
+  color: #be123c;
+  border: 1px solid rgba(244, 63, 94, 0.28);
+  border-radius: 9999px;
+  padding: 6px 14px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(225, 29, 72, 0.08);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+  transition: all 0.22s ease-in-out;
+  white-space: nowrap;
+}
+
+.ticker-audit-link.audit-btn-surge:hover {
+  background: linear-gradient(135deg, #e11d48 0%, #be123c 100%);
+  color: #ffffff;
+  border-color: #be123c;
+  box-shadow: 0 4px 14px rgba(225, 29, 72, 0.35);
+  transform: translateY(-1px);
+}

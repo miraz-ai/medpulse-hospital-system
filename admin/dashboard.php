@@ -25,11 +25,10 @@ try {
 
     // Strict multi-hospital scoping: resolve current branch hospital
     $adminHospitalId = (int)($_SESSION['hospital_id'] ?? 1);
-    $hospStmt = $pdo->prepare("SELECT id, name, code, total_beds FROM hospitals WHERE id = ?");
+    $hospStmt = $pdo->prepare("SELECT hospital_id, name, code FROM hospitals WHERE hospital_id = ?");
     $hospStmt->execute([$adminHospitalId]);
     $currentHospital = $hospStmt->fetch(PDO::FETCH_ASSOC);
     $branchName = $currentHospital['name'] ?? 'MedPulse Facility';
-    $branchTotalBeds = (int)($currentHospital['total_beds'] ?? 500);
 
     // Bed Census Telemetry scoped to branch hospital
     $bedStatsStmt = $pdo->prepare("
@@ -45,10 +44,10 @@ try {
     $bedStatsStmt->execute([$adminHospitalId]);
     $bRow = $bedStatsStmt->fetch(PDO::FETCH_ASSOC);
 
-    $total_beds = (int)($bRow['total_beds'] ?? $branchTotalBeds);
-    $available_beds = (int)($bRow['available_beds'] ?? 0);
-    $occupied_beds = (int)($bRow['occupied_beds'] ?? 0);
-    $maintenance_beds = (int)($bRow['maintenance_beds'] ?? 0);
+    $total_beds          = (int)($bRow['total_beds'] ?? 500);
+    $available_beds      = (int)($bRow['available_beds'] ?? 0);
+    $occupied_beds       = (int)($bRow['occupied_beds'] ?? 0);
+    $maintenance_beds    = (int)($bRow['maintenance_beds'] ?? 0);
     $emergency_hold_beds = (int)($bRow['emergency_hold_beds'] ?? 0);
 
     // Multi-Emergency Protocols Scope for Branch
@@ -56,24 +55,46 @@ try {
     $emergencyService = new \MedPulse\Services\EmergencyProtocolService($pdo);
     $allActiveProtocols = $emergencyService->getActiveProtocols();
     $branchProtocols = [];
+    $branchHeldBeds = 0;
+    $branchRelocCount = 0;
+
     foreach ($allActiveProtocols as $p) {
-        if ($p['target_scope'] === 'NETWORK_WIDE') {
+        $targetIds = $p['target_hospital_ids'] ?? [];
+        if (empty($targetIds) && !empty($p['target_hospitals'])) {
+            $targetIds = is_string($p['target_hospitals']) ? json_decode($p['target_hospitals'], true) : $p['target_hospitals'];
+        }
+        $isNetworkWide = strtoupper($p['target_scope'] ?? '') === 'NETWORK_WIDE';
+        $inHospital = in_array((int)$adminHospitalId, array_map('intval', (array)$targetIds), true);
+
+        if ($isNetworkWide || $inHospital) {
+            // Count held beds and relocation beds for this hospital & protocol
+            $bCounts = $pdo->prepare("
+                SELECT 
+                    SUM(status = 'Emergency Hold') AS held_count,
+                    SUM(relocation_status = 'PENDING_RELOCATION') AS relocating_count
+                FROM hospital_beds
+                WHERE hospital_id = ? AND emergency_protocol_id = ?
+            ");
+            $bCounts->execute([$adminHospitalId, $p['id']]);
+            $bc = $bCounts->fetch(PDO::FETCH_ASSOC);
+            $p['branch_held'] = (int)($bc['held_count'] ?? 0);
+            $p['branch_reloc'] = (int)($bc['relocating_count'] ?? 0);
+            $branchHeldBeds += $p['branch_held'];
+            $branchRelocCount += $p['branch_reloc'];
             $branchProtocols[] = $p;
-        } else {
-            $th = !empty($p['target_hospitals']) ? json_decode($p['target_hospitals'], true) : [];
-            if (is_array($th) && in_array($adminHospitalId, $th)) {
-                $branchProtocols[] = $p;
-            }
         }
     }
     $branchActiveCount = count($branchProtocols);
 
-    // Relocation queue count for branch
+    // Relocation queue count for branch (total beds pending relocation in this facility)
     $relocStmt = $pdo->prepare("SELECT COUNT(*) FROM hospital_beds WHERE hospital_id = ? AND relocation_status = 'PENDING_RELOCATION'");
     $relocStmt->execute([$adminHospitalId]);
-    $branchRelocCount = (int)$relocStmt->fetchColumn();
+    $branchRelocCount = max($branchRelocCount, (int)$relocStmt->fetchColumn());
 
     // Surge quota impact:
+    if ($emergency_hold_beds === 0 && $branchHeldBeds > 0) {
+        $emergency_hold_beds = $branchHeldBeds;
+    }
     $branchSurgePct = $total_beds > 0 ? round(($emergency_hold_beds / $total_beds) * 100, 1) : 0;
 
     // 3. System Health & ICU Load Telemetry
@@ -92,10 +113,10 @@ try {
 
     // Determine Dynamic Health Status with Surge Synchronization
     if ($branchActiveCount > 0 || $emergency_hold_beds > 0) {
-        $healthBadgeText = 'SURGE ACTIVE (' . $branchActiveCount . ' PROTOCOL' . ($branchActiveCount > 1 ? 'S' : '') . ')';
-        $healthBadgeClass = 'status-high-load';
+        $healthBadgeText = 'SURGE ACTIVE &bull; PRIORITY TRIAGE';
+        $healthBadgeClass = 'status-surge-active';
         $pulseClass = 'ecg-pulse-warning';
-        $pulseLabel = '118 BPM &bull; DISASTER SURGE ACTIVE';
+        $pulseLabel = '112 BPM &bull; DISASTER SURGE ACTIVE';
         $waveColor = '#f43f5e';
     } elseif ($icuLoad >= 85) {
         $healthBadgeText = 'HIGH LOAD';
@@ -104,7 +125,7 @@ try {
         $pulseLabel = '96 BPM &bull; HIGH CAPACITY';
         $waveColor = '#d97706';
     } else {
-        $healthBadgeText = 'SYSTEM NORMAL';
+        $healthBadgeText = 'READY &bull; SYSTEM NORMAL';
         $healthBadgeClass = '';
         $pulseClass = '';
         $pulseLabel = '72 BPM &bull; TELEMETRY ACTIVE';
@@ -135,21 +156,36 @@ try {
 
 } catch (PDOException $e) {
     error_log("Admin Dashboard DB error: " . $e->getMessage());
-    $healthBadgeText = 'OFFLINE';
-    $healthBadgeClass = 'status-offline';
-    $pulseClass = 'ecg-pulse-critical';
-    $pulseLabel = '0 BPM &bull; TELEMETRY INTERRUPTED';
-    $waveColor = '#ef4444';
-    $total_doctors = 8;
-    $total_staff = 1;
-    $total_patients = 9;
+    $total_doctors = (int)($total_doctors ?? 8);
+    $total_staff = (int)($total_staff ?? 1);
+    $total_patients = (int)($total_patients ?? 9);
     $total_beds = 500;
     $available_beds = 392;
     $occupied_beds = 93;
     $maintenance_beds = 15;
-    $pendingCount = 0;
-    $pendingUsers = [];
-    $tickerLogs = [];
+    $emergency_hold_beds = (int)($emergency_hold_beds ?? 0);
+    $branchActiveCount = (int)($branchActiveCount ?? 0);
+    $branchProtocols = $branchProtocols ?? [];
+    $branchRelocCount = (int)($branchRelocCount ?? 0);
+    $branchSurgePct = $total_beds > 0 ? round(($emergency_hold_beds / $total_beds) * 100, 1) : 0;
+    $pendingCount = (int)($pendingCount ?? 0);
+    $pendingUsers = $pendingUsers ?? [];
+    $tickerLogs = $tickerLogs ?? [];
+    $branchName = $branchName ?? 'MedPulse Facility';
+
+    if ($branchActiveCount > 0 || $emergency_hold_beds > 0) {
+        $healthBadgeText = 'SURGE ACTIVE &bull; PRIORITY TRIAGE';
+        $healthBadgeClass = 'status-surge-active';
+        $pulseClass = 'ecg-pulse-warning';
+        $pulseLabel = '112 BPM &bull; DISASTER SURGE ACTIVE';
+        $waveColor = '#f43f5e';
+    } else {
+        $healthBadgeText = 'READY &bull; SYSTEM NORMAL';
+        $healthBadgeClass = '';
+        $pulseClass = '';
+        $pulseLabel = '72 BPM &bull; TELEMETRY ACTIVE';
+        $waveColor = '#0d9488';
+    }
 }
 ?>
 <!DOCTYPE html>
@@ -172,6 +208,290 @@ try {
   <link rel="stylesheet" href="../assets/css/patient_dashboard.css">
   <link rel="stylesheet" href="../assets/css/admin/live-ticker.css?v=<?= time() ?>">
   <link rel="stylesheet" href="../assets/css/admin/live-pulse.css?v=<?= time() ?>">
+  <style>
+    @keyframes pulseAlert {
+      0%, 100% { box-shadow: 0 0 10px rgba(225, 29, 72, 0.4); }
+      50% { box-shadow: 0 0 22px rgba(225, 29, 72, 0.75); }
+    }
+    @keyframes saPulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.92); }
+    }
+    @keyframes beaconBounce {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.08); }
+    }
+    .badge-surge-pulse {
+      animation: pulseAlert 2s infinite;
+    }
+    .status-surge-active {
+      background: #fef2f2 !important;
+      color: #991b1b !important;
+      border: 1.5px solid rgba(244, 63, 94, 0.5) !important;
+      box-shadow: 0 0 12px rgba(225, 29, 72, 0.25) !important;
+    }
+    .status-surge-active .radar-pulse-dot {
+      background: #e11d48 !important;
+      box-shadow: 0 0 8px #e11d48 !important;
+    }
+
+    /* --- Enterprise Clinical Status Bar: Glassmorphic Frame --- */
+    .telemetry-ticker-bar.ticker-surge-alert {
+      background: linear-gradient(135deg, rgba(255, 241, 242, 0.92) 0%, rgba(255, 228, 230, 0.78) 45%, rgba(254, 242, 242, 0.95) 100%) !important;
+      backdrop-filter: blur(14px) saturate(180%) !important;
+      -webkit-backdrop-filter: blur(14px) saturate(180%) !important;
+      border: 1px solid rgba(244, 63, 94, 0.35) !important;
+      border-left: 4px solid #e11d48 !important;
+      border-radius: 12px;
+      box-shadow: 0 4px 20px -2px rgba(225, 29, 72, 0.14), 0 2px 6px -1px rgba(225, 29, 72, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.7) !important;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .telemetry-ticker-bar.ticker-surge-alert:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 25px -2px rgba(225, 29, 72, 0.22), 0 3px 8px -1px rgba(225, 29, 72, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;
+      border-color: rgba(225, 29, 72, 0.5) !important;
+    }
+
+    /* Left Element: Single Compact Status Badge */
+    .ticker-indicator.indicator-surge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 12px;
+      background: rgba(225, 29, 72, 0.1);
+      border: 1px solid rgba(225, 29, 72, 0.28);
+      border-radius: 9999px;
+      flex-shrink: 0;
+      user-select: none;
+      box-shadow: 0 1px 3px rgba(225, 29, 72, 0.08);
+    }
+    .ticker-indicator.indicator-surge .ticker-pulse-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 10px;
+      height: 10px;
+    }
+    .ticker-indicator.indicator-surge .ticker-pulse-dot {
+      width: 8px;
+      height: 8px;
+      background-color: #e11d48;
+      border-radius: 50%;
+      box-shadow: 0 0 8px #e11d48;
+      position: relative;
+      z-index: 2;
+    }
+    .ticker-indicator.indicator-surge .ticker-pulse-ring {
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background-color: #f43f5e;
+      opacity: 0.75;
+      animation: pulseAlert 1.5s infinite;
+      z-index: 1;
+    }
+    .ticker-indicator.indicator-surge .indicator-label {
+      font-size: 0.72rem;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      color: #be123c;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    /* Center Element: Alert Narrative & Live Vitals */
+    .ticker-item-surge {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      height: 40px;
+      width: 100%;
+    }
+    .ticker-cat-badge.badge-emergency {
+      background: linear-gradient(135deg, #e11d48 0%, #be123c 100%);
+      color: #ffffff;
+      font-weight: 800;
+      font-size: 0.68rem;
+      letter-spacing: 0.05em;
+      padding: 3px 8px;
+      border-radius: 6px;
+      box-shadow: 0 2px 6px rgba(225, 29, 72, 0.3);
+      text-transform: uppercase;
+      flex-shrink: 0;
+    }
+    .ticker-narrative-text {
+      font-size: 0.86rem;
+      font-weight: 600;
+      color: #881337;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .narrative-bullet {
+      color: #f43f5e;
+      font-weight: bold;
+      user-select: none;
+    }
+    .mandates-highlight {
+      color: #9f1239;
+      font-weight: 800;
+    }
+
+    /* Medical SVG ECG Waveform & Vitals Badge */
+    .clinical-ecg-monitor {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 3px 10px;
+      background: rgba(225, 29, 72, 0.08);
+      border: 1px solid rgba(225, 29, 72, 0.22);
+      border-radius: 9999px;
+      flex-shrink: 0;
+      user-select: none;
+    }
+    .clinical-ecg-canvas {
+      width: 44px;
+      height: 15px;
+      display: flex;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .clinical-ecg-svg {
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+    }
+    .clinical-ecg-bg {
+      fill: none;
+      stroke: rgba(225, 29, 72, 0.25);
+      stroke-width: 1.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .clinical-ecg-pulse {
+      fill: none;
+      stroke: #e11d48;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-dasharray: 100;
+      stroke-dashoffset: 100;
+      animation: ecgSurgeFast 1.3s linear infinite;
+      filter: drop-shadow(0 0 3px rgba(225, 29, 72, 0.6));
+    }
+    @keyframes ecgSurgeFast {
+      0% { stroke-dashoffset: 100; }
+      50% { stroke-dashoffset: 0; }
+      100% { stroke-dashoffset: -100; }
+    }
+    .clinical-bpm-val {
+      font-size: 0.72rem;
+      font-weight: 800;
+      color: #be123c;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+    }
+    .clinical-pulse-dot {
+      width: 6px;
+      height: 6px;
+      background-color: #e11d48;
+      border-radius: 50%;
+      display: inline-block;
+      animation: clinicalDotPulse 0.9s ease-in-out infinite;
+      box-shadow: 0 0 6px rgba(225, 29, 72, 0.6);
+    }
+    @keyframes clinicalDotPulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(0.65); opacity: 0.35; }
+    }
+
+    /* Right Action Navigation Button */
+    .ticker-audit-link.audit-btn-surge {
+      background: rgba(244, 63, 94, 0.08);
+      color: #be123c;
+      border: 1px solid rgba(244, 63, 94, 0.28);
+      border-radius: 9999px;
+      padding: 6px 14px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      box-shadow: 0 1px 3px rgba(225, 29, 72, 0.08);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      text-decoration: none;
+      transition: all 0.22s ease-in-out;
+      white-space: nowrap;
+    }
+    .ticker-audit-link.audit-btn-surge:hover {
+      background: linear-gradient(135deg, #e11d48 0%, #be123c 100%);
+      color: #ffffff;
+      border-color: #be123c;
+      box-shadow: 0 4px 14px rgba(225, 29, 72, 0.35);
+      transform: translateY(-1px);
+    }
+    .ticker-audit-link.audit-btn-surge svg {
+      width: 14px;
+      height: 14px;
+      stroke: currentColor;
+      stroke-width: 2.2;
+      fill: none;
+      transition: transform 0.2s ease;
+    }
+    .ticker-audit-link.audit-btn-surge:hover svg {
+      transform: translateX(3px);
+    }
+
+    /* Dark Mode Contrast Optimization */
+    [data-theme="dark"] .telemetry-ticker-bar.ticker-surge-alert,
+    .dark .telemetry-ticker-bar.ticker-surge-alert {
+      background: linear-gradient(135deg, rgba(38, 12, 18, 0.92) 0%, rgba(55, 16, 26, 0.82) 45%, rgba(30, 9, 14, 0.95) 100%) !important;
+      border: 1px solid rgba(244, 63, 94, 0.35) !important;
+      border-left: 4px solid #f43f5e !important;
+      box-shadow: 0 4px 24px -2px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+    }
+    [data-theme="dark"] .ticker-indicator.indicator-surge,
+    .dark .ticker-indicator.indicator-surge {
+      background: rgba(225, 29, 72, 0.2);
+      border-color: rgba(244, 63, 94, 0.35);
+    }
+    [data-theme="dark"] .ticker-indicator.indicator-surge .indicator-label,
+    .dark .ticker-indicator.indicator-surge .indicator-label {
+      color: #fda4af;
+    }
+    [data-theme="dark"] .ticker-narrative-text,
+    .dark .ticker-narrative-text {
+      color: #fecdd3;
+    }
+    [data-theme="dark"] .mandates-highlight,
+    .dark .mandates-highlight {
+      color: #ffe4e6;
+    }
+    [data-theme="dark"] .clinical-ecg-monitor,
+    .dark .clinical-ecg-monitor {
+      background: rgba(225, 29, 72, 0.2);
+      border-color: rgba(244, 63, 94, 0.35);
+    }
+    [data-theme="dark"] .clinical-bpm-val,
+    .dark .clinical-bpm-val {
+      color: #fda4af;
+    }
+    [data-theme="dark"] .ticker-audit-link.audit-btn-surge,
+    .dark .ticker-audit-link.audit-btn-surge {
+      background: rgba(244, 63, 94, 0.16);
+      color: #fda4af;
+      border-color: rgba(244, 63, 94, 0.35);
+    }
+    [data-theme="dark"] .ticker-audit-link.audit-btn-surge:hover,
+    .dark .ticker-audit-link.audit-btn-surge:hover {
+      background: linear-gradient(135deg, #f43f5e 0%, #e11d48 100%);
+      color: #ffffff;
+    }
+  </style>
 </head>
 <body>
 
@@ -202,50 +522,74 @@ try {
       </div>
     </div>
 
-    <!-- Live Event Telemetry Ticker -->
-    <div class="telemetry-ticker-bar" id="telemetryTicker" aria-label="Live event telemetry ticker">
-      <div class="ticker-indicator">
+    <!-- Live Event Telemetry Ticker / Enterprise Clinical Status Bar -->
+    <div class="telemetry-ticker-bar <?= $branchActiveCount > 0 ? 'ticker-surge-alert' : '' ?>" id="telemetryTicker" aria-label="Live event telemetry ticker">
+      <!-- Left Element: Status Indicator -->
+      <div class="ticker-indicator <?= $branchActiveCount > 0 ? 'indicator-surge' : '' ?>">
         <div class="ticker-pulse-wrapper">
           <span class="ticker-pulse-ring"></span>
           <span class="ticker-pulse-dot"></span>
         </div>
-        <span class="indicator-label">Live Telemetry</span>
+        <span class="indicator-label">
+          <?= $branchActiveCount > 0 ? 'SURGE ACTIVE' : 'Live Telemetry' ?>
+        </span>
       </div>
 
+      <!-- Center Element: Alert Narrative & Live Vitals -->
       <div class="ticker-viewport">
         <div class="ticker-track" id="tickerTrack">
-          <?php if (!empty($tickerLogs)): ?>
-            <?php foreach ($tickerLogs as $log): 
-              $cat = strtoupper($log['category'] ?? 'SYSTEM');
-              $catClass = match($cat) {
-                  'ADMISSION' => 'cat-admission',
-                  'VERIFICATION' => 'cat-verification',
-                  'PHARMACY' => 'cat-pharmacy',
-                  'SECURITY' => 'cat-security',
-                  default => 'cat-system'
-              };
-              $desc = !empty($log['description']) ? $log['description'] : ($log['action'] ?? 'Telemetry event recorded');
-              $relTime = getTelemetryRelativeTime($log['created_at']);
-            ?>
-              <div class="ticker-item">
-                <span class="ticker-cat-badge <?= $catClass ?>"><?= htmlspecialchars($cat, ENT_QUOTES, 'UTF-8') ?></span>
-                <span class="ticker-text"><?= htmlspecialchars($desc, ENT_QUOTES, 'UTF-8') ?></span>
-                <span class="ticker-separator">&bull;</span>
-                <span class="ticker-time"><?= htmlspecialchars($relTime, ENT_QUOTES, 'UTF-8') ?></span>
+          <?php if ($branchActiveCount > 0): ?>
+            <div class="ticker-item ticker-item-surge">
+              <span class="ticker-cat-badge badge-emergency">CRITICAL</span>
+              <span class="ticker-narrative-text">
+                Branch protocols active <span class="narrative-bullet">&bull;</span> <strong class="mandates-highlight"><?= $branchActiveCount ?> Mandate<?= $branchActiveCount > 1 ? 's' : '' ?> Enforced</strong>
+              </span>
+              <div class="clinical-ecg-monitor ecg-surge">
+                <div class="clinical-ecg-canvas">
+                  <svg class="clinical-ecg-svg" viewBox="0 0 54 18" preserveAspectRatio="none">
+                    <path class="clinical-ecg-bg" d="M0,9 L12,9 L15,3 L18,15 L21,2 L24,16 L27,9 L32,9 L35,6 L38,11 L41,9 L54,9"></path>
+                    <path class="clinical-ecg-pulse" d="M0,9 L12,9 L15,3 L18,15 L21,2 L24,16 L27,9 L32,9 L35,6 L38,11 L41,9 L54,9"></path>
+                  </svg>
+                </div>
+                <span class="clinical-bpm-val font-mono">114 BPM</span>
+                <span class="clinical-pulse-dot"></span>
               </div>
-            <?php endforeach; ?>
-          <?php else: ?>
-            <div class="ticker-item">
-              <span class="ticker-cat-badge cat-system">SYSTEM</span>
-              <span class="ticker-text">Telemetry Active &bull; All channels normal</span>
-              <span class="ticker-separator">&bull;</span>
-              <span class="ticker-time">Just now</span>
             </div>
+          <?php else: ?>
+            <?php if (!empty($tickerLogs)): ?>
+              <?php foreach ($tickerLogs as $log): 
+                $cat = strtoupper($log['category'] ?? 'SYSTEM');
+                $catClass = match($cat) {
+                    'ADMISSION' => 'cat-admission',
+                    'VERIFICATION' => 'cat-verification',
+                    'PHARMACY' => 'cat-pharmacy',
+                    'SECURITY' => 'cat-security',
+                    default => 'cat-system'
+                };
+                $desc = !empty($log['description']) ? $log['description'] : ($log['action'] ?? 'Telemetry event recorded');
+                $relTime = getTelemetryRelativeTime($log['created_at']);
+              ?>
+                <div class="ticker-item">
+                  <span class="ticker-cat-badge <?= $catClass ?>"><?= htmlspecialchars($cat, ENT_QUOTES, 'UTF-8') ?></span>
+                  <span class="ticker-text"><?= htmlspecialchars($desc, ENT_QUOTES, 'UTF-8') ?></span>
+                  <span class="ticker-separator">&bull;</span>
+                  <span class="ticker-time"><?= htmlspecialchars($relTime, ENT_QUOTES, 'UTF-8') ?></span>
+                </div>
+              <?php endforeach; ?>
+            <?php else: ?>
+              <div class="ticker-item">
+                <span class="ticker-cat-badge cat-system">SYSTEM</span>
+                <span class="ticker-text">Telemetry Active &bull; All channels normal</span>
+                <span class="ticker-separator">&bull;</span>
+                <span class="ticker-time">Just now</span>
+              </div>
+            <?php endif; ?>
           <?php endif; ?>
         </div>
       </div>
 
-      <a href="audit_logs.php" class="ticker-audit-link" title="View dedicated audit logs">
+      <!-- Right Element: Action Navigation Button -->
+      <a href="audit_logs.php" class="ticker-audit-link <?= $branchActiveCount > 0 ? 'audit-btn-surge' : '' ?>" title="View dedicated audit logs">
         <span>View All Logs</span>
         <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
       </a>
@@ -312,11 +656,18 @@ try {
               <?= $branchActiveCount > 0 ? '🚨' : '🛡️' ?>
             </div>
             <div>
-              <h3 style="margin: 0; font-size: 1.1rem; font-weight: 800; color: var(--text-heading); display: flex; align-items: center; gap: 10px;">
+              <h3 style="margin: 0; font-size: 1.1rem; font-weight: 800; color: var(--text-heading); display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
                 Branch Disaster Readiness &amp; Surge Attribution
-                <span style="font-size: 0.72rem; padding: 2px 8px; border-radius: 6px; font-weight: 800; text-transform: uppercase; <?= $branchActiveCount > 0 ? 'background: #f43f5e; color: #fff;' : 'background: #0d9488; color: #fff;' ?>">
-                  <?= $branchActiveCount > 0 ? $branchActiveCount . ' CONCURRENT PROTOCOL' . ($branchActiveCount > 1 ? 'S' : '') : 'READY • SYSTEM NORMAL' ?>
-                </span>
+                <?php if ($branchActiveCount > 0): ?>
+                  <span class="badge-surge-pulse" style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.72rem; padding: 4px 11px; border-radius: 20px; font-weight: 800; text-transform: uppercase; background: linear-gradient(135deg, #e11d48 0%, #b91c1c 100%); color: #fff; box-shadow: 0 2px 10px rgba(225, 29, 72, 0.4);">
+                    <span style="width: 7px; height: 7px; border-radius: 50%; background: #fff; animation: saPulse 1.2s infinite;"></span>
+                    SURGE ACTIVE &bull; PRIORITY TRIAGE
+                  </span>
+                <?php else: ?>
+                  <span style="font-size: 0.72rem; padding: 3px 9px; border-radius: 12px; font-weight: 800; text-transform: uppercase; background: #0d9488; color: #fff;">
+                    READY &bull; SYSTEM NORMAL
+                  </span>
+                <?php endif; ?>
               </h3>
               <p style="margin: 3px 0 0; font-size: 0.78rem; color: var(--text-muted);">
                 <?= htmlspecialchars($branchName) ?> localized surge quotas, concurrent holds, and evacuation readiness telemetry
@@ -333,29 +684,77 @@ try {
       </div>
 
       <div style="padding: 20px 24px;">
+        <?php if ($branchActiveCount > 0): 
+          $activeTitles = implode(' / ', array_map(fn($p) => htmlspecialchars($p['title']), $branchProtocols));
+        ?>
+        <!-- Prominent Emergency Command Strip (Amber/Crimson Theme) -->
+        <div style="background: linear-gradient(135deg, #881337 0%, #4c0519 100%); border: 1.5px solid #f43f5e; border-radius: 14px; padding: 16px 20px; color: #fff; margin-bottom: 20px; box-shadow: 0 8px 24px rgba(136, 19, 55, 0.35); display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 14px;">
+            <div style="width: 44px; height: 44px; border-radius: 12px; background: rgba(255, 255, 255, 0.15); border: 1px solid rgba(255, 255, 255, 0.3); display: flex; align-items: center; justify-content: center; font-size: 1.5rem; flex-shrink: 0; animation: beaconBounce 1.5s infinite;">
+              🚨
+            </div>
+            <div>
+              <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <strong style="font-size: 1.05rem; font-weight: 800; letter-spacing: 0.02em;">
+                  NATIONAL EMERGENCY ACTIVE &bull; <?= strtoupper($activeTitles) ?>
+                </strong>
+                <span style="font-size: 0.68rem; padding: 2px 8px; border-radius: 8px; background: #f43f5e; color: #fff; font-weight: 800; text-transform: uppercase;">
+                  <?= $branchActiveCount ?> PROTOCOL<?= $branchActiveCount > 1 ? 'S' : '' ?> ENFORCED
+                </span>
+              </div>
+              <p style="margin: 3px 0 0; font-size: 0.82rem; color: #fecdd3;">
+                Direct emergency mandates active for <?= htmlspecialchars($branchName) ?>. Non-critical elective admissions held to preserve emergency surge capacity.
+              </p>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <a href="live_census.php" style="display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; background: #ffffff; color: #991b1b; text-decoration: none; border-radius: 10px; font-size: 0.8rem; font-weight: 800; box-shadow: 0 4px 12px rgba(0,0,0,0.2); transition: 0.2s;">
+              ⚡ Enforce Floor Triage &rarr;
+            </a>
+          </div>
+        </div>
+        <?php endif; ?>
+
         <!-- KPI 3-Column Strip -->
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px;">
           <!-- Card 1: Localized Quota Impact -->
-          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px 16px;">
-            <div style="font-size: 0.74rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 6px;">
+          <div style="background: <?= $branchActiveCount > 0 ? '#fff1f2' : '#f8fafc' ?>; border: 1px solid <?= $branchActiveCount > 0 ? '#fecdd3' : '#e2e8f0' ?>; border-radius: 12px; padding: 14px 16px;">
+            <div style="font-size: 0.74rem; font-weight: 700; color: <?= $branchActiveCount > 0 ? '#9f1239' : '#64748b' ?>; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 6px;">
               Branch Surge Impact
             </div>
-            <div style="font-size: 1.5rem; font-weight: 800; color: <?= $branchSurgePct > 0 ? '#e11d48' : '#0f172a' ?>; display: flex; align-items: baseline; gap: 8px;">
+            <div style="font-size: 1.45rem; font-weight: 800; color: <?= $branchSurgePct > 0 ? '#e11d48' : '#0f172a' ?>; display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap;">
               <span><?= $branchSurgePct ?>%</span>
-              <span style="font-size: 0.76rem; font-weight: 600; color: #64748b;">of <?= number_format($total_beds) ?> beds</span>
+              <span style="font-size: 0.8rem; font-weight: 700; color: <?= $branchSurgePct > 0 ? '#991b1b' : '#64748b' ?>;">(<?= number_format($emergency_hold_beds) ?> of <?= number_format($total_beds) ?> beds)</span>
             </div>
             <div style="font-size: 0.72rem; color: #64748b; margin-top: 4px;">
-              <?= $emergency_hold_beds ?> beds locked under active disaster mandates
+              <?= number_format($emergency_hold_beds) ?> beds locked under active disaster mandates
             </div>
           </div>
 
           <!-- Card 2: Concurrent Active Emergencies -->
-          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px 16px;">
-            <div style="font-size: 0.74rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 6px;">
+          <?php 
+            $protoNames = [];
+            foreach ($branchProtocols as $bp) {
+                $rawTitle = trim($bp['title']);
+                if (stripos($rawTitle, 'Dengue') !== false) {
+                    $protoNames[] = 'Dengue';
+                } elseif (stripos($rawTitle, 'Mass Casualty') !== false || stripos($rawTitle, 'Road Accident') !== false) {
+                    $protoNames[] = 'Trauma';
+                } elseif (stripos($rawTitle, 'Burn') !== false) {
+                    $protoNames[] = 'Burn';
+                } else {
+                    $parts = explode(' ', $rawTitle);
+                    $protoNames[] = $parts[0];
+                }
+            }
+            $protoNamesStr = implode(' + ', array_unique($protoNames));
+          ?>
+          <div style="background: <?= $branchActiveCount > 0 ? '#fff1f2' : '#f8fafc' ?>; border: 1px solid <?= $branchActiveCount > 0 ? '#fecdd3' : '#e2e8f0' ?>; border-radius: 12px; padding: 14px 16px;">
+            <div style="font-size: 0.74rem; font-weight: 700; color: <?= $branchActiveCount > 0 ? '#9f1239' : '#64748b' ?>; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 6px;">
               Concurrent Mandates
             </div>
-            <div style="font-size: 1.5rem; font-weight: 800; color: <?= $branchActiveCount > 0 ? '#b91c1c' : '#0d9488' ?>;">
-              <?= $branchActiveCount ?> Active
+            <div style="font-size: 1.35rem; font-weight: 800; color: <?= $branchActiveCount > 0 ? '#b91c1c' : '#0d9488' ?>;">
+              <?= $branchActiveCount > 0 ? $branchActiveCount . ' Active Protocol' . ($branchActiveCount > 1 ? 's' : '') . ($protoNamesStr ? ': ' . $protoNamesStr : '') : '0 Active' ?>
             </div>
             <div style="font-size: 0.72rem; color: #64748b; margin-top: 4px;">
               <?= $branchActiveCount > 0 ? 'Network multi-protocol triage synchronized' : 'All systems operating in standard baseline' ?>
@@ -363,18 +762,19 @@ try {
           </div>
 
           <!-- Card 3: Evacuation & Relocation Queue -->
-          <div style="background: <?= $branchRelocCount > 0 ? '#fef2f2' : '#f8fafc' ?>; border: 1px solid <?= $branchRelocCount > 0 ? '#fca5a5' : '#e2e8f0' ?>; border-radius: 12px; padding: 14px 16px;">
-            <div style="font-size: 0.74rem; font-weight: 700; color: <?= $branchRelocCount > 0 ? '#991b1b' : '#64748b' ?>; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 6px;">
-              Relocation Queue (Priority 2)
+          <a href="live_census.php?filter=relocation" style="text-decoration: none; color: inherit; display: block; background: <?= $branchRelocCount > 0 ? '#fef2f2' : '#f8fafc' ?>; border: 1.5px solid <?= $branchRelocCount > 0 ? '#fca5a5' : '#e2e8f0' ?>; border-radius: 12px; padding: 14px 16px; transition: transform 0.2s, box-shadow 0.2s;" onmouseenter="this.style.transform='translateY(-2px)';this.style.boxShadow='0 4px 12px rgba(225,29,72,0.15)';" onmouseleave="this.style.transform='none';this.style.boxShadow='none';">
+            <div style="font-size: 0.74rem; font-weight: 700; color: <?= $branchRelocCount > 0 ? '#991b1b' : '#64748b' ?>; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
+              <span>Relocation Queue (Priority 2)</span>
+              <span style="font-size: 0.7rem; color: #0284c7; font-weight: 700;">View Queue &rarr;</span>
             </div>
             <div style="font-size: 1.5rem; font-weight: 800; color: <?= $branchRelocCount > 0 ? '#dc2626' : '#16a34a' ?>; display: flex; align-items: baseline; gap: 8px;">
               <span><?= $branchRelocCount ?></span>
               <span style="font-size: 0.76rem; font-weight: 600; color: <?= $branchRelocCount > 0 ? '#b91c1c' : '#15803d' ?>;"><?= $branchRelocCount > 0 ? 'Evacuations Required' : 'Queue Clear' ?></span>
             </div>
             <div style="font-size: 0.72rem; color: <?= $branchRelocCount > 0 ? '#b91c1c' : '#64748b' ?>; margin-top: 4px;">
-              <?= $branchRelocCount > 0 ? 'Mandatory tier rate protection applied' : 'Zero forced inpatient reassignments' ?>
+              <?= $branchRelocCount > 0 ? 'Mandatory tier rate protection applied &bull; Click to reassign' : 'Zero forced inpatient reassignments' ?>
             </div>
-          </div>
+          </a>
         </div>
 
         <?php if ($branchActiveCount > 0): ?>
