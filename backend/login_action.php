@@ -1,9 +1,17 @@
 <?php
+/**
+ * MedPulse Enterprise Authentication Handler
+ * Universal Single-Flow Login — Auto-detects role from DB, no client-side tab hint needed.
+ * Strict session hardening, inactivity guard, anti-caching headers, and role-based redirection.
+ */
+
+// 1. Session hardening
 if (session_status() === PHP_SESSION_NONE) {
     ini_set('session.use_only_cookies', 1);
     ini_set('session.use_strict_mode', 1);
 
-    $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (isset($_SERVER['SERVER_PORT']) && $_SERVER['SERVER_PORT'] == 443);
+    $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+            || (isset($_SERVER['SERVER_PORT']) && (int)$_SERVER['SERVER_PORT'] === 443);
 
     session_set_cookie_params([
         'lifetime' => 0,
@@ -16,63 +24,75 @@ if (session_status() === PHP_SESSION_NONE) {
 
     session_start();
 }
-require_once __DIR__ . "/../config/db.php";
 
-if ($_SERVER["REQUEST_METHOD"] !== "POST") {
-    header("Location: ../login.php");
+// 2. Already authenticated — send to correct dashboard immediately
+if (!empty($_SESSION['user_id']) && !empty($_SESSION['role']) && !empty($_SESSION['logged_in'])) {
+    $role = strtolower($_SESSION['role']);
+    $map  = [
+        'super_admin' => '../super_admin/dashboard.php',
+        'admin'       => '../admin/dashboard.php',
+        'doctor'      => '../doctor/dashboard.php',
+        'patient'     => '../patient/dashboard.php',
+        'staff'       => '../staff/dashboard.php',
+    ];
+    header('Location: ' . ($map[$role] ?? '../patient/dashboard.php'));
     exit();
 }
 
-$raw_identifier = trim($_POST["identifier"] ?? $_POST["email"] ?? "");
-$password       = $_POST["password"] ?? "";
-$selected_tab   = trim($_POST["selected_tab"] ?? $_POST["login_role"] ?? "Patient");
-
-// Normalize legacy Staff value to Doctor/Staff
-if ($selected_tab === "Staff") {
-    $selected_tab = "Doctor/Staff";
-}
-
-if ($raw_identifier === "" || $password === "") {
-    header("Location: ../login.php?error=invalid_credentials");
+// 3. Only accept POST
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    header('Location: ../login.php');
     exit();
 }
 
-// Bangladeshi phone sanitization & identifier normalization
-$clean_phone = preg_replace("/[\s\-\(\)\+]/", "", $raw_identifier);
-if (str_starts_with($clean_phone, "8801")) {
+require_once __DIR__ . '/../config/db.php';
+
+// 4. Collect & sanitize input
+$raw_identifier = trim($_POST['identifier'] ?? $_POST['email'] ?? '');
+$password       = $_POST['password'] ?? '';
+
+if ($raw_identifier === '' || $password === '') {
+    header('Location: ../login.php?error=invalid_credentials');
+    exit();
+}
+
+// 5. Bangladeshi phone normalization
+$clean_phone = preg_replace('/[\s\-\(\)\+]/', '', $raw_identifier);
+if (str_starts_with($clean_phone, '8801')) {
     $clean_phone = substr($clean_phone, 2);
 }
-$identifier = preg_match("/^01[3-9]\d{8}$/", $clean_phone) ? $clean_phone : strtolower($raw_identifier);
+$identifier = preg_match('/^01[3-9]\d{8}$/', $clean_phone) ? $clean_phone : strtolower($raw_identifier);
 
 try {
-    // 1. Identifier Lookup (Do not restrict by role in WHERE clause)
-    // Note: Distinct parameter names are used because ATTR_EMULATE_PREPARES is false
-    $stmt = $pdo->prepare("SELECT user_id, full_name, email, phone, gender, password_hash, role, status FROM users WHERE email = :ident_email OR phone = :ident_phone LIMIT 1");
-    $stmt->execute([
-        ":ident_email" => $identifier,
-        ":ident_phone" => $identifier
-    ]);
+    // 6. Universal identifier lookup — NO role restriction in WHERE clause
+    $stmt = $pdo->prepare("
+        SELECT user_id, full_name, email, phone, gender, password_hash, role, status
+        FROM users
+        WHERE email = :e OR phone = :p
+        LIMIT 1
+    ");
+    $stmt->execute([':e' => $identifier, ':p' => $identifier]);
     $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    // 2. Validation Sequence:
-    // a. Account existence check
+    // 7. Account existence
     if (!$user) {
-        header("Location: ../login.php?error=invalid_credentials");
+        header('Location: ../login.php?error=invalid_credentials');
         exit();
     }
 
-    // b. Password verification
-    $password_verified = password_verify($password, $user["password_hash"]);
-    if (!$password_verified && $user["role"] === "Admin") {
+    // 8. Password verification
+    //    — Legacy fallback for old Admin hash seeds (backwards-compatible only)
+    $password_verified = password_verify($password, $user['password_hash']);
+    if (!$password_verified && in_array(strtolower($user['role']), ['admin', 'super_admin'], true)) {
         if (
-            ($password === 'Admin@123' || $password === 'admin123') &&
+            in_array($password, ['Admin@123', 'admin123'], true) &&
             (
                 in_array($user['password_hash'], [
                     '$2y$10$wE6v3zQG6Tvh1fSsqk04Ue4hJb5qf5i0kO/mGq3UqXG6z7D2cR6yK',
                     '$2y$10$e84WJb3m0dY3mffJ6E3jxei3WvYFvO139v2r8Hsm97t46W2W9M77.'
                 ], true) ||
-                password_verify('Admin@123', $user["password_hash"]) ||
-                password_verify('admin123', $user["password_hash"])
+                password_verify('Admin@123', $user['password_hash']) ||
+                password_verify('admin123', $user['password_hash'])
             )
         ) {
             $password_verified = true;
@@ -80,131 +100,130 @@ try {
     }
 
     if (!$password_verified) {
-        header("Location: ../login.php?error=invalid_credentials");
+        header('Location: ../login.php?error=invalid_credentials');
         exit();
     }
 
-    // c. Immediate Status Gatekeeper (Checked BEFORE role or session)
-    if (strcasecmp($user["status"], "pending") === 0) {
-        if (session_id()) session_destroy();
-        header("Location: ../login.php?error=pending_approval");
+    // 9. Status gatekeepers
+    $status = strtolower($user['status']);
+    if ($status === 'pending') {
+        session_destroy();
+        header('Location: ../login.php?error=pending_approval');
+        exit();
+    }
+    if ($status === 'suspended') {
+        session_destroy();
+        header('Location: ../login.php?error=account_suspended');
+        exit();
+    }
+    if ($status === 'rejected') {
+        session_destroy();
+        header('Location: ../login.php?error=account_declined');
+        exit();
+    }
+    if ($status !== 'active') {
+        session_destroy();
+        header('Location: ../login.php?error=account_inactive');
         exit();
     }
 
-    if (strcasecmp($user["status"], "suspended") === 0) {
-        if (session_id()) session_destroy();
-        header("Location: ../login.php?error=account_suspended");
-        exit();
-    }
+    // 10. Doctor-specific approval gatekeeper
+    $roleNorm = strtolower($user['role']);
+    if ($roleNorm === 'doctor') {
+        $docGate = $pdo->prepare("SELECT doctor_id, approval_status FROM doctor_profiles WHERE user_id = ? LIMIT 1");
+        $docGate->execute([(int)$user['user_id']]);
+        $docRow = $docGate->fetch(PDO::FETCH_ASSOC);
 
-    if (strcasecmp($user["status"], "rejected") === 0) {
-        if (session_id()) session_destroy();
-        header("Location: ../login.php?error=account_declined");
-        exit();
-    }
-
-    // Doctor Specific Gatekeeper: Check doctor_profiles approval_status
-    if ($user["role"] === "Doctor") {
-        $docGateStmt = $pdo->prepare("SELECT doctor_id, approval_status FROM doctor_profiles WHERE user_id = ? LIMIT 1");
-        $docGateStmt->execute([(int)$user["user_id"]]);
-        $docGateRow = $docGateStmt->fetch(PDO::FETCH_ASSOC);
-
-        if ($docGateRow) {
-            $approvalStatus = strtolower($docGateRow["approval_status"] ?? "pending");
-            if ($approvalStatus === "pending") {
-                if (session_id()) session_destroy();
-                header("Location: ../login.php?error=pending_approval");
+        if ($docRow) {
+            $approvalStatus = strtolower($docRow['approval_status'] ?? 'pending');
+            if ($approvalStatus === 'pending') {
+                session_destroy();
+                header('Location: ../login.php?error=pending_approval');
                 exit();
             }
-            if ($approvalStatus === "rejected") {
-                if (session_id()) session_destroy();
-                header("Location: ../login.php?error=account_declined");
+            if ($approvalStatus === 'rejected') {
+                session_destroy();
+                header('Location: ../login.php?error=account_declined');
                 exit();
             }
-            if ($approvalStatus !== "approved") {
-                if (session_id()) session_destroy();
-                header("Location: ../login.php?error=account_inactive");
+            if ($approvalStatus !== 'approved') {
+                session_destroy();
+                header('Location: ../login.php?error=account_inactive');
                 exit();
             }
         }
     }
 
-    // d. Role Matching Check (After valid password and active status check)
-    // Patient tab check
-    if ($selected_tab === "Patient" && $user["role"] !== "Patient") {
-        header("Location: ../login.php?error=role_mismatch");
-        exit();
+    // 11. Resolve hospital_id from doctor_profiles or users table if available
+    $hospital_id = null;
+    try {
+        if ($roleNorm === 'doctor') {
+            $hospStmt = $pdo->prepare("SELECT hospital_id FROM doctor_profiles WHERE user_id = ? LIMIT 1");
+            $hospStmt->execute([(int)$user['user_id']]);
+            $hospital_id = $hospStmt->fetchColumn() ?: null;
+        } elseif (in_array($roleNorm, ['admin', 'staff', 'super_admin'], true)) {
+            // Check if users table has hospital_id column
+            $colCheck = $pdo->query("SHOW COLUMNS FROM users LIKE 'hospital_id'")->fetch();
+            if ($colCheck) {
+                $hospStmt = $pdo->prepare("SELECT hospital_id FROM users WHERE user_id = ? LIMIT 1");
+                $hospStmt->execute([(int)$user['user_id']]);
+                $hospital_id = $hospStmt->fetchColumn() ?: null;
+            }
+        }
+    } catch (Throwable $e) {
+        // Non-critical — proceed without hospital_id
+        error_log("hospital_id resolution error: " . $e->getMessage());
     }
 
-    // Doctor/Staff tab check
-    if ($selected_tab === "Doctor/Staff" && !in_array($user["role"], ["Doctor", "Staff"], true)) {
-        header("Location: ../login.php?error=role_mismatch");
-        exit();
-    }
-
-    // Admin tab check
-    if ($selected_tab === "Admin" && $user["role"] !== "Admin") {
-        header("Location: ../login.php?error=role_mismatch");
-        exit();
-    }
-
-    if (strtolower($user["status"]) !== "active") {
-        header("Location: ../login.php?error=account_inactive");
-        exit();
-    }
-
-    // Session regeneration & initialization
+    // 12. Session fixation prevention & session population
     session_regenerate_id(true);
-    $_SESSION["user_id"]       = (int)$user["user_id"];
-    $_SESSION["full_name"]     = $user["full_name"];
-    $_SESSION["email"]         = $user["email"];
-    $_SESSION["phone"]         = $user["phone"] ?? "";
-    $_SESSION["gender"]        = $user["gender"] ?? "";
-    $_SESSION["role"]          = $user["role"];
-    $_SESSION["status"]        = $user["status"];
-    $_SESSION["last_activity"] = time();
 
-    // Doctor profile resolution
-    if ($user["role"] === "Doctor") {
+    $_SESSION['user_id']       = (int)$user['user_id'];
+    $_SESSION['full_name']     = $user['full_name'];
+    $_SESSION['email']         = $user['email'];
+    $_SESSION['phone']         = $user['phone'] ?? '';
+    $_SESSION['gender']        = $user['gender'] ?? '';
+    $_SESSION['role']          = $user['role'];           // preserve exact DB casing
+    $_SESSION['status']        = $user['status'];
+    $_SESSION['hospital_id']   = $hospital_id;
+    $_SESSION['logged_in']     = true;
+    $_SESSION['last_activity'] = time();
+
+    // 13. Doctor profile resolution (provision if missing)
+    if ($roleNorm === 'doctor') {
         $docStmt = $pdo->prepare("SELECT doctor_id FROM doctor_profiles WHERE user_id = ? LIMIT 1");
-        $docStmt->execute([(int)$user["user_id"]]);
+        $docStmt->execute([(int)$user['user_id']]);
         $docProfileId = $docStmt->fetchColumn();
 
         if (!$docProfileId) {
-            // Provision baseline doctor profile if missing
             $bmdcCandidate = 'BMDC-A-' . mt_rand(20000, 99999);
             $insProfile = $pdo->prepare("
-                INSERT INTO doctor_profiles 
+                INSERT INTO doctor_profiles
                     (user_id, specialty, designation, qualifications, bmdc_license_number, bmdc_reg_number, approval_status, consultation_fee, room_number, available_days, shift_timings)
-                VALUES 
+                VALUES
                     (?, 'General Surgery & Critical Care', 'Consultant', 'MBBS', ?, ?, 'approved', 1200.00, 'Room-302', 'Mon,Tue,Wed,Thu,Fri', '09:00 AM - 05:00 PM')
             ");
-            $insProfile->execute([(int)$user["user_id"], $bmdcCandidate, $bmdcCandidate]);
+            $insProfile->execute([(int)$user['user_id'], $bmdcCandidate, $bmdcCandidate]);
             $docProfileId = (int)$pdo->lastInsertId();
         }
-        $_SESSION["doctor_id"] = (int)$docProfileId;
+        $_SESSION['doctor_id'] = (int)$docProfileId;
     }
 
-    // Strict Role-Based Redirection Flow
-    if ($user["role"] === "Admin") {
-        header("Location: ../admin/dashboard.php");
-        exit();
-    } elseif ($user["role"] === "Patient") {
-        header("Location: ../patient/dashboard.php");
-        exit();
-    } elseif ($user["role"] === "Doctor") {
-        header("Location: ../doctor/dashboard.php");
-        exit();
-    } elseif ($user["role"] === "Staff") {
-        header("Location: ../staff/dashboard.php");
-        exit();
-    } else {
-        header("Location: ../patient/dashboard.php");
-        exit();
-    }
+    // 14. Universal role-based redirection (DB role is authoritative — no client hint)
+    $redirectMap = [
+        'super_admin' => '../super_admin/dashboard.php',
+        'admin'       => '../admin/dashboard.php',
+        'doctor'      => '../doctor/dashboard.php',
+        'patient'     => '../patient/dashboard.php',
+        'staff'       => '../staff/dashboard.php',
+    ];
+
+    $destination = $redirectMap[$roleNorm] ?? '../patient/dashboard.php';
+    header('Location: ' . $destination);
+    exit();
 
 } catch (PDOException $e) {
-    error_log("Database error in login_action.php: " . $e->getMessage());
-    header("Location: ../login.php?error=invalid_credentials");
+    error_log("Universal login_action.php DB error: " . $e->getMessage());
+    header('Location: ../login.php?error=invalid_credentials');
     exit();
 }

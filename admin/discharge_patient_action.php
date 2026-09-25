@@ -48,7 +48,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 // 2. Admin RBAC Guard
-if (!isset($_SESSION['user_id']) || empty($_SESSION['role']) || $_SESSION['role'] !== 'Admin') {
+if (!isset($_SESSION['user_id']) || empty($_SESSION['role']) || strtolower($_SESSION['role'] ?? '') !== 'admin') {
     http_response_code(403);
     echo json_encode(['success' => false, 'message' => 'Access denied. Administrator privileges required.']);
     exit;

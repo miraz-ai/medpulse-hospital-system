@@ -18,7 +18,7 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 // ── RBAC Guard ─────────────────────────────────────────────────────────────
-if (!isset($_SESSION['user_id'], $_SESSION['role']) || empty($_SESSION['user_id']) || $_SESSION['role'] !== 'Patient') {
+if (empty($_SESSION['user_id']) || strtolower($_SESSION['role'] ?? '') !== 'patient') {
     $_SESSION = [];
     if (ini_get('session.use_cookies')) {
         $p = session_get_cookie_params();
@@ -28,6 +28,12 @@ if (!isset($_SESSION['user_id'], $_SESSION['role']) || empty($_SESSION['user_id'
     header('Location: ../login.php');
     exit();
 }
+
+// Anti-caching headers
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Cache-Control: post-check=0, pre-check=0', false);
+header('Pragma: no-cache');
+header('Expires: 0');
 
 // ── Inactivity Timeout ─────────────────────────────────────────────────────
 if (isset($_SESSION['last_activity']) && (time() - $_SESSION['last_activity'] > 1800)) {

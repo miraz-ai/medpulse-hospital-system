@@ -60,31 +60,20 @@
         <h2 class="title">Welcome Back</h2>
         <p class="desc">Sign in to your synchronized hospital records</p>
 
-        <div class="role-selector">
-          <input type="radio" id="l-pat" name="selected_tab" value="Patient" checked>
-          <label for="l-pat"><i class="fa-solid fa-user-injured"></i> Patient</label>
-
-          <input type="radio" id="l-stf" name="selected_tab" value="Doctor/Staff">
-          <label for="l-stf"><i class="fa-solid fa-user-doctor"></i> Doctor/Staff</label>
-
-          <input type="radio" id="l-adm" name="selected_tab" value="Admin">
-          <label for="l-adm"><i class="fa-solid fa-shield-halved"></i> Admin</label>
-        </div>
-
         <div class="field-box">
-          <input type="text" name="identifier" id="loginIdentifier" placeholder="Email Address or Mobile Number" required />
+          <input type="text" name="identifier" id="loginIdentifier" placeholder="Email Address or Mobile Number" required autocomplete="username" />
           <i class="fa-regular fa-envelope f-icon"></i>
         </div>
 
         <div class="field-box password-input-group password-field-wrapper" style="position: relative; width: 100%;">
-          <input type="password" name="password" id="password" class="form-control password-input" style="width: 100%; padding-right: 42px; padding-left: 42px;" placeholder="Password" required />
+          <input type="password" name="password" id="password" class="form-control password-input" style="width: 100%; padding-right: 42px; padding-left: 42px;" placeholder="Password" required autocomplete="current-password" />
           <i class="fa-solid fa-lock f-icon" style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); pointer-events: none; z-index: 4;"></i>
           <button type="button" class="toggle-password-btn" onclick="togglePassword(this)" aria-label="Toggle password visibility" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: #94a3b8; display: flex; align-items: center; justify-content: center; padding: 0; width: 28px; height: 28px; z-index: 5;">
             <i class="fas fa-eye eye-icon" style="pointer-events: none;"></i>
           </button>
         </div>
 
-        <button type="submit" class="submit-btn">Authenticate & Enter</button>
+        <button type="submit" class="submit-btn">Authenticate &amp; Enter</button>
       </form>
     </div>
 

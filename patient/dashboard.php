@@ -18,8 +18,14 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
+// Anti-caching headers (prevent Back-button exposure after logout)
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Cache-Control: post-check=0, pre-check=0', false);
+header('Pragma: no-cache');
+header('Expires: 0');
+
 // 1. Strict Authentication & Role-Based Access Control (RBAC) Guard
-if (!isset($_SESSION['user_id']) || empty($_SESSION['user_id']) || !isset($_SESSION['role']) || $_SESSION['role'] !== 'Patient') {
+if (empty($_SESSION['user_id']) || strtolower($_SESSION['role'] ?? '') !== 'patient') {
     $_SESSION = [];
     if (ini_get("session.use_cookies")) {
         $params = session_get_cookie_params();
@@ -239,7 +245,7 @@ if ($hour < 12) {
         </a>
       </li>
       <li class="nav-item">
-        <a href="#">
+        <a href="bed_discovery.php">
           <div class="nav-item-inner">
             <svg class="ui-ico" viewBox="0 0 24 24"><path d="M2 4v16"></path><path d="M2 8h18a2 2 0 0 1 2 2v10"></path><path d="M2 17h20"></path><path d="M6 8v9"></path></svg>
             Live Bed Census
@@ -247,6 +253,7 @@ if ($hour < 12) {
           <span class="live-chip-sm">LIVE</span>
         </a>
       </li>
+
       <li class="nav-item">
         <a href="#">
           <div class="nav-item-inner">

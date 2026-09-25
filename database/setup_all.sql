@@ -49,5 +49,15 @@ SOURCE 11_inpatient_realtime_schema.sql;
 -- 12. Doctor Payout & Inpatient Billing Linkage Migration
 SOURCE 12_doctor_payout_and_billing_linkage.sql;
 
+-- 13. Unique Constraints & Doctor Approval Schema Hardening
+SOURCE 13_unique_constraints_and_doctor_approval.sql;
+
+-- 14. Discharge Automated Invoicing & Doctor Earnings Ledger
+SOURCE 14_discharge_billing_and_doctor_earnings.sql;
+
+-- 15. Multi-Hospital Support & Super Admin Provisioning
+SOURCE 15_multi_hospital_support.sql;
+
 -- Re-enable foreign key constraints
 SET FOREIGN_KEY_CHECKS = 1;
+

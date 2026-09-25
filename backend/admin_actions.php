@@ -34,7 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 // 2. Strict Admin RBAC Authorization Guard
-if (!isset($_SESSION['user_id']) || empty($_SESSION['role']) || $_SESSION['role'] !== 'Admin') {
+if (!isset($_SESSION['user_id']) || empty($_SESSION['role']) || strtolower($_SESSION['role'] ?? '') !== 'admin') {
     http_response_code(403);
     echo json_encode([
         'status'  => 'error',

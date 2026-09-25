@@ -1,7 +1,7 @@
 <?php
 /**
- * MedPulse Enterprise — Admin Area Session Guard
- * Allows role: 'Admin' (case-insensitive match)
+ * MedPulse Enterprise — Super Admin Session Guard
+ * Allows role: 'super_admin' only (strictly enforced)
  */
 
 if (session_status() === PHP_SESSION_NONE) {
@@ -23,14 +23,14 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-// 1. Anti-Caching Headers (prevent Back-button after logout exposing dashboard)
+// 1. Mandatory anti-caching headers (prevents Back-button session leakage)
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 header('Cache-Control: post-check=0, pre-check=0', false);
 header('Pragma: no-cache');
 header('Expires: 0');
 
 // Helper: destroy session and redirect
-function _adminAuthRedirect(string $target): never {
+function _saAuthRedirect(string $target): never {
     $_SESSION = [];
     if (ini_get('session.use_cookies')) {
         $p = session_get_cookie_params();
@@ -41,16 +41,16 @@ function _adminAuthRedirect(string $target): never {
     exit();
 }
 
-// 2. RBAC Guard — must be logged in AND role = admin
+// 2. Strict RBAC Guard — must be logged in AND role = super_admin
 $_roleCheck = strtolower($_SESSION['role'] ?? '');
-if (empty($_SESSION['user_id']) || $_roleCheck !== 'admin') {
-    _adminAuthRedirect('../login.php');
+if (empty($_SESSION['user_id']) || $_roleCheck !== 'super_admin') {
+    _saAuthRedirect('../login.php?error=unauthorized');
 }
 
 // 3. Inactivity Timeout (30 minutes)
 $inactiveTimeout = 1800;
 if (isset($_SESSION['last_activity']) && (time() - $_SESSION['last_activity'] > $inactiveTimeout)) {
-    _adminAuthRedirect('../login.php?error=session_expired');
+    _saAuthRedirect('../login.php?error=session_expired');
 }
 $_SESSION['last_activity'] = time();
 
@@ -60,23 +60,23 @@ if (empty($_SESSION['csrf_token'])) {
 }
 $csrfToken = $_SESSION['csrf_token'];
 
-// 5. DB Connection & DB-level admin record verification
+// 5. DB Connection & DB-level super_admin record verification
 require_once __DIR__ . '/../config/db.php';
 
 try {
-    $authStmt = $pdo->prepare("SELECT user_id, full_name, email, role, status FROM users WHERE user_id = :id AND role = 'Admin' LIMIT 1");
+    $authStmt = $pdo->prepare("SELECT user_id, full_name, email, role, status FROM users WHERE user_id = :id AND role = 'super_admin' LIMIT 1");
     $authStmt->execute([':id' => (int)$_SESSION['user_id']]);
-    $currentAdmin = $authStmt->fetch(PDO::FETCH_ASSOC);
+    $currentSuperAdmin = $authStmt->fetch(PDO::FETCH_ASSOC);
 
-    if (!$currentAdmin || strtolower($currentAdmin['status']) !== 'active') {
-        _adminAuthRedirect('../login.php');
+    if (!$currentSuperAdmin || strtolower($currentSuperAdmin['status']) !== 'active') {
+        _saAuthRedirect('../login.php?error=unauthorized');
     }
 
-    $adminName  = $currentAdmin['full_name'];
-    $adminEmail = $currentAdmin['email'];
+    $adminName  = $currentSuperAdmin['full_name'];
+    $adminEmail = $currentSuperAdmin['email'];
 
 } catch (PDOException $e) {
-    error_log('Admin Auth DB error: ' . $e->getMessage());
+    error_log('Super Admin Auth DB error: ' . $e->getMessage());
     die('A secure database communication failure occurred. Please contact system engineering.');
 }
 
