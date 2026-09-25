@@ -44,10 +44,11 @@ $maxPrice    = isset($_GET['max_price']) && is_numeric($_GET['max_price'])
 
 // Ward-type groupings for category filter
 $categoryMap = [
-    'icu'      => ["'ICU'", "'CCU'", "'NICU'"],
-    'critical' => ["'ICU'", "'CCU'", "'NICU'", "'Emergency'"],
-    'general'  => ["'General Ward Male'", "'General Ward Female'", "'Pediatrics'", "'Recovery'"],
-    'cabin'    => ["'Semi-Cabin'", "'Deluxe Cabin'", "'VIP Suite'", "'Presidential Suite'"],
+    'icu'      => ["'ICU'", "'CCU'", "'NICU'", "'Burn ICU'", "'Burn ICU/HDU'", "'High Dependency Unit (HDU)'"],
+    'critical' => ["'ICU'", "'CCU'", "'NICU'", "'Emergency'", "'Burn ICU'", "'Burn ICU/HDU'", "'High Dependency Unit (HDU)'"],
+    'general'  => ["'General Ward Male'", "'General Ward Female'", "'Pediatrics'", "'Recovery'", "'General Burn Recovery'", "'Post-Burn Recovery'"],
+    'cabin'    => ["'Semi-Cabin'", "'Deluxe Cabin'", "'VIP Suite'", "'Presidential Suite'", "'Plastic & Reconstructive Surgery'"],
+    'burn'     => ["'Burn ICU'", "'Burn ICU/HDU'", "'High Dependency Unit (HDU)'", "'Pediatric Burn Unit'", "'Plastic & Reconstructive Surgery'", "'General Burn Recovery'", "'Post-Burn Recovery'"],
 ];
 
 try {

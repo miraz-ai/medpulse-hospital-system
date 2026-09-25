@@ -50,13 +50,13 @@ $currentRoute = basename($_SERVER['PHP_SELF'] ?? '');
         </div>
       </a>
     </li>
-    <li class="nav-item <?= ($currentRoute === 'hospitals.php') ? 'active' : '' ?>">
-      <a href="hospitals.php">
+    <li class="nav-item <?= in_array($currentRoute, ['hospitals.php', 'hospital_directory.php']) ? 'active' : '' ?>">
+      <a href="hospital_directory.php">
         <div class="nav-item-inner">
           <svg class="ui-ico" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><line x1="9" y1="22" x2="9" y2="12"></line><line x1="15" y1="22" x2="15" y2="12"></line><line x1="9" y1="7" x2="15" y2="7"></line></svg>
           Hospital Directory
         </div>
-        <span class="live-chip-sm" style="background:var(--brand-primary);">NET</span>
+        <span class="net-badge-chip">NET</span>
       </a>
     </li>
     <li class="nav-item <?= ($currentRoute === 'bed_monitor.php') ? 'active' : '' ?>">

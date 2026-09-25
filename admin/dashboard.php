@@ -23,26 +23,81 @@ try {
     $total_staff = (int)$pdo->query("SELECT COUNT(*) AS total_staff FROM users WHERE role IN ('nurse', 'pharmacist', 'receptionist', 'staff') AND status = 'active'")->fetchColumn();
     $total_patients = (int)$pdo->query("SELECT COUNT(*) AS total_patients FROM users WHERE role = 'patient'")->fetchColumn();
 
-    // Bed Census Telemetry (500 Bed Modern Capacity)
-    $total_beds = (int)$pdo->query("SELECT COUNT(*) AS total_beds FROM hospital_beds")->fetchColumn();
-    $available_beds = (int)$pdo->query("SELECT COUNT(*) AS available_beds FROM hospital_beds WHERE status = 'Available'")->fetchColumn();
-    $occupied_beds = (int)$pdo->query("SELECT COUNT(*) AS occupied_beds FROM hospital_beds WHERE status = 'Occupied'")->fetchColumn();
-    $maintenance_beds = (int)$pdo->query("SELECT COUNT(*) AS maintenance_beds FROM hospital_beds WHERE status = 'Maintenance'")->fetchColumn();
+    // Strict multi-hospital scoping: resolve current branch hospital
+    $adminHospitalId = (int)($_SESSION['hospital_id'] ?? 1);
+    $hospStmt = $pdo->prepare("SELECT id, name, code, total_beds FROM hospitals WHERE id = ?");
+    $hospStmt->execute([$adminHospitalId]);
+    $currentHospital = $hospStmt->fetch(PDO::FETCH_ASSOC);
+    $branchName = $currentHospital['name'] ?? 'MedPulse Facility';
+    $branchTotalBeds = (int)($currentHospital['total_beds'] ?? 500);
+
+    // Bed Census Telemetry scoped to branch hospital
+    $bedStatsStmt = $pdo->prepare("
+        SELECT 
+            COUNT(*) AS total_beds,
+            SUM(status = 'Available') AS available_beds,
+            SUM(status = 'Occupied') AS occupied_beds,
+            SUM(status = 'Maintenance') AS maintenance_beds,
+            SUM(status = 'Emergency Hold') AS emergency_hold_beds
+        FROM hospital_beds
+        WHERE hospital_id = ?
+    ");
+    $bedStatsStmt->execute([$adminHospitalId]);
+    $bRow = $bedStatsStmt->fetch(PDO::FETCH_ASSOC);
+
+    $total_beds = (int)($bRow['total_beds'] ?? $branchTotalBeds);
+    $available_beds = (int)($bRow['available_beds'] ?? 0);
+    $occupied_beds = (int)($bRow['occupied_beds'] ?? 0);
+    $maintenance_beds = (int)($bRow['maintenance_beds'] ?? 0);
+    $emergency_hold_beds = (int)($bRow['emergency_hold_beds'] ?? 0);
+
+    // Multi-Emergency Protocols Scope for Branch
+    require_once __DIR__ . '/../backend/Services/EmergencyProtocolService.php';
+    $emergencyService = new \MedPulse\Services\EmergencyProtocolService($pdo);
+    $allActiveProtocols = $emergencyService->getActiveProtocols();
+    $branchProtocols = [];
+    foreach ($allActiveProtocols as $p) {
+        if ($p['target_scope'] === 'NETWORK_WIDE') {
+            $branchProtocols[] = $p;
+        } else {
+            $th = !empty($p['target_hospitals']) ? json_decode($p['target_hospitals'], true) : [];
+            if (is_array($th) && in_array($adminHospitalId, $th)) {
+                $branchProtocols[] = $p;
+            }
+        }
+    }
+    $branchActiveCount = count($branchProtocols);
+
+    // Relocation queue count for branch
+    $relocStmt = $pdo->prepare("SELECT COUNT(*) FROM hospital_beds WHERE hospital_id = ? AND relocation_status = 'PENDING_RELOCATION'");
+    $relocStmt->execute([$adminHospitalId]);
+    $branchRelocCount = (int)$relocStmt->fetchColumn();
+
+    // Surge quota impact:
+    $branchSurgePct = $total_beds > 0 ? round(($emergency_hold_beds / $total_beds) * 100, 1) : 0;
 
     // 3. System Health & ICU Load Telemetry
-    $icuStats = $pdo->query("
+    $icuStats = $pdo->prepare("
         SELECT 
             COUNT(*) AS total_icu,
             SUM(status = 'Occupied') AS occupied_icu
         FROM hospital_beds 
-        WHERE ward_type = 'ICU'
-    ")->fetch(PDO::FETCH_ASSOC);
-    $totalIcu = (int)($icuStats['total_icu'] ?? 0);
-    $occupiedIcu = (int)($icuStats['occupied_icu'] ?? 0);
+        WHERE hospital_id = ? AND ward_type = 'ICU'
+    ");
+    $icuStats->execute([$adminHospitalId]);
+    $icuRow = $icuStats->fetch(PDO::FETCH_ASSOC);
+    $totalIcu = (int)($icuRow['total_icu'] ?? 0);
+    $occupiedIcu = (int)($icuRow['occupied_icu'] ?? 0);
     $icuLoad = $totalIcu > 0 ? round(($occupiedIcu / $totalIcu) * 100) : 0;
 
-    // Determine Dynamic Health Status
-    if ($icuLoad >= 85) {
+    // Determine Dynamic Health Status with Surge Synchronization
+    if ($branchActiveCount > 0 || $emergency_hold_beds > 0) {
+        $healthBadgeText = 'SURGE ACTIVE (' . $branchActiveCount . ' PROTOCOL' . ($branchActiveCount > 1 ? 'S' : '') . ')';
+        $healthBadgeClass = 'status-high-load';
+        $pulseClass = 'ecg-pulse-warning';
+        $pulseLabel = '118 BPM &bull; DISASTER SURGE ACTIVE';
+        $waveColor = '#f43f5e';
+    } elseif ($icuLoad >= 85) {
         $healthBadgeText = 'HIGH LOAD';
         $healthBadgeClass = 'status-high-load';
         $pulseClass = 'ecg-pulse-warning';
@@ -247,6 +302,151 @@ try {
         </div>
       </a>
     </div>
+
+    <!-- DEDICATED BRANCH DISASTER READINESS WIDGET -->
+    <section class="admin-stack-card" id="branchDisasterReadinessWidget" style="border: 1.5px solid <?= $branchActiveCount > 0 ? 'rgba(244, 63, 94, 0.5)' : 'rgba(13, 148, 136, 0.3)' ?>; box-shadow: 0 4px 20px <?= $branchActiveCount > 0 ? 'rgba(244, 63, 94, 0.08)' : 'rgba(13, 148, 136, 0.05)' ?>; margin-bottom: 24px;">
+      <div class="admin-stack-header" style="background: <?= $branchActiveCount > 0 ? 'linear-gradient(135deg, rgba(255, 241, 242, 0.6) 0%, rgba(248, 250, 252, 0.9) 100%)' : 'linear-gradient(135deg, rgba(240, 253, 250, 0.6) 0%, rgba(248, 250, 252, 0.9) 100%)' ?>; padding: 18px 24px; border-bottom: 1px solid <?= $branchActiveCount > 0 ? 'rgba(244, 63, 94, 0.2)' : 'rgba(13, 148, 136, 0.2)' ?>;">
+        <div class="admin-stack-title-group">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div style="width: 38px; height: 38px; border-radius: 10px; background: <?= $branchActiveCount > 0 ? '#ffe4e6' : '#ccfbf1' ?>; color: <?= $branchActiveCount > 0 ? '#e11d48' : '#0d9488' ?>; display: flex; align-items: center; justify-content: center; font-size: 1.25rem;">
+              <?= $branchActiveCount > 0 ? '🚨' : '🛡️' ?>
+            </div>
+            <div>
+              <h3 style="margin: 0; font-size: 1.1rem; font-weight: 800; color: var(--text-heading); display: flex; align-items: center; gap: 10px;">
+                Branch Disaster Readiness &amp; Surge Attribution
+                <span style="font-size: 0.72rem; padding: 2px 8px; border-radius: 6px; font-weight: 800; text-transform: uppercase; <?= $branchActiveCount > 0 ? 'background: #f43f5e; color: #fff;' : 'background: #0d9488; color: #fff;' ?>">
+                  <?= $branchActiveCount > 0 ? $branchActiveCount . ' CONCURRENT PROTOCOL' . ($branchActiveCount > 1 ? 'S' : '') : 'READY • SYSTEM NORMAL' ?>
+                </span>
+              </h3>
+              <p style="margin: 3px 0 0; font-size: 0.78rem; color: var(--text-muted);">
+                <?= htmlspecialchars($branchName) ?> localized surge quotas, concurrent holds, and evacuation readiness telemetry
+              </p>
+            </div>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <a href="live_census.php" class="btn-action-telemed" style="text-decoration: none; padding: 7px 14px; font-size: 0.78rem; font-weight: 700;">
+            <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><path d="M2 4v16"></path><path d="M2 8h18a2 2 0 0 1 2 2v10"></path><path d="M2 17h20"></path></svg>
+            Inspect Floor Grid &rarr;
+          </a>
+        </div>
+      </div>
+
+      <div style="padding: 20px 24px;">
+        <!-- KPI 3-Column Strip -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px;">
+          <!-- Card 1: Localized Quota Impact -->
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px 16px;">
+            <div style="font-size: 0.74rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 6px;">
+              Branch Surge Impact
+            </div>
+            <div style="font-size: 1.5rem; font-weight: 800; color: <?= $branchSurgePct > 0 ? '#e11d48' : '#0f172a' ?>; display: flex; align-items: baseline; gap: 8px;">
+              <span><?= $branchSurgePct ?>%</span>
+              <span style="font-size: 0.76rem; font-weight: 600; color: #64748b;">of <?= number_format($total_beds) ?> beds</span>
+            </div>
+            <div style="font-size: 0.72rem; color: #64748b; margin-top: 4px;">
+              <?= $emergency_hold_beds ?> beds locked under active disaster mandates
+            </div>
+          </div>
+
+          <!-- Card 2: Concurrent Active Emergencies -->
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px 16px;">
+            <div style="font-size: 0.74rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 6px;">
+              Concurrent Mandates
+            </div>
+            <div style="font-size: 1.5rem; font-weight: 800; color: <?= $branchActiveCount > 0 ? '#b91c1c' : '#0d9488' ?>;">
+              <?= $branchActiveCount ?> Active
+            </div>
+            <div style="font-size: 0.72rem; color: #64748b; margin-top: 4px;">
+              <?= $branchActiveCount > 0 ? 'Network multi-protocol triage synchronized' : 'All systems operating in standard baseline' ?>
+            </div>
+          </div>
+
+          <!-- Card 3: Evacuation & Relocation Queue -->
+          <div style="background: <?= $branchRelocCount > 0 ? '#fef2f2' : '#f8fafc' ?>; border: 1px solid <?= $branchRelocCount > 0 ? '#fca5a5' : '#e2e8f0' ?>; border-radius: 12px; padding: 14px 16px;">
+            <div style="font-size: 0.74rem; font-weight: 700; color: <?= $branchRelocCount > 0 ? '#991b1b' : '#64748b' ?>; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 6px;">
+              Relocation Queue (Priority 2)
+            </div>
+            <div style="font-size: 1.5rem; font-weight: 800; color: <?= $branchRelocCount > 0 ? '#dc2626' : '#16a34a' ?>; display: flex; align-items: baseline; gap: 8px;">
+              <span><?= $branchRelocCount ?></span>
+              <span style="font-size: 0.76rem; font-weight: 600; color: <?= $branchRelocCount > 0 ? '#b91c1c' : '#15803d' ?>;"><?= $branchRelocCount > 0 ? 'Evacuations Required' : 'Queue Clear' ?></span>
+            </div>
+            <div style="font-size: 0.72rem; color: <?= $branchRelocCount > 0 ? '#b91c1c' : '#64748b' ?>; margin-top: 4px;">
+              <?= $branchRelocCount > 0 ? 'Mandatory tier rate protection applied' : 'Zero forced inpatient reassignments' ?>
+            </div>
+          </div>
+        </div>
+
+        <?php if ($branchActiveCount > 0): ?>
+        <!-- Breakdown Table of Concurrent Protocols Affecting This Branch -->
+        <div style="border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem; text-align: left;">
+            <thead style="background: #f1f5f9; border-bottom: 1px solid #cbd5e1; font-weight: 700; color: #334155;">
+              <tr>
+                <th style="padding: 10px 14px;">Protocol Declaration</th>
+                <th style="padding: 10px 14px;">Severity &amp; Scope</th>
+                <th style="padding: 10px 14px; text-align: center;">Mandated Quota</th>
+                <th style="padding: 10px 14px; text-align: center;">Branch Beds Held</th>
+                <th style="padding: 10px 14px; text-align: right;">Floor Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              <?php foreach ($branchProtocols as $bp): 
+                $bpCode = strtoupper($bp['code']);
+                $bpHeldStmt = $pdo->prepare("SELECT COUNT(*) FROM hospital_beds WHERE hospital_id = ? AND emergency_protocol_id = ?");
+                $bpHeldStmt->execute([$adminHospitalId, $bp['id']]);
+                $bpHeld = (int)$bpHeldStmt->fetchColumn();
+
+                $badgeBg = match(true) {
+                    strpos($bpCode, 'DENGUE') !== false => '#fef3c7; color: #92400e; border: 1px solid rgba(245, 158, 11, 0.5);',
+                    strpos($bpCode, 'ACCIDENT') !== false || strpos($bpCode, 'TRAUMA') !== false => '#ffe4e6; color: #9f1239; border: 1px solid rgba(244, 63, 94, 0.5);',
+                    strpos($bpCode, 'BURN') !== false => '#ffedd5; color: #9a3412; border: 1px solid rgba(234, 88, 12, 0.5);',
+                    strpos($bpCode, 'HAZMAT') !== false => '#f3e8ff; color: #6b21a8; border: 1px solid rgba(168, 85, 247, 0.5);',
+                    default => '#ffe4e6; color: #9f1239; border: 1px solid rgba(244, 63, 94, 0.5);'
+                };
+              ?>
+              <tr style="border-bottom: 1px solid #f1f5f9;">
+                <td style="padding: 12px 14px;">
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; font-size: 0.68rem; font-weight: 800; border-radius: 6px; background: <?= $badgeBg ?>">
+                      <?= htmlspecialchars($bpCode) ?>
+                    </span>
+                    <strong style="color: #1e293b;"><?= htmlspecialchars($bp['title']) ?></strong>
+                  </div>
+                </td>
+                <td style="padding: 12px 14px;">
+                  <span style="font-weight: 700; color: #dc2626;"><?= htmlspecialchars($bp['severity_level']) ?></span>
+                  <span style="font-size: 0.72rem; color: #64748b; margin-left: 6px;">(<?= htmlspecialchars($bp['target_scope']) ?>)</span>
+                </td>
+                <td style="padding: 12px 14px; text-align: center; font-weight: 700; color: #0f172a;">
+                  <?= (int)$bp['severity_quota'] ?>%
+                </td>
+                <td style="padding: 12px 14px; text-align: center;">
+                  <span style="font-weight: 800; font-size: 0.95rem; color: #e11d48; background: #ffe4e6; padding: 2px 8px; border-radius: 6px;">
+                    <?= number_format($bpHeld) ?> Beds
+                  </span>
+                </td>
+                <td style="padding: 12px 14px; text-align: right;">
+                  <a href="live_census.php" style="color: #0284c7; text-decoration: none; font-weight: 700; font-size: 0.78rem;">
+                    Filter Grid &rarr;
+                  </a>
+                </td>
+              </tr>
+              <?php endforeach; ?>
+            </tbody>
+          </table>
+        </div>
+        <?php else: ?>
+        <div style="display: flex; align-items: center; gap: 14px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 14px 18px; color: #166534;">
+          <div style="font-size: 1.5rem;">🛡️</div>
+          <div>
+            <strong style="display: block; font-size: 0.88rem; margin-bottom: 2px;">Normal Clinical Operations Active</strong>
+            <span style="font-size: 0.78rem; color: #15803d;">No active national emergency mandates targeting this facility. 100% of branch capacity is allocated to scheduled elective admissions and walk-in clinical care.</span>
+          </div>
+        </div>
+        <?php endif; ?>
+      </div>
+    </section>
 
     <!-- PRIORITY SECTION: Pending Credential Approvals Queue (Top Priority Action Area) -->
     <section class="admin-stack-card" id="pendingApprovalSection">

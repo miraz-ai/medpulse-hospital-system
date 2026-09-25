@@ -251,6 +251,30 @@ aside.left-bar {
   border: 1px solid #bfdbfe;
 }
 
+.net-badge-chip {
+  background: rgba(2, 132, 199, 0.12);
+  color: #0284c7;
+  font-size: 0.65rem;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  border: 1px solid rgba(2, 132, 199, 0.28);
+  flex-shrink: 0;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  line-height: 1.2;
+  transition: all 0.18s ease;
+}
+
+.nav-item.active a .net-badge-chip {
+  background: rgba(255, 255, 255, 0.24) !important;
+  color: #ffffff !important;
+  border-color: rgba(255, 255, 255, 0.5) !important;
+}
+
+
 .sidebar-footer {
   margin-top: auto;
   padding-top: 0.75rem;

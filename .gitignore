@@ -1,28 +1,47 @@
-# MedPulse Hospital Management System - Git Ignore Policy
+# ==============================================================================
+# MedPulse Enterprise Hospital Management System (HMS)
+# Git Ignore Policy for Public GitHub Release
+# ==============================================================================
 
-# Temporary & Test Scratch Artifacts
+# Environment Overrides & Credentials (CRITICAL SECURITY)
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Temporary & Test Execution Artifacts
 scratch/
 tests/scratch/
 *.tmp
+*.temp
+*test*.php
+run_migration_*.php
 
-# Runtime Event Streams & Logs
+# Local Database Dumps & Ad-hoc Backups
+*.sql.gz
+*.sql.bak
+*.dump
+localhost.sql
+
+# Runtime Logs & Event Storage
 storage/events/*.jsonl
 !storage/events/.gitkeep
 storage/logs/*.log
 *.log
+php_errors.log
 
-# Environment & Credentials
-.env
-.env.local
-.env.*.local
-
-# Operating System & IDE Configs
+# Operating System & Editor Metadata
 .DS_Store
 Thumbs.db
+desktop.ini
 .idea/
 .vscode/
 *.sublime-project
 *.sublime-workspace
 
-# XAMPP / PHP runtime dumps
-php_errors.log
+# Dependency Vendors (if installed locally)
+vendor/
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

@@ -1,0 +1,525 @@
+/**
+ * MedPulse Enterprise Hospital Management System
+ * MedPulse Modern Dialog & Toast Engine CSS
+ * Provides enterprise-grade confirmation modals, emergency surge dialogs, and non-blocking toast notifications.
+ */
+
+:root {
+  --mp-dialog-bg: #ffffff;
+  --mp-dialog-border: rgba(226, 232, 240, 0.8);
+  --mp-dialog-text: #0f172a;
+  --mp-dialog-muted: #64748b;
+  --mp-danger-grad: linear-gradient(135deg, #e11d48 0%, #be123c 100%);
+  --mp-warning-grad: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  --mp-primary-grad: linear-gradient(135deg, #7c3aed 0%, #0d9488 100%);
+  --mp-blue-grad: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+}
+
+/* ── Modal Backdrop ────────────────────────────────────────────────────────── */
+.mp-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.72);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.22s;
+}
+
+.mp-dialog-overlay.mp-open {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* ── Modal Card ────────────────────────────────────────────────────────────── */
+.mp-dialog-card {
+  background: var(--mp-dialog-bg);
+  border-radius: 20px;
+  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.35), 0 0 0 1px var(--mp-dialog-border);
+  width: 100%;
+  max-width: 520px;
+  overflow: hidden;
+  position: relative;
+  transform: scale(0.92) translateY(12px);
+  opacity: 0;
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.2s ease;
+}
+
+.mp-dialog-overlay.mp-open .mp-dialog-card {
+  transform: scale(1) translateY(0);
+  opacity: 1;
+}
+
+/* ── Modal Header Banner ──────────────────────────────────────────────────── */
+.mp-dialog-header {
+  padding: 24px 24px 16px;
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  position: relative;
+}
+
+.mp-dialog-header.danger {
+  background: linear-gradient(180deg, rgba(254, 242, 242, 0.9) 0%, rgba(255, 255, 255, 0) 100%);
+}
+
+.mp-dialog-header.warning {
+  background: linear-gradient(180deg, rgba(254, 243, 199, 0.9) 0%, rgba(255, 255, 255, 0) 100%);
+}
+
+.mp-dialog-header.primary {
+  background: linear-gradient(180deg, rgba(243, 232, 255, 0.9) 0%, rgba(255, 255, 255, 0) 100%);
+}
+
+.mp-dialog-header.info {
+  background: linear-gradient(180deg, rgba(224, 242, 254, 0.9) 0%, rgba(255, 255, 255, 0) 100%);
+}
+
+/* ── Animated Icon Badge ──────────────────────────────────────────────────── */
+.mp-dialog-icon-wrapper {
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.mp-dialog-icon-wrapper.danger {
+  background: #fee2e2;
+  color: #e11d48;
+  border: 1px solid rgba(225, 29, 72, 0.25);
+  box-shadow: 0 0 0 6px rgba(225, 29, 72, 0.1);
+  animation: mpPulseDanger 2s infinite;
+}
+
+.mp-dialog-icon-wrapper.warning {
+  background: #fef3c7;
+  color: #d97706;
+  border: 1px solid rgba(217, 119, 6, 0.25);
+  box-shadow: 0 0 0 6px rgba(217, 119, 6, 0.1);
+}
+
+.mp-dialog-icon-wrapper.primary {
+  background: #ede9fe;
+  color: #7c3aed;
+  border: 1px solid rgba(124, 58, 237, 0.25);
+  box-shadow: 0 0 0 6px rgba(124, 58, 237, 0.1);
+}
+
+.mp-dialog-icon-wrapper.info {
+  background: #e0f2fe;
+  color: #0284c7;
+  border: 1px solid rgba(2, 132, 199, 0.25);
+  box-shadow: 0 0 0 6px rgba(2, 132, 199, 0.1);
+}
+
+@keyframes mpPulseDanger {
+  0%, 100% { box-shadow: 0 0 0 6px rgba(225, 29, 72, 0.15); }
+  50% { box-shadow: 0 0 0 12px rgba(225, 29, 72, 0.04); }
+}
+
+.mp-dialog-icon-wrapper svg {
+  width: 26px;
+  height: 26px;
+  stroke-width: 2.2;
+}
+
+/* ── Header Titles ────────────────────────────────────────────────────────── */
+.mp-dialog-title-group {
+  flex: 1;
+}
+
+.mp-dialog-title {
+  font-size: 1.18rem;
+  font-weight: 800;
+  color: var(--mp-dialog-text);
+  margin: 0 0 4px;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+.mp-dialog-subtitle {
+  font-size: 0.82rem;
+  color: var(--mp-dialog-muted);
+  margin: 0;
+  line-height: 1.45;
+}
+
+.mp-dialog-close-btn {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  background: rgba(100, 116, 139, 0.08);
+  border: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.mp-dialog-close-btn:hover {
+  background: rgba(225, 29, 72, 0.1);
+  color: #e11d48;
+}
+
+/* ── Modal Body Content ───────────────────────────────────────────────────── */
+.mp-dialog-body {
+  padding: 0 24px 20px;
+}
+
+/* Detailed Surge Card */
+.mp-surge-summary-box {
+  background: #0f172a;
+  border-radius: 14px;
+  padding: 16px;
+  color: #ffffff;
+  margin-bottom: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.mp-surge-badge-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.mp-proto-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: rgba(225, 29, 72, 0.2);
+  border: 1px solid rgba(225, 29, 72, 0.4);
+  color: #fda4af;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.mp-quota-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: rgba(56, 189, 248, 0.15);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  color: #7dd3fc;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.mp-surge-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.mp-sm-item {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 8px 10px;
+  text-align: center;
+}
+
+.mp-sm-val {
+  font-size: 1.15rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.mp-sm-lbl {
+  font-size: 0.62rem;
+  color: #94a3b8;
+  text-transform: uppercase;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  margin-top: 3px;
+}
+
+.mp-facility-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.mp-facility-pill {
+  font-size: 0.72rem;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.12);
+  color: #e2e8f0;
+  padding: 3px 8px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.mp-notice-box {
+  background: #fff1f2;
+  border: 1.5px solid #fecdd3;
+  color: #9f1239;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.mp-notice-box.warning {
+  background: #fffbeb;
+  border-color: #fde68a;
+  color: #92400e;
+}
+
+.mp-notice-box svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+/* ── Modal Actions Footer ─────────────────────────────────────────────────── */
+.mp-dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px 24px 20px;
+  background: #f8fafc;
+  border-top: 1px solid var(--mp-dialog-border);
+}
+
+.mp-btn-dialog {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  font-weight: 800;
+  cursor: pointer;
+  border: none;
+  font-family: inherit;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.mp-btn-cancel {
+  background: #e2e8f0;
+  color: #475569;
+}
+
+.mp-btn-cancel:hover {
+  background: #cbd5e1;
+  color: #1e293b;
+}
+
+.mp-btn-confirm-danger {
+  background: var(--mp-danger-grad);
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(225, 29, 72, 0.35);
+}
+
+.mp-btn-confirm-danger:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(225, 29, 72, 0.48);
+  filter: brightness(1.06);
+}
+
+.mp-btn-confirm-warning {
+  background: var(--mp-warning-grad);
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(217, 119, 6, 0.35);
+}
+
+.mp-btn-confirm-warning:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(217, 119, 6, 0.48);
+  filter: brightness(1.06);
+}
+
+.mp-btn-confirm-primary {
+  background: var(--mp-primary-grad);
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(124, 58, 237, 0.35);
+}
+
+.mp-btn-confirm-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(124, 58, 237, 0.48);
+  filter: brightness(1.06);
+}
+
+.mp-btn-dialog:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+/* Spinner */
+.mp-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2.2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: mpSpin 0.75s linear infinite;
+  display: inline-block;
+}
+
+@keyframes mpSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Modern Floating Toast Notifications ───────────────────────────────────── */
+.mp-toast-container {
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  z-index: 100000;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+  max-width: 420px;
+  width: calc(100% - 32px);
+}
+
+.mp-toast {
+  pointer-events: auto;
+  background: #ffffff;
+  border-radius: 14px;
+  padding: 14px 16px;
+  box-shadow: 0 12px 35px -6px rgba(15, 23, 42, 0.2), 0 0 0 1px rgba(226, 232, 240, 0.85);
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  position: relative;
+  overflow: hidden;
+  transform: translateX(110%);
+  opacity: 0;
+  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.24s ease;
+}
+
+.mp-toast.show {
+  transform: translateX(0);
+  opacity: 1;
+}
+
+.mp-toast-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.mp-toast.success .mp-toast-icon {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+.mp-toast.error .mp-toast-icon {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.mp-toast.warning .mp-toast-icon {
+  background: #fef3c7;
+  color: #d97706;
+}
+
+.mp-toast.info .mp-toast-icon {
+  background: #e0f2fe;
+  color: #0284c7;
+}
+
+.mp-toast-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.mp-toast-title {
+  font-size: 0.86rem;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0 0 2px;
+}
+
+.mp-toast-msg {
+  font-size: 0.78rem;
+  color: #475569;
+  margin: 0;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.mp-toast-close {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: color 0.15s;
+}
+
+.mp-toast-close:hover {
+  color: #0f172a;
+}
+
+/* Progress bar timer */
+.mp-toast-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  width: 100%;
+  background: #e2e8f0;
+}
+
+.mp-toast-bar {
+  height: 100%;
+  width: 100%;
+  transition: width linear;
+}
+
+.mp-toast.success .mp-toast-bar { background: #16a34a; }
+.mp-toast.error .mp-toast-bar { background: #dc2626; }
+.mp-toast.warning .mp-toast-bar { background: #d97706; }
+.mp-toast.info .mp-toast-bar { background: #0284c7; }

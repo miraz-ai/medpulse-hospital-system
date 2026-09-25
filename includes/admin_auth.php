@@ -64,7 +64,7 @@ $csrfToken = $_SESSION['csrf_token'];
 require_once __DIR__ . '/../config/db.php';
 
 try {
-    $authStmt = $pdo->prepare("SELECT user_id, full_name, email, role, status FROM users WHERE user_id = :id AND role = 'Admin' LIMIT 1");
+    $authStmt = $pdo->prepare("SELECT user_id, full_name, email, role, status, hospital_id FROM users WHERE user_id = :id AND role = 'Admin' LIMIT 1");
     $authStmt->execute([':id' => (int)$_SESSION['user_id']]);
     $currentAdmin = $authStmt->fetch(PDO::FETCH_ASSOC);
 
@@ -74,6 +74,10 @@ try {
 
     $adminName  = $currentAdmin['full_name'];
     $adminEmail = $currentAdmin['email'];
+
+    if (!isset($_SESSION['hospital_id']) || empty($_SESSION['hospital_id'])) {
+        $_SESSION['hospital_id'] = (int)($currentAdmin['hospital_id'] ?? 1);
+    }
 
 } catch (PDOException $e) {
     error_log('Admin Auth DB error: ' . $e->getMessage());

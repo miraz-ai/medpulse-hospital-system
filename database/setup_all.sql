@@ -58,6 +58,16 @@ SOURCE 14_discharge_billing_and_doctor_earnings.sql;
 -- 15. Multi-Hospital Support & Super Admin Provisioning
 SOURCE 15_multi_hospital_support.sql;
 
+-- 16. Optimistic Bed Reservation & Concurrent Double-Booking Prevention
+SOURCE 16_bed_reservation_locking.sql;
+
+-- 17. Multi-Hospital Network Expansion (5-Hospital Topology & Bed Architectures)
+SOURCE 17_network_expansion.sql;
+
+-- 18. 6-Hospital Network Topology, NIBPS Apex Integration & Emergency Surge Engine
+SOURCE 18_nibps_emergency_surge.sql;
+
 -- Re-enable foreign key constraints
 SET FOREIGN_KEY_CHECKS = 1;
+
 

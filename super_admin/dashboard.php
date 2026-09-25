@@ -5,18 +5,33 @@
  */
 
 require_once __DIR__ . '/../includes/super_admin_auth.php';
+require_once __DIR__ . '/../backend/Services/EmergencyProtocolService.php';
+
+use MedPulse\Services\EmergencyProtocolService;
+
+$emergencyService    = new EmergencyProtocolService($pdo);
+$activeProtocols     = $emergencyService->getActiveProtocols();
+$activeCount         = count($activeProtocols);
+$activeEmergency     = !empty($activeProtocols) ? $activeProtocols[0] : null;
+
+$totalSurgeHeldBeds  = 0;
+$totalSurgeRelocBeds = 0;
+foreach ($activeProtocols as $p) {
+    $totalSurgeHeldBeds  += (int)($p['live_held_count'] ?? 0);
+    $totalSurgeRelocBeds += (int)($p['live_relocating_count'] ?? 0);
+}
 
 // --- Selected Hospital Filter (from query string) ---
 $filterHospitalId = isset($_GET['hospital_id']) ? (int)$_GET['hospital_id'] : 0;
 
 try {
     // All hospitals for the switcher dropdown
-    $allHospitals = $pdo->query("SELECT hospital_id, name, city FROM hospitals ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC);
+    $allHospitals = $pdo->query("SELECT hospital_id, name, city FROM hospitals ORDER BY hospital_id ASC")->fetchAll(PDO::FETCH_ASSOC);
 
     // Build WHERE clause for hospital filter
     $whereHospital = $filterHospitalId > 0 ? "AND hb.hospital_id = {$filterHospitalId}" : "";
 
-    // --- Top 4 KPI Metrics ---
+    // --- Top KPI Metrics ---
     $totalNetworkHospitals = count($allHospitals);
 
     $totalNetworkBeds = (int)$pdo->query(
@@ -31,8 +46,22 @@ try {
         "SELECT COUNT(*) FROM hospital_beds hb WHERE hb.status = 'Occupied' {$whereHospital}"
     )->fetchColumn();
 
+    $emergencyHoldBeds = (int)$pdo->query(
+        "SELECT COUNT(*) FROM hospital_beds hb WHERE hb.status = 'Emergency Hold' {$whereHospital}"
+    )->fetchColumn();
+
     // Occupancy percentage
     $occupancyPct = $totalNetworkBeds > 0 ? round(($criticalOccupiedBeds / $totalNetworkBeds) * 100) : 0;
+
+    // Cumulative surge quota percentage across network
+    $cumulativeSurgeQuota = 0;
+    if ($activeCount > 0) {
+        if ($totalNetworkBeds > 0) {
+            $cumulativeSurgeQuota = round(($totalSurgeHeldBeds / $totalNetworkBeds) * 100);
+        } else {
+            $cumulativeSurgeQuota = array_sum(array_column($activeProtocols, 'severity_quota'));
+        }
+    }
 
     // --- Multi-Hospital Live Status Table ---
     $hospitalStatusSQL = "
@@ -44,14 +73,15 @@ try {
             COUNT(hb.bed_id)                                       AS total_beds,
             SUM(hb.status = 'Available')                           AS available_beds,
             SUM(hb.status = 'Occupied')                            AS occupied_beds,
-            SUM(hb.ward_type = 'ICU' AND hb.status = 'Available')  AS icu_vacant,
-            SUM(hb.ward_type = 'ICU')                              AS icu_total,
-            SUM(hb.ward_type = 'CCU' AND hb.status = 'Available')  AS ccu_vacant
+            SUM(hb.status = 'Emergency Hold')                      AS hold_beds,
+            SUM(hb.relocation_status = 'PENDING_RELOCATION')       AS reloc_beds,
+            SUM((hb.ward_type LIKE '%ICU%' OR hb.ward_type LIKE '%HDU%' OR hb.ward_type = 'CCU') AND hb.status = 'Available') AS icu_vacant,
+            SUM(hb.ward_type LIKE '%ICU%' OR hb.ward_type LIKE '%HDU%' OR hb.ward_type = 'CCU') AS icu_total
         FROM hospitals h
         LEFT JOIN hospital_beds hb ON hb.hospital_id = h.hospital_id
         " . ($filterHospitalId > 0 ? "WHERE h.hospital_id = {$filterHospitalId}" : "") . "
         GROUP BY h.hospital_id
-        ORDER BY h.name ASC
+        ORDER BY h.hospital_id ASC
     ";
     $hospitalRows = $pdo->query($hospitalStatusSQL)->fetchAll(PDO::FETCH_ASSOC);
 
@@ -116,6 +146,112 @@ if ($occupancyPct >= 85) {
     $networkStatus = 'SYSTEM NORMAL';
     $networkStatusClass = '';
 }
+
+// Facility Medical Crest Helper
+if (!function_exists('getHospitalCrest')) {
+    function getHospitalCrest(int $hospitalId, string $name = ''): string {
+        switch ($hospitalId) {
+            case 1:
+                // MedPulse: Modern pulse cross with vibrant teal/cyan gradient
+                return '<div class="hosp-crest-avatar hosp-crest-medpulse" title="MedPulse Hospital & Specialty Care">
+                  <svg viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect width="36" height="36" rx="10" fill="url(#crestMedPulse)"/>
+                    <defs>
+                      <linearGradient id="crestMedPulse" x1="0" y1="0" x2="36" y2="36" gradientUnits="userSpaceOnUse">
+                        <stop stop-color="#0d9488"/>
+                        <stop offset="1" stop-color="#06b6d4"/>
+                      </linearGradient>
+                    </defs>
+                    <path d="M15 8h6v7h7v6h-7v7h-6v-7H8v-6h7V8z" fill="rgba(255,255,255,0.22)"/>
+                    <path d="M6 18h7l2-5 3 10 3-7 2 3h7" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </div>';
+            case 2:
+                // Square Hospital: Signature geometric medical cross
+                return '<div class="hosp-crest-avatar hosp-crest-square" title="Square Hospital Ltd">
+                  <svg viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect width="36" height="36" rx="10" fill="url(#crestSquare)"/>
+                    <defs>
+                      <linearGradient id="crestSquare" x1="0" y1="0" x2="36" y2="36" gradientUnits="userSpaceOnUse">
+                        <stop stop-color="#e11d48"/>
+                        <stop offset="1" stop-color="#9f1239"/>
+                      </linearGradient>
+                    </defs>
+                    <rect x="7" y="7" width="22" height="22" rx="4" stroke="rgba(255,255,255,0.35)" stroke-width="1.5" fill="none"/>
+                    <path d="M15 10h6v5h5v6h-5v5h-6v-5h-5v-6h5v-5z" fill="#ffffff"/>
+                  </svg>
+                </div>';
+            case 3:
+                // United Hospital: Elegant shield-and-cross
+                return '<div class="hosp-crest-avatar hosp-crest-united" title="United Hospital Ltd">
+                  <svg viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect width="36" height="36" rx="10" fill="url(#crestUnited)"/>
+                    <defs>
+                      <linearGradient id="crestUnited" x1="0" y1="0" x2="36" y2="36" gradientUnits="userSpaceOnUse">
+                        <stop stop-color="#1d4ed8"/>
+                        <stop offset="1" stop-color="#0284c7"/>
+                      </linearGradient>
+                    </defs>
+                    <path d="M18 7L8 11v7c0 6.6 4.3 12.3 10 14 5.7-1.7 10-7.4 10-14v-7L18 7z" fill="rgba(255,255,255,0.18)" stroke="#ffffff" stroke-width="1.4"/>
+                    <path d="M16 13h4v4h4v4h-4v4h-4v-4h-4v-4h4v-4z" fill="#ffffff"/>
+                  </svg>
+                </div>';
+            case 4:
+                // UMCH: Academic caduceus / medical graduation crest
+                return '<div class="hosp-crest-avatar hosp-crest-umch" title="United Medical College Hospital">
+                  <svg viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect width="36" height="36" rx="10" fill="url(#crestUmch)"/>
+                    <defs>
+                      <linearGradient id="crestUmch" x1="0" y1="0" x2="36" y2="36" gradientUnits="userSpaceOnUse">
+                        <stop stop-color="#6366f1"/>
+                        <stop offset="1" stop-color="#8b5cf6"/>
+                      </linearGradient>
+                    </defs>
+                    <line x1="18" y1="8" x2="18" y2="28" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round"/>
+                    <circle cx="18" cy="8" r="2.2" fill="#fde047"/>
+                    <path d="M12 14c4-2 8-2 12 0-4 3-8 3-12 0zM12 21c4-2 8-2 12 0-4 3-8 3-12 0z" stroke="#ffffff" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+                    <path d="M10 11l8-4 8 4-8 4-8-4z" fill="rgba(253,224,71,0.3)"/>
+                  </svg>
+                </div>';
+            case 5:
+                // Evercare: Contemporary care heart-loop
+                return '<div class="hosp-crest-avatar hosp-crest-evercare" title="Evercare Hospital Dhaka">
+                  <svg viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect width="36" height="36" rx="10" fill="url(#crestEvercare)"/>
+                    <defs>
+                      <linearGradient id="crestEvercare" x1="0" y1="0" x2="36" y2="36" gradientUnits="userSpaceOnUse">
+                        <stop stop-color="#059669"/>
+                        <stop offset="1" stop-color="#10b981"/>
+                      </linearGradient>
+                    </defs>
+                    <path d="M18 28s-9-5.4-9-12a5.5 5.5 0 0 1 9-4.2A5.5 5.5 0 0 1 27 16c0 6.6-9 12-9 12z" stroke="#ffffff" stroke-width="1.8" fill="rgba(255,255,255,0.15)"/>
+                    <path d="M16 14h4v3h3v4h-3v3h-4v-3h-3v-4h3v-3z" fill="#ffffff"/>
+                  </svg>
+                </div>';
+            case 6:
+                // NIBPS: National burn phoenix/shield crest
+                return '<div class="hosp-crest-avatar hosp-crest-nibps" title="National Institute of Burn and Plastic Surgery">
+                  <svg viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect width="36" height="36" rx="10" fill="url(#crestNibps)"/>
+                    <defs>
+                      <linearGradient id="crestNibps" x1="0" y1="0" x2="36" y2="36" gradientUnits="userSpaceOnUse">
+                        <stop stop-color="#ea580c"/>
+                        <stop offset="1" stop-color="#dc2626"/>
+                      </linearGradient>
+                    </defs>
+                    <path d="M18 7c3 4 5 7 5 10 0 4-3 7-5 7s-5-3-5-7c0-3 2-6 5-10z" fill="rgba(254,240,138,0.4)" stroke="#fef08a" stroke-width="1.3"/>
+                    <path d="M16 16h4v3h3v3h-3v3h-4v-3h-3v-3h3v-3z" fill="#ffffff"/>
+                    <path d="M8 18c2 5 6 9 10 11 4-2 8-6 10-11" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" fill="none"/>
+                  </svg>
+                </div>';
+            default:
+                $initials = strtoupper(substr($name ?: 'HP', 0, 2));
+                return '<div class="hosp-crest-avatar hosp-crest-default" style="background:var(--sa-gradient);">
+                  <span style="font-size:0.75rem;font-weight:800;color:#fff;">' . htmlspecialchars($initials, ENT_QUOTES, 'UTF-8') . '</span>
+                </div>';
+        }
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -138,6 +274,7 @@ if ($occupancyPct >= 85) {
   <link rel="stylesheet" href="../assets/css/patient_dashboard.css">
   <link rel="stylesheet" href="../assets/css/admin/live-ticker.css?v=<?= time() ?>">
   <link rel="stylesheet" href="../assets/css/admin/live-pulse.css?v=<?= time() ?>">
+  <link rel="stylesheet" href="../assets/css/medpulse_dialog.css?v=<?= time() ?>">
 
   <style>
     /* =========================================================
@@ -558,6 +695,540 @@ if ($occupancyPct >= 85) {
       background: var(--status-red-bg); color: var(--status-red);
       font-size: 0.72rem; font-weight: 700;
     }
+
+    /* =========================================================
+       DYNAMIC ECG WAVEFORM LIVE TELEMETRY BAR
+       ========================================================= */
+    .sa-telemetry-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 14px;
+      border-radius: 40px;
+      font-size: 0.74rem;
+      font-weight: 700;
+      backdrop-filter: blur(8px);
+      transition: all 0.25s ease;
+      white-space: nowrap;
+    }
+    .sa-telemetry-badge.telemetry-normal {
+      background: rgba(16, 185, 129, 0.08);
+      border: 1px solid rgba(16, 185, 129, 0.32);
+      color: #065f46;
+      box-shadow: 0 1px 4px rgba(16, 185, 129, 0.1);
+    }
+    .sa-telemetry-badge.telemetry-surge {
+      background: linear-gradient(135deg, rgba(244, 63, 94, 0.14) 0%, rgba(225, 29, 72, 0.22) 100%);
+      border: 1.5px solid rgba(244, 63, 94, 0.6);
+      color: #9f1239;
+      box-shadow: 0 0 16px rgba(244, 63, 94, 0.22);
+    }
+    .ecg-track {
+      width: 52px;
+      height: 18px;
+      display: flex;
+      align-items: center;
+    }
+    .ecg-svg {
+      width: 52px;
+      height: 18px;
+      overflow: visible;
+    }
+    .ecg-pulse-line {
+      fill: none;
+      stroke-width: 2.2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-dasharray: 80;
+      stroke-dashoffset: 80;
+    }
+    .telemetry-normal .ecg-pulse-line {
+      stroke: #10b981;
+      animation: ecgStrokeSweep 2.2s linear infinite;
+    }
+    .telemetry-surge .ecg-pulse-line {
+      stroke: #f43f5e;
+      animation: ecgStrokeSweep 1.1s linear infinite;
+    }
+    @keyframes ecgStrokeSweep {
+      0% {
+        stroke-dashoffset: 80;
+      }
+      50% {
+        stroke-dashoffset: 0;
+      }
+      100% {
+        stroke-dashoffset: -80;
+      }
+    }
+    .telemetry-info {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .telemetry-bpm {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-weight: 800;
+      letter-spacing: -0.01em;
+    }
+    .telemetry-normal .telemetry-bpm {
+      color: #059669;
+    }
+    .telemetry-surge .telemetry-bpm {
+      color: #e11d48;
+      animation: bpmSurgePulse 0.9s ease-in-out infinite;
+    }
+    @keyframes bpmSurgePulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.75; transform: scale(1.05); }
+    }
+    .telemetry-sep {
+      opacity: 0.4;
+      font-size: 0.65rem;
+    }
+    .telemetry-status {
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      font-size: 0.70rem;
+    }
+    .telemetry-pulse-dot {
+      position: relative;
+      display: inline-flex;
+      width: 8px;
+      height: 8px;
+    }
+    .telemetry-pulse-ring {
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+    }
+    .telemetry-normal .telemetry-pulse-ring {
+      background: #10b981;
+      animation: telRing 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;
+    }
+    .telemetry-surge .telemetry-pulse-ring {
+      background: #f43f5e;
+      animation: telRing 0.9s cubic-bezier(0, 0, 0.2, 1) infinite;
+    }
+    .telemetry-pulse-core {
+      position: relative;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+    .telemetry-normal .telemetry-pulse-core {
+      background: #059669;
+    }
+    .telemetry-surge .telemetry-pulse-core {
+      background: #e11d48;
+    }
+    @keyframes telRing {
+      75%, 100% {
+        transform: scale(2.6);
+        opacity: 0;
+      }
+    }
+
+    /* =========================================================
+       FULLY INTERACTIVE KPI SUMMARY CARDS
+       ========================================================= */
+    .stat-card-interactive {
+      position: relative;
+      text-decoration: none;
+      display: flex;
+      flex-direction: column;
+      cursor: pointer;
+      overflow: hidden;
+      transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.2s ease;
+    }
+    .stat-card-interactive::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3.5px;
+      background: var(--card-accent-gradient, var(--sa-gradient));
+      opacity: 0;
+      transform: scaleX(0.4);
+      transition: opacity 0.25s ease, transform 0.25s ease;
+    }
+    .stat-card-interactive:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 12px 28px -4px rgba(15, 23, 42, 0.12), 0 4px 10px -2px rgba(15, 23, 42, 0.06);
+    }
+    .stat-card-interactive:hover::before {
+      opacity: 1;
+      transform: scaleX(1);
+    }
+    .stat-card-interactive.kpi-hosp::before {
+      --card-accent-gradient: linear-gradient(90deg, #7c3aed, #0d9488);
+    }
+    .stat-card-interactive.kpi-beds::before {
+      --card-accent-gradient: linear-gradient(90deg, #2563eb, #0284c7);
+    }
+    .stat-card-interactive.kpi-avail::before {
+      --card-accent-gradient: linear-gradient(90deg, #10b981, #059669);
+    }
+    .stat-card-interactive.kpi-occ::before {
+      --card-accent-gradient: linear-gradient(90deg, #f59e0b, #ef4444);
+    }
+    .kpi-head-action {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .kpi-arrow-ico {
+      width: 14px;
+      height: 14px;
+      stroke: var(--text-muted);
+      fill: none;
+      stroke-width: 2.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      opacity: 0.55;
+      transition: transform 0.2s ease, opacity 0.2s ease, stroke 0.2s ease;
+    }
+    .stat-card-interactive:hover .kpi-arrow-ico {
+      transform: translateX(3px);
+      opacity: 1;
+      stroke: var(--text-heading);
+    }
+
+    /* =========================================================
+       MULTI-HOSPITAL LIVE STATUS TABLE & SVG CRESTS
+       ========================================================= */
+    .sa-clickable-row {
+      cursor: pointer;
+      transition: background-color 0.15s ease;
+    }
+    .sa-clickable-row:hover {
+      background-color: rgba(241, 245, 249, 0.8) !important;
+    }
+    .sa-btn-drilldown {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 6px 12px;
+      font-size: 0.74rem;
+      font-weight: 700;
+      color: #7c3aed;
+      background: rgba(124, 58, 237, 0.08);
+      border: 1px solid rgba(124, 58, 237, 0.22);
+      border-radius: 8px;
+      text-decoration: none;
+      transition: all 0.18s ease;
+    }
+    .sa-btn-drilldown:hover {
+      background: #7c3aed;
+      color: #ffffff;
+      border-color: #7c3aed;
+      box-shadow: 0 2px 8px rgba(124, 58, 237, 0.25);
+    }
+    .drill-arrow {
+      transition: transform 0.18s ease;
+      display: inline-block;
+    }
+    .sa-btn-drilldown:hover .drill-arrow {
+      transform: translateX(3px);
+    }
+    .hosp-crest-avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+    }
+    .hosp-crest-avatar svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+      border-radius: 10px;
+    }
+    /* =========================================================
+       DYNAMIC ALERT CAROUSEL TICKER & MULTI-DISASTER BANNER
+       ========================================================= */
+    .disaster-carousel-container {
+      background: linear-gradient(135deg, #4c0519 0%, #1f0710 100%);
+      border: 1.5px solid #f43f5e;
+      border-radius: 18px;
+      overflow: hidden;
+      margin-bottom: 24px;
+      box-shadow: 0 10px 30px rgba(136, 19, 55, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+      position: relative;
+    }
+    .carousel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      padding: 12px 20px;
+      background: rgba(0, 0, 0, 0.35);
+      border-bottom: 1px solid rgba(244, 63, 94, 0.25);
+    }
+    .carousel-header-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .carousel-live-ping {
+      position: relative;
+      display: inline-flex;
+      width: 10px;
+      height: 10px;
+    }
+    .carousel-live-ping .ping-ring {
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      background: #f43f5e;
+      animation: saPingRing 1.2s infinite;
+    }
+    .carousel-live-ping .ping-core {
+      position: relative;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #e11d48;
+    }
+    .carousel-header-title {
+      font-size: 0.76rem;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      color: #fecdd3;
+      text-transform: uppercase;
+    }
+    .carousel-pills {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .carousel-pill-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: #fda4af;
+      font-size: 0.72rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      font-family: inherit;
+    }
+    .carousel-pill-btn:hover {
+      background: rgba(255, 255, 255, 0.16);
+      color: #fff;
+    }
+    .carousel-pill-btn.active {
+      background: #e11d48;
+      border-color: #f43f5e;
+      color: #fff;
+      box-shadow: 0 2px 8px rgba(225, 29, 72, 0.4);
+    }
+    .pill-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .carousel-slides-track {
+      position: relative;
+      min-height: 140px;
+    }
+    .carousel-slide {
+      display: none;
+      padding: 18px 20px;
+      opacity: 0;
+      transform: translateY(6px);
+      transition: opacity 0.35s ease, transform 0.35s ease;
+    }
+    .carousel-slide.active {
+      display: block;
+      opacity: 1;
+      transform: translateY(0);
+    }
+    .slide-content-grid {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 20px;
+      align-items: center;
+    }
+    @media (max-width: 860px) {
+      .slide-content-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+    .slide-title-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .slide-icon {
+      font-size: 1.8rem;
+      line-height: 1;
+    }
+    .slide-title {
+      font-size: 1.12rem;
+      font-weight: 800;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .slide-quota-badge {
+      font-size: 0.68rem;
+      padding: 2px 8px;
+      border-radius: 10px;
+      color: #fff;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .slide-id-tag {
+      font-size: 0.68rem;
+      color: #fda4af;
+      font-weight: 700;
+      opacity: 0.8;
+    }
+    .slide-desc {
+      font-size: 0.82rem;
+      color: #fecdd3;
+      margin-top: 4px;
+      max-width: 700px;
+      line-height: 1.4;
+    }
+    .slide-facilities-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 6px;
+    }
+    .facilities-label {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: #fda4af;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .facilities-chips {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .facility-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 2px 8px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.1);
+      color: #fff;
+      font-size: 0.72rem;
+      font-weight: 600;
+    }
+    .fac-ico {
+      width: 12px;
+      height: 12px;
+      stroke: #fda4af;
+      fill: none;
+      stroke-width: 2;
+    }
+    .slide-actions-col {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      align-items: flex-end;
+    }
+    @media (max-width: 860px) {
+      .slide-actions-col {
+        align-items: flex-start;
+      }
+    }
+    .slide-metrics-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .slide-metric {
+      padding: 6px 12px;
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      text-align: center;
+      min-width: 70px;
+    }
+    .sm-val {
+      display: block;
+      font-size: 1.05rem;
+      font-weight: 800;
+      font-family: ui-monospace, monospace;
+    }
+    .sm-lbl {
+      display: block;
+      font-size: 0.65rem;
+      color: #cbd5e1;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+    .slide-btn-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .btn-stand-down-single {
+      padding: 7px 14px;
+      background: rgba(239, 68, 68, 0.2);
+      border: 1px solid #ef4444;
+      color: #fecdd3;
+      border-radius: 8px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      font-family: inherit;
+    }
+    .btn-stand-down-single:hover {
+      background: #ef4444;
+      color: #fff;
+    }
+    .btn-surge-monitor {
+      padding: 7px 14px;
+      background: #ffffff;
+      color: #991b1b;
+      border-radius: 8px;
+      font-size: 0.78rem;
+      font-weight: 800;
+      text-decoration: none;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+      transition: transform 0.15s ease;
+    }
+    .btn-surge-monitor:hover {
+      transform: translateY(-1px);
+    }
+    .carousel-progress-track {
+      height: 3px;
+      background: rgba(255, 255, 255, 0.1);
+      position: relative;
+    }
+    .carousel-progress-bar {
+      height: 100%;
+      background: #f43f5e;
+      width: 0%;
+      transition: width 0.1s linear;
+    }
   </style>
 </head>
 <body>
@@ -581,9 +1252,47 @@ if ($occupancyPct >= 85) {
         <p>Network Command Center: Real-time telemetry, cross-hospital bed monitor, and network governance synchronized across all facilities.</p>
       </div>
       <div class="banner-actions">
-        <div class="sa-live-badge">
-          <span class="sa-live-dot"></span>
-          Network Live
+        <?php if ($activeCount === 0): ?>
+          <a href="bed_monitor.php" class="btn-action-gradient" style="background:linear-gradient(135deg,#059669 0%,#0d9488 100%);text-decoration:none;display:inline-flex;align-items:center;gap:6px;">
+            <svg class="ui-ico ui-ico-sm" style="stroke:white;width:15px;height:15px;" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+            Declare Emergency
+          </a>
+        <?php elseif ($activeCount === 1): ?>
+          <a href="bed_monitor.php" class="btn-action-gradient" style="background:linear-gradient(135deg,#e11d48 0%,#b91c1c 100%);text-decoration:none;display:inline-flex;align-items:center;gap:6px;box-shadow:0 4px 14px rgba(225,29,72,.35);">
+            <span style="display:inline-block;animation:saPulse 1.2s infinite;">🚨</span>
+            &bull; 1 PROTOCOL ACTIVE: <?= (int)$activeProtocols[0]['severity_quota'] ?>% (<?= number_format((int)$activeProtocols[0]['live_held_count']) ?> BEDS)
+          </a>
+        <?php else: ?>
+          <a href="bed_monitor.php" class="btn-action-gradient" style="background:linear-gradient(135deg,#e11d48 0%,#991b1b 100%);text-decoration:none;display:inline-flex;align-items:center;gap:6px;box-shadow:0 4px 16px rgba(225,29,72,.45);">
+            <span style="display:inline-block;animation:saPulse 0.9s infinite;">🚨</span>
+            &bull; <?= $activeCount ?> PROTOCOLS ACTIVE: <?= $cumulativeSurgeQuota ?>% TOTAL SURGE (<?= number_format($totalSurgeHeldBeds) ?> BEDS)
+          </a>
+        <?php endif; ?>
+
+        <!-- Dynamic ECG Waveform Live Telemetry Bar -->
+        <div class="sa-telemetry-badge <?= $activeCount > 0 ? 'telemetry-surge' : 'telemetry-normal' ?>" title="<?= $activeCount > 0 ? 'National Emergency Surge Active: ' . $activeCount . ' concurrent protocol(s)' : 'Network Telemetry Synchronized across all 6 facilities' ?>">
+          <div class="ecg-track">
+            <svg class="ecg-svg" viewBox="0 0 54 18" preserveAspectRatio="none">
+              <path class="ecg-pulse-line" d="M0,9 L12,9 L15,3 L18,15 L21,2 L24,16 L27,9 L32,9 L35,6 L38,11 L41,9 L54,9" />
+            </svg>
+          </div>
+          <div class="telemetry-info">
+            <span class="telemetry-bpm font-mono"><?= $activeCount > 0 ? '118 BPM' : '72 BPM' ?></span>
+            <span class="telemetry-sep">•</span>
+            <span class="telemetry-status">
+              <?php if ($activeCount === 0): ?>
+                SYSTEM NORMAL
+              <?php elseif ($activeCount === 1): ?>
+                SURGE PROTOCOL ACTIVE: <?= htmlspecialchars($activeProtocols[0]['title'], ENT_QUOTES, 'UTF-8') ?>
+              <?php else: ?>
+                <?= $activeCount ?> PROTOCOLS CONCURRENT SURGE (<?= $cumulativeSurgeQuota ?>% QUOTA)
+              <?php endif; ?>
+            </span>
+          </div>
+          <span class="telemetry-pulse-dot">
+            <span class="telemetry-pulse-ring"></span>
+            <span class="telemetry-pulse-core"></span>
+          </span>
         </div>
         <button class="btn-action-gradient" onclick="refreshDashboard()">
           <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24" style="stroke: white;"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
@@ -591,6 +1300,145 @@ if ($occupancyPct >= 85) {
         </button>
       </div>
     </div>
+
+    <!-- Active Emergency Broadcast / Animated Alert Carousel Ticker -->
+    <?php if ($activeCount === 1):
+      $proto = $activeProtocols[0];
+      $badgeColor = $proto['meta']['badge_color'] ?? '#e11d48';
+      $targetHospNames = [];
+      foreach ($allHospitals as $h) {
+        if (in_array((int)$h['hospital_id'], $proto['target_hospital_ids'], true)) {
+          $targetHospNames[] = $h['name'];
+        }
+      }
+    ?>
+    <div style="background:linear-gradient(135deg,#881337 0%,#4c0519 100%);border:1.5px solid #f43f5e;border-radius:16px;padding:16px 20px;color:#fff;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;box-shadow:0 8px 24px rgba(136,19,55,.4);">
+      <div style="display:flex;align-items:center;gap:14px;">
+        <div style="font-size:1.8rem;width:44px;height:44px;border-radius:10px;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;">🚨</div>
+        <div>
+          <div style="font-weight:800;font-size:1.08rem;display:flex;align-items:center;gap:10px;color:#fff;flex-wrap:wrap;">
+            <?= htmlspecialchars($proto['title'], ENT_QUOTES, 'UTF-8') ?>
+            <span style="font-size:0.68rem;padding:2px 8px;border-radius:10px;background:<?= $badgeColor ?>;color:#fff;text-transform:uppercase;letter-spacing:.05em;"><?= htmlspecialchars($proto['severity_level'], ENT_QUOTES, 'UTF-8') ?> (<?= (int)$proto['severity_quota'] ?>% QUOTA)</span>
+            <span style="font-size:0.7rem;color:#fecdd3;font-weight:600;">&bull; <?= number_format((int)$proto['live_held_count']) ?> Beds Locked</span>
+          </div>
+          <div style="font-size:0.8rem;color:#fecdd3;margin-top:2px;">
+            <?= htmlspecialchars($proto['notes'] ?: 'National Emergency Protocol currently enforced across network facilities.', ENT_QUOTES, 'UTF-8') ?>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <button type="button" class="btn-stand-down-single" onclick="standDownSingleProtocol(<?= (int)$proto['id'] ?>, '<?= htmlspecialchars(addslashes($proto['title']), ENT_QUOTES, 'UTF-8') ?>')">
+          ⚡ Stand Down Protocol
+        </button>
+        <a href="bed_monitor.php" style="padding:9px 18px;background:#ffffff;color:#991b1b;border-radius:10px;font-weight:800;font-size:0.82rem;text-decoration:none;box-shadow:0 4px 12px rgba(0,0,0,.15);white-space:nowrap;">
+          Central Bed Monitor →
+        </a>
+      </div>
+    </div>
+    <?php elseif ($activeCount > 1): ?>
+    <div class="disaster-carousel-container" id="disasterCarousel" onmouseenter="pauseCarousel()" onmouseleave="resumeCarousel()">
+      <!-- Top Bar: Title & Interactive Slide Indicators -->
+      <div class="carousel-header">
+        <div class="carousel-header-left">
+          <span class="carousel-live-ping">
+            <span class="ping-ring"></span>
+            <span class="ping-core"></span>
+          </span>
+          <span class="carousel-header-title">NATIONAL DISASTER PROTOCOL SURGE &bull; <?= $activeCount ?> CONCURRENT THREATS ACTIVE (<?= number_format($totalSurgeHeldBeds) ?> TOTAL BEDS LOCKED)</span>
+        </div>
+        <div class="carousel-pills" id="carouselPills">
+          <?php foreach ($activeProtocols as $idx => $proto): 
+            $badgeColor = $proto['meta']['badge_color'] ?? '#e11d48';
+          ?>
+          <button type="button" class="carousel-pill-btn <?= $idx === 0 ? 'active' : '' ?>" onclick="switchCarouselSlide(<?= $idx ?>)" data-slide="<?= $idx ?>">
+            <span class="pill-dot" style="background:<?= $badgeColor ?>;"></span>
+            <?= htmlspecialchars($proto['title'], ENT_QUOTES, 'UTF-8') ?>
+          </button>
+          <?php endforeach; ?>
+        </div>
+      </div>
+
+      <!-- Slides Track -->
+      <div class="carousel-slides-track">
+        <?php foreach ($activeProtocols as $idx => $proto):
+          $badgeColor = $proto['meta']['badge_color'] ?? '#e11d48';
+          $targetHospNames = [];
+          foreach ($allHospitals as $h) {
+            if (in_array((int)$h['hospital_id'], $proto['target_hospital_ids'], true)) {
+              $targetHospNames[] = $h['name'];
+            }
+          }
+        ?>
+        <div class="carousel-slide <?= $idx === 0 ? 'active' : '' ?>" id="carouselSlide-<?= $idx ?>">
+          <div class="slide-content-grid">
+            <div class="slide-main">
+              <div class="slide-title-row">
+                <span class="slide-icon">🚨</span>
+                <div>
+                  <div class="slide-title">
+                    <?= htmlspecialchars($proto['title'], ENT_QUOTES, 'UTF-8') ?>
+                    <span class="slide-quota-badge" style="background:<?= $badgeColor ?>;">
+                      <?= htmlspecialchars($proto['severity_level'], ENT_QUOTES, 'UTF-8') ?> &bull; <?= (int)$proto['severity_quota'] ?>% QUOTA
+                    </span>
+                    <span class="slide-id-tag">Protocol #<?= (int)$proto['id'] ?></span>
+                  </div>
+                  <div class="slide-desc">
+                    <?= htmlspecialchars($proto['notes'] ?: ($proto['meta']['description'] ?? 'Enforcing active emergency surge protocols.'), ENT_QUOTES, 'UTF-8') ?>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Target Facilities Badges -->
+              <div class="slide-facilities-row">
+                <span class="facilities-label">Active Scope:</span>
+                <div class="facilities-chips">
+                  <?php foreach ($targetHospNames as $hName): ?>
+                    <span class="facility-chip">
+                      <svg viewBox="0 0 24 24" class="fac-ico"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>
+                      <?= htmlspecialchars($hName, ENT_QUOTES, 'UTF-8') ?>
+                    </span>
+                  <?php endforeach; ?>
+                </div>
+              </div>
+            </div>
+
+            <!-- Slide Metrics & Actions -->
+            <div class="slide-actions-col">
+              <div class="slide-metrics-row">
+                <div class="slide-metric">
+                  <span class="sm-val text-rose-300"><?= number_format((int)$proto['live_held_count']) ?></span>
+                  <span class="sm-lbl">Beds Locked</span>
+                </div>
+                <div class="slide-metric">
+                  <span class="sm-val text-amber-300"><?= number_format((int)$proto['live_relocating_count']) ?></span>
+                  <span class="sm-lbl">Relocating</span>
+                </div>
+                <div class="slide-metric">
+                  <span class="sm-val text-cyan-300"><?= count($proto['target_hospital_ids']) ?></span>
+                  <span class="sm-lbl">Facilities</span>
+                </div>
+              </div>
+
+              <div class="slide-btn-group">
+                <button type="button" class="btn-stand-down-single" onclick="standDownSingleProtocol(<?= (int)$proto['id'] ?>, '<?= htmlspecialchars(addslashes($proto['title']), ENT_QUOTES, 'UTF-8') ?>')">
+                  ⚡ Stand Down Protocol
+                </button>
+                <a href="bed_monitor.php" class="btn-surge-monitor">
+                  Central Monitor →
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+        <?php endforeach; ?>
+      </div>
+
+      <!-- Bottom Bar: Auto-Cycle Progress Indicator -->
+      <div class="carousel-progress-track">
+        <div class="carousel-progress-bar" id="carouselProgressBar"></div>
+      </div>
+    </div>
+    <?php endif; ?>
 
     <!-- ═══════════════════════════════════════════════════════
          TOP BAR — Hospital Switcher / Filter
@@ -630,54 +1478,66 @@ if ($occupancyPct >= 85) {
     ════════════════════════════════════════════════════════ -->
     <div class="stat-cards-grid">
       <!-- Card 1: Total Network Hospitals -->
-      <div class="stat-card-executive sa-purple">
+      <a href="hospital_directory.php" class="stat-card-executive stat-card-interactive sa-purple kpi-hosp" title="View Hospital Directory">
         <div class="stat-card-head">
           <span>Network Hospitals</span>
-          <svg class="ui-ico" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><line x1="9" y1="22" x2="9" y2="12"></line><line x1="15" y1="22" x2="15" y2="12"></line><line x1="9" y1="7" x2="15" y2="7"></line></svg>
+          <div class="kpi-head-action">
+            <svg class="ui-ico" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><line x1="9" y1="22" x2="9" y2="12"></line><line x1="15" y1="22" x2="15" y2="12"></line><line x1="9" y1="7" x2="15" y2="7"></line></svg>
+            <svg class="kpi-arrow-ico" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"></polyline></svg>
+          </div>
         </div>
         <div class="stat-card-number"><?= number_format($totalNetworkHospitals) ?></div>
         <div class="badge-purple">
           <svg style="width:11px;height:11px;stroke:currentColor;fill:none;stroke-width:2;" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
           Fully Connected
         </div>
-      </div>
+      </a>
 
       <!-- Card 2: Total Network Beds -->
-      <div class="stat-card-executive">
+      <a href="bed_monitor.php?status=All<?= $filterHospitalId > 0 ? '&hospital_id=' . $filterHospitalId : '' ?>" class="stat-card-executive stat-card-interactive kpi-beds" title="Open Central Bed Monitor">
         <div class="stat-card-head">
           <span>Total Network Beds</span>
-          <svg class="ui-ico" style="stroke: var(--brand-primary);" viewBox="0 0 24 24"><path d="M2 4v16"></path><path d="M2 8h18a2 2 0 0 1 2 2v10"></path><path d="M2 17h20"></path></svg>
+          <div class="kpi-head-action">
+            <svg class="ui-ico" style="stroke: var(--brand-primary);" viewBox="0 0 24 24"><path d="M2 4v16"></path><path d="M2 8h18a2 2 0 0 1 2 2v10"></path><path d="M2 17h20"></path></svg>
+            <svg class="kpi-arrow-ico" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"></polyline></svg>
+          </div>
         </div>
         <div class="stat-card-number" id="kpiTotalBeds"><?= number_format($totalNetworkBeds) ?></div>
         <div class="stat-card-badge badge-blue">
           <?= $filterHospitalId > 0 ? '1 Hospital' : 'All Hospitals' ?>
         </div>
-      </div>
+      </a>
 
       <!-- Card 3: Available Live Beds -->
-      <div class="stat-card-executive">
+      <a href="bed_monitor.php?status=Available<?= $filterHospitalId > 0 ? '&hospital_id=' . $filterHospitalId : '' ?>" class="stat-card-executive stat-card-interactive kpi-avail" title="Filter Available Live Beds">
         <div class="stat-card-head">
           <span>Available Live Beds</span>
-          <svg class="ui-ico" style="stroke: var(--status-green);" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
+          <div class="kpi-head-action">
+            <svg class="ui-ico" style="stroke: var(--status-green);" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
+            <svg class="kpi-arrow-ico" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"></polyline></svg>
+          </div>
         </div>
         <div class="stat-card-number" id="kpiAvailBeds"><?= number_format($availableLiveBeds) ?></div>
         <div class="stat-card-badge badge-green">
           <svg style="width:11px;height:11px;stroke:currentColor;fill:none;stroke-width:2;" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
           Ready for Admission
         </div>
-      </div>
+      </a>
 
       <!-- Card 4: Critical / Occupied -->
-      <div class="stat-card-executive">
+      <a href="bed_monitor.php?status=Occupied<?= $filterHospitalId > 0 ? '&hospital_id=' . $filterHospitalId : '' ?>" class="stat-card-executive stat-card-interactive kpi-occ" title="Filter Occupied / Critical Beds">
         <div class="stat-card-head">
           <span>Occupied / Critical</span>
-          <svg class="ui-ico" style="stroke: var(--status-amber);" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+          <div class="kpi-head-action">
+            <svg class="ui-ico" style="stroke: var(--status-amber);" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+            <svg class="kpi-arrow-ico" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"></polyline></svg>
+          </div>
         </div>
         <div class="stat-card-number" id="kpiOccBeds"><?= number_format($criticalOccupiedBeds) ?></div>
         <div class="stat-card-badge <?= $occBadgeClass ?>" id="kpiOccBadge">
           <?= $occupancyPct ?>% Network Occupancy
         </div>
-      </div>
+      </a>
     </div>
 
     <!-- ═══════════════════════════════════════════════════════
@@ -709,12 +1569,13 @@ if ($occupancyPct >= 85) {
               <th>ICU Vacancy</th>
               <th>Occupancy</th>
               <th>Status</th>
+              <th style="text-align:right;">Actions</th>
             </tr>
           </thead>
           <tbody>
             <?php if (empty($hospitalRows)): ?>
             <tr>
-              <td colspan="7" style="text-align:center; padding:40px; color:var(--text-muted);">
+              <td colspan="8" style="text-align:center; padding:40px; color:var(--text-muted);">
                 No hospital data found. Please check your database connection.
               </td>
             </tr>
@@ -729,12 +1590,12 @@ if ($occupancyPct >= 85) {
               $fillCls = $occPct >= 85 ? 'fill-red' : ($occPct >= 60 ? 'fill-amber' : 'fill-green');
               $stCls   = $occPct >= 85 ? 'status-high' : ($occPct >= 60 ? 'status-moderate' : 'status-normal');
               $stLabel = $occPct >= 85 ? 'High Load' : ($occPct >= 60 ? 'Moderate' : 'Normal');
-              $initials = strtoupper(substr($row['name'], 0, 2));
+              $hospId  = (int)($row['hospital_id'] ?? 0);
             ?>
-            <tr>
+            <tr class="sa-clickable-row" onclick="window.location.href='bed_monitor.php?hospital_id=<?= $hospId ?>'" title="Drill down to <?= htmlspecialchars($row['name'], ENT_QUOTES, 'UTF-8') ?> bed monitor">
               <td>
                 <div class="hosp-name-cell">
-                  <div class="hosp-avatar"><?= htmlspecialchars($initials, ENT_QUOTES, 'UTF-8') ?></div>
+                  <?= getHospitalCrest($hospId, $row['name']) ?>
                   <div>
                     <div style="font-weight:700; color:var(--text-heading); font-size:0.88rem;">
                       <?= htmlspecialchars($row['name'], ENT_QUOTES, 'UTF-8') ?>
@@ -783,6 +1644,11 @@ if ($occupancyPct >= 85) {
                   <span class="net-status-dot"></span>
                   <?= $stLabel ?>
                 </div>
+              </td>
+              <td style="text-align:right; white-space:nowrap;">
+                <a href="bed_monitor.php?hospital_id=<?= $hospId ?>" class="sa-btn-drilldown" onclick="event.stopPropagation();" title="Inspect <?= htmlspecialchars($row['name'], ENT_QUOTES, 'UTF-8') ?> Live Census">
+                  Drill Down <span class="drill-arrow">→</span>
+                </a>
               </td>
             </tr>
             <?php endforeach; ?>
@@ -873,13 +1739,18 @@ if ($occupancyPct >= 85) {
 
   </main><!-- /.viewport-full -->
 
+  <!-- MedPulse Modern Dialog Engine -->
+  <script src="../assets/js/medpulse_dialog.js?v=<?= time() ?>"></script>
+
   <script>
     // Auto-refresh the page every 60 seconds to keep data live
     let autoRefreshTimer = setTimeout(() => location.reload(), 60000);
 
     function refreshDashboard() {
       clearTimeout(autoRefreshTimer);
-      showToast('Refreshing network telemetry…', 'success');
+      if (typeof showToast === 'function') {
+        showToast('Refreshing network telemetry…', 'info');
+      }
       setTimeout(() => location.reload(), 600);
     }
 
@@ -893,6 +1764,105 @@ if ($occupancyPct >= 85) {
         });
       });
     });
+
+    // Dynamic Alert Carousel Controller
+    const totalSlides = <?= (int)$activeCount ?>;
+    let currentSlideIdx = 0;
+    let progressTimer = null;
+    let progressPct = 0;
+    const SLIDE_DURATION = 5000;
+    const PROGRESS_INTERVAL = 50;
+
+    function switchCarouselSlide(idx) {
+      if (totalSlides <= 1) return;
+      currentSlideIdx = (idx + totalSlides) % totalSlides;
+      document.querySelectorAll('.carousel-slide').forEach((s, i) => {
+        s.classList.toggle('active', i === currentSlideIdx);
+      });
+      document.querySelectorAll('.carousel-pill-btn').forEach((p, i) => {
+        p.classList.toggle('active', i === currentSlideIdx);
+      });
+      resetProgress();
+    }
+
+    function resetProgress() {
+      progressPct = 0;
+      const bar = document.getElementById('carouselProgressBar');
+      if (bar) bar.style.width = '0%';
+    }
+
+    function startCarousel() {
+      if (totalSlides <= 1) return;
+      clearInterval(progressTimer);
+      progressTimer = setInterval(() => {
+        progressPct += (PROGRESS_INTERVAL / SLIDE_DURATION) * 100;
+        const bar = document.getElementById('carouselProgressBar');
+        if (bar) bar.style.width = `${Math.min(100, progressPct)}%`;
+        if (progressPct >= 100) {
+          switchCarouselSlide(currentSlideIdx + 1);
+        }
+      }, PROGRESS_INTERVAL);
+    }
+
+    function pauseCarousel() {
+      clearInterval(progressTimer);
+    }
+
+    function resumeCarousel() {
+      startCarousel();
+    }
+
+    if (totalSlides > 1) {
+      startCarousel();
+    }
+
+    // Stand Down Single Emergency Protocol
+    function standDownSingleProtocol(protoId, title) {
+      if (typeof showConfirmModal === 'function') {
+        showConfirmModal({
+          title: 'Stand Down Emergency Protocol',
+          message: `Are you sure you want to stand down <strong>${title}</strong>? Unassigned hold beds will immediately revert to Available, and treated beds will move to Sanitizing.`,
+          confirmText: '⚡ Stand Down Protocol',
+          danger: true,
+          onConfirm: () => executeStandDown(protoId)
+        });
+      } else if (confirm(`Stand down ${title}?`)) {
+        executeStandDown(protoId);
+      }
+    }
+
+    function executeStandDown(protoId) {
+      const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+      const fd = new FormData();
+      fd.append('_action', 'terminate_emergency');
+      fd.append('csrf_token', token);
+      if (protoId) {
+        fd.append('protocol_id', protoId);
+      }
+
+      fetch('../backend/api/emergency_surge_action.php', {
+        method: 'POST',
+        body: fd
+      })
+      .then(r => r.json())
+      .then(res => {
+        if (res.success) {
+          if (typeof showToast === 'function') {
+            showToast(res.message, 'success');
+          }
+          setTimeout(() => location.reload(), 900);
+        } else {
+          if (typeof showToast === 'function') {
+            showToast(res.message || 'Stand-down failed', 'error');
+          }
+        }
+      })
+      .catch(err => {
+        if (typeof showToast === 'function') {
+          showToast('Network communication failure', 'error');
+        }
+      });
+    }
   </script>
 
 </body>

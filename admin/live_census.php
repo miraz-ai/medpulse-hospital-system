@@ -7,6 +7,26 @@
 
 require_once __DIR__ . '/../includes/admin_auth.php';
 
+// Strict multi-hospital scoping: resolve current branch hospital
+$adminHospitalId = (int)($_SESSION['hospital_id'] ?? 1);
+
+require_once __DIR__ . '/../backend/Services/EmergencyProtocolService.php';
+$emergencyService = new \MedPulse\Services\EmergencyProtocolService($pdo);
+$allActiveProtocols = $emergencyService->getActiveProtocols();
+$branchActiveProtocols = [];
+foreach ($allActiveProtocols as $p) {
+    if ($p['target_scope'] === 'NETWORK_WIDE') {
+        $branchActiveProtocols[] = $p;
+    } else {
+        $th = !empty($p['target_hospitals']) ? json_decode($p['target_hospitals'], true) : [];
+        if (is_array($th) && in_array($adminHospitalId, $th)) {
+            $branchActiveProtocols[] = $p;
+        }
+    }
+}
+$branchActiveCount = count($branchActiveProtocols);
+$activeEmergency  = !empty($branchActiveProtocols) ? $branchActiveProtocols[0] : null;
+
 // =============================================================================
 // BED LIFECYCLE ACTION HANDLER (JSON API)
 // Handles POST requests for: allocate_bed | discharge_patient | mark_bed_ready
@@ -44,29 +64,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || (isset($_GET['_action']) && in_arra
     // -------------------------------------------------------------------------
     if ($action === 'get_stats') {
         try {
-            $row = $pdo->query("
+            $rowStmt = $pdo->prepare("
                 SELECT
                     COUNT(*) AS total_beds,
-                    SUM(status = 'Occupied')    AS occupied_beds,
-                    SUM(status = 'Available')   AS available_beds,
-                    SUM(status = 'Maintenance') AS maintenance_beds
+                    SUM(status = 'Occupied')       AS occupied_beds,
+                    SUM(status = 'Available')      AS available_beds,
+                    SUM(status = 'Maintenance')    AS maintenance_beds,
+                    SUM(status = 'Emergency Hold') AS emergency_hold_beds
                 FROM hospital_beds
-            ")->fetch(PDO::FETCH_ASSOC);
+                WHERE hospital_id = ?
+            ");
+            $rowStmt->execute([$adminHospitalId]);
+            $row = $rowStmt->fetch(PDO::FETCH_ASSOC);
 
-            $icuRow = $pdo->query("
+            $icuRowStmt = $pdo->prepare("
                 SELECT 
                     COUNT(*) AS total_icu,
                     SUM(status = 'Occupied') AS occupied_icu
                 FROM hospital_beds
-                WHERE ward_type IN ('ICU', 'CCU')
-            ")->fetch(PDO::FETCH_ASSOC);
+                WHERE hospital_id = ? AND ward_type IN ('ICU', 'CCU')
+            ");
+            $icuRowStmt->execute([$adminHospitalId]);
+            $icuRow = $icuRowStmt->fetch(PDO::FETCH_ASSOC);
 
             $totIcu = (int)($icuRow['total_icu'] ?? 0);
             $occIcu = (int)($icuRow['occupied_icu'] ?? 0);
             $icuPct = $totIcu > 0 ? ($occIcu / $totIcu) * 100 : 0;
             $availIcu = max(0, $totIcu - $occIcu);
 
-            if ($totIcu > 0 && ($availIcu === 0 || $icuPct >= 90)) {
+            $hasActiveSurge = !empty($emergencyService->isHospitalAffected($adminHospitalId)) || ((int)($row['emergency_hold_beds'] ?? 0) > 0);
+            if ($hasActiveSurge) {
+                $tBpm = '118 BPM'; $tClass = 'telemetry-critical'; $tLabel = 'DISASTER SURGE';
+            } elseif ($totIcu > 0 && ($availIcu === 0 || $icuPct >= 90)) {
                 $tBpm = '124 BPM'; $tClass = 'telemetry-critical'; $tLabel = 'CODE SURGE';
             } elseif ($icuPct >= 70) {
                 $tBpm = '98 BPM'; $tClass = 'telemetry-warning'; $tLabel = 'HIGH LOAD';
@@ -81,7 +110,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || (isset($_GET['_action']) && in_arra
                     'bpm' => $tBpm,
                     'class' => $tClass,
                     'label' => $tLabel,
-                    'active_beds' => (int)($row['total_beds'] ?? 500)
+                    'active_beds' => (int)($row['total_beds'] ?? 0)
                 ]
             ]);
         } catch (Throwable $e) {
@@ -162,12 +191,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || (isset($_GET['_action']) && in_arra
             }
 
             // 2. Business-Rule Validation: Verify destination bed availability
-            $bedRow = $pdo->prepare("SELECT bed_number, status FROM hospital_beds WHERE bed_id = :id LIMIT 1");
-            $bedRow->execute([':id' => $bedId]);
+            $bedRow = $pdo->prepare("SELECT bed_number, status FROM hospital_beds WHERE bed_id = :id AND hospital_id = :hid LIMIT 1");
+            $bedRow->execute([':id' => $bedId, ':hid' => $adminHospitalId]);
             $bed = $bedRow->fetch(PDO::FETCH_ASSOC);
 
-            if (!$bed || $bed['status'] !== 'Available') {
-                echo json_encode(['success' => false, 'message' => 'Bed is already occupied by another patient.']);
+            if (!$bed || !in_array($bed['status'], ['Available', 'Emergency Hold'], true)) {
+                echo json_encode(['success' => false, 'message' => 'Bed is already occupied or undergoing sanitization.']);
                 exit;
             }
 
@@ -187,8 +216,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || (isset($_GET['_action']) && in_arra
             $pdo->beginTransaction();
 
             // 1. Mark bed as Occupied
-            $upd = $pdo->prepare("UPDATE hospital_beds SET status = 'Occupied' WHERE bed_id = :bid AND status = 'Available'");
-            $upd->execute([':bid' => $bedId]);
+            $upd = $pdo->prepare("UPDATE hospital_beds SET status = 'Occupied', relocation_status = 'NONE' WHERE bed_id = :bid AND hospital_id = :hid AND status IN ('Available', 'Emergency Hold')");
+            $upd->execute([':bid' => $bedId, ':hid' => $adminHospitalId]);
             if ($upd->rowCount() === 0) {
                 $pdo->rollBack();
                 echo json_encode(['success' => false, 'message' => 'Bed is already occupied by another patient.']);
@@ -288,20 +317,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || (isset($_GET['_action']) && in_arra
         }
 
         try {
-            $bedRow = $pdo->prepare("SELECT bed_number, status FROM hospital_beds WHERE bed_id = :id LIMIT 1");
-            $bedRow->execute([':id' => $bedId]);
+            $bedRow = $pdo->prepare("SELECT bed_number, status FROM hospital_beds WHERE bed_id = :id AND hospital_id = :hid LIMIT 1");
+            $bedRow->execute([':id' => $bedId, ':hid' => $adminHospitalId]);
             $bed = $bedRow->fetch(PDO::FETCH_ASSOC);
 
-            if (!$bed || $bed['status'] !== 'Maintenance') {
-                echo json_encode(['success' => false, 'message' => 'Bed is not in maintenance. Please refresh.']);
+            if (!$bed || !in_array($bed['status'], ['Maintenance', 'Sanitizing'], true)) {
+                echo json_encode(['success' => false, 'message' => 'Bed is not in maintenance or sanitizing state. Please refresh.']);
                 exit;
             }
 
             $pdo->beginTransaction();
 
-            // 1. Clear sanitization — bed returns to Available
-            $upd = $pdo->prepare("UPDATE hospital_beds SET status = 'Available' WHERE bed_id = :bid AND status = 'Maintenance'");
-            $upd->execute([':bid' => $bedId]);
+            // 1. Clear sanitization / maintenance — bed returns to Available
+            $upd = $pdo->prepare("UPDATE hospital_beds SET status = 'Available' WHERE bed_id = :bid AND hospital_id = :hid AND status IN ('Maintenance', 'Sanitizing')");
+            $upd->execute([':bid' => $bedId, ':hid' => $adminHospitalId]);
 
             // 2. Audit log
             pushAuditLog(
@@ -336,30 +365,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || (isset($_GET['_action']) && in_arra
 
 $dbError = null;
 
-// 1. Query live hospital capacity aggregates from database (500 Bed Capacity)
+// 1. Resolve current hospital branding and profile
+$currentHospital = ['name' => 'MedPulse Hospital & Specialty Care', 'code' => 'MEDPULSE', 'city' => 'Dhaka'];
 try {
-    $statRow = $pdo->query("
+    $hStmt = $pdo->prepare("SELECT name, code, city FROM hospitals WHERE hospital_id = ? LIMIT 1");
+    $hStmt->execute([$adminHospitalId]);
+    $hRow = $hStmt->fetch(PDO::FETCH_ASSOC);
+    if ($hRow) $currentHospital = $hRow;
+} catch (Throwable $e) {}
+
+// Query live hospital capacity aggregates strictly for this branch hospital
+try {
+    $statStmt = $pdo->prepare("
         SELECT 
             COUNT(*) AS total_beds,
             SUM(status = 'Occupied') AS occupied_beds,
             SUM(status = 'Available') AS available_beds,
-            SUM(status = 'Maintenance') AS maintenance_beds
+            SUM(status = 'Maintenance') AS maintenance_beds,
+            SUM(status = 'Emergency Hold') AS emergency_hold_beds
         FROM hospital_beds
-    ")->fetch(PDO::FETCH_ASSOC);
+        WHERE hospital_id = ?
+    ");
+    $statStmt->execute([$adminHospitalId]);
+    $statRow = $statStmt->fetch(PDO::FETCH_ASSOC);
 
-    $totalHospitalBeds = (int)($statRow['total_beds'] ?? 500);
-    $totalOccupiedBeds = (int)($statRow['occupied_beds'] ?? 93);
-    $totalAvailableBeds = (int)($statRow['available_beds'] ?? 392);
-    $totalMaintenanceBeds = (int)($statRow['maintenance_beds'] ?? 15);
+    $totalHospitalBeds = (int)($statRow['total_beds'] ?? 0);
+    $totalOccupiedBeds = (int)($statRow['occupied_beds'] ?? 0);
+    $totalAvailableBeds = (int)($statRow['available_beds'] ?? 0);
+    $totalMaintenanceBeds = (int)($statRow['maintenance_beds'] ?? 0);
+    $totalEmergencyHoldBeds = (int)($statRow['emergency_hold_beds'] ?? 0);
 
-    // Dynamic Critical/ICU Occupancy %: (Occupied ICU+CCU beds / Total ICU+CCU beds) * 100
-    $icuRow = $pdo->query("
+    // Dynamic Critical/ICU Occupancy %:
+    $icuStmt = $pdo->prepare("
         SELECT 
             COUNT(*) AS total_icu_ccu,
             SUM(status = 'Occupied') AS occupied_icu_ccu
         FROM hospital_beds
-        WHERE ward_type IN ('ICU', 'CCU')
-    ")->fetch(PDO::FETCH_ASSOC);
+        WHERE hospital_id = ? AND ward_type IN ('ICU', 'CCU')
+    ");
+    $icuStmt->execute([$adminHospitalId]);
+    $icuRow = $icuStmt->fetch(PDO::FETCH_ASSOC);
     $totalIcuCcu = (int)($icuRow['total_icu_ccu'] ?? 0);
     $occupiedIcuCcu = (int)($icuRow['occupied_icu_ccu'] ?? 0);
     $icuOccupancyPct = $totalIcuCcu > 0 ? round(($occupiedIcuCcu / $totalIcuCcu) * 100) : 0;
@@ -369,22 +414,24 @@ try {
     $occupied_critical_beds = $occupiedIcuCcu;
     $available_critical_beds = max(0, $total_critical_beds - $occupied_critical_beds);
     $critical_occupancy_rate = $total_critical_beds > 0 ? ($occupied_critical_beds / $total_critical_beds) * 100 : 0;
-    $total_active_beds = $totalHospitalBeds > 0 ? $totalHospitalBeds : 500;
+    $total_active_beds = $totalHospitalBeds;
 
-    // Threshold classification:
-    // 1. Critical (>= 90% occupancy or 0 ICU beds available)
-    if ($total_critical_beds > 0 && ($available_critical_beds === 0 || $critical_occupancy_rate >= 90)) {
+    // Threshold classification (Disaster surge spikes rhythm to rapid 118 BPM rose-500):
+    if ($branchActiveCount > 0 || $totalEmergencyHoldBeds > 0) {
+        $telemetry_bpm = '118 BPM';
+        $telemetry_class = 'telemetry-critical';
+        $telemetry_label = 'DISASTER SURGE';
+        $telemetry_speed = '0.75s';
+    } elseif ($total_critical_beds > 0 && ($available_critical_beds === 0 || $critical_occupancy_rate >= 90)) {
         $telemetry_bpm = '124 BPM';
         $telemetry_class = 'telemetry-critical';
         $telemetry_label = 'CODE SURGE';
         $telemetry_speed = '0.7s';
-    // 2. Elevated (70% - 89% occupancy)
     } elseif ($critical_occupancy_rate >= 70) {
         $telemetry_bpm = '98 BPM';
         $telemetry_class = 'telemetry-warning';
         $telemetry_label = 'HIGH LOAD';
         $telemetry_speed = '1.2s';
-    // 3. Normal (< 70% occupancy)
     } else {
         $telemetry_bpm = '72 BPM';
         $telemetry_class = 'telemetry-normal';
@@ -392,14 +439,50 @@ try {
         $telemetry_speed = '2s';
     }
 
-    // Dynamic Ward Counts for tab badges
+    // Dynamic Distinct Floors for this branch hospital
+    $floorStmt = $pdo->prepare("
+        SELECT DISTINCT floor_number 
+        FROM hospital_beds 
+        WHERE hospital_id = ? 
+        ORDER BY floor_number ASC
+    ");
+    $floorStmt->execute([$adminHospitalId]);
+    $distinctFloors = array_map('intval', $floorStmt->fetchAll(PDO::FETCH_COLUMN));
+
+    $floorWardStmt = $pdo->prepare("
+        SELECT floor_number, GROUP_CONCAT(DISTINCT ward_type ORDER BY ward_type ASC SEPARATOR ', ') AS wards 
+        FROM hospital_beds 
+        WHERE hospital_id = ? 
+        GROUP BY floor_number 
+        ORDER BY floor_number ASC
+    ");
+    $floorWardStmt->execute([$adminHospitalId]);
+    $floorWards = [];
+    while ($fRow = $floorWardStmt->fetch(PDO::FETCH_ASSOC)) {
+        $floorWards[(int)$fRow['floor_number']] = $fRow['wards'];
+    }
+
+    // Dynamic Ward Counts for tab badges strictly scoped to this branch hospital
+    $wcStmt = $pdo->prepare("
+        SELECT 
+            COUNT(*) AS all_cnt,
+            SUM(ward_type IN ('ICU', 'CCU', 'NICU', 'Recovery')) AS icu_cnt,
+            SUM(ward_type = 'Emergency') AS emergency_cnt,
+            SUM(ward_type IN ('General Ward Male', 'General Ward Female')) AS general_cnt,
+            SUM(ward_type IN ('Pediatrics', 'Semi-Cabin')) AS pediatrics_cnt,
+            SUM(ward_type IN ('Deluxe Cabin', 'VIP Suite', 'Presidential Suite')) AS vip_cnt
+        FROM hospital_beds
+        WHERE hospital_id = ?
+    ");
+    $wcStmt->execute([$adminHospitalId]);
+    $wcRow = $wcStmt->fetch(PDO::FETCH_ASSOC);
     $wardCounts = [
-        'all' => $totalHospitalBeds,
-        'icu' => (int)$pdo->query("SELECT COUNT(*) FROM hospital_beds WHERE ward_type IN ('ICU', 'CCU', 'NICU', 'Recovery')")->fetchColumn(),
-        'emergency' => (int)$pdo->query("SELECT COUNT(*) FROM hospital_beds WHERE ward_type = 'Emergency'")->fetchColumn(),
-        'general' => (int)$pdo->query("SELECT COUNT(*) FROM hospital_beds WHERE ward_type IN ('General Ward Male', 'General Ward Female')")->fetchColumn(),
-        'pediatrics' => (int)$pdo->query("SELECT COUNT(*) FROM hospital_beds WHERE ward_type IN ('Pediatrics', 'Semi-Cabin')")->fetchColumn(),
-        'vip' => (int)$pdo->query("SELECT COUNT(*) FROM hospital_beds WHERE ward_type IN ('Deluxe Cabin', 'VIP Suite', 'Presidential Suite')")->fetchColumn()
+        'all' => (int)($wcRow['all_cnt'] ?? 0),
+        'icu' => (int)($wcRow['icu_cnt'] ?? 0),
+        'emergency' => (int)($wcRow['emergency_cnt'] ?? 0),
+        'general' => (int)($wcRow['general_cnt'] ?? 0),
+        'pediatrics' => (int)($wcRow['pediatrics_cnt'] ?? 0),
+        'vip' => (int)($wcRow['vip_cnt'] ?? 0)
     ];
 } catch (Throwable $e) {
     error_log("Live Census Error: " . $e->getMessage());
@@ -414,6 +497,8 @@ try {
     $telemetry_class = 'telemetry-normal';
     $telemetry_label = 'STABLE';
     $telemetry_speed = '2s';
+    $distinctFloors = [1, 2, 3, 4, 5];
+    $floorWards = [];
     $wardCounts = ['all' => 500, 'icu' => 120, 'emergency' => 40, 'general' => 160, 'pediatrics' => 100, 'vip' => 80];
 }
 
@@ -425,8 +510,9 @@ $searchFilter = trim($_GET['search'] ?? '');
 $page = max(1, (int)($_GET['page'] ?? 1));
 $perPage = 32; // 32 bed cards per page for fast 60fps rendering and clean 4-column responsive grid
 
-$whereClauses = [];
-$params = [];
+// Scoped strictly to current branch hospital
+$whereClauses = ["b.hospital_id = :admin_hid"];
+$params = [':admin_hid' => $adminHospitalId];
 
 // Ward filter resolution
 if ($wardFilter === 'icu') {
@@ -446,14 +532,14 @@ if ($wardFilter === 'icu') {
     $params[':ward_term'] = '%' . $wardFilter . '%';
 }
 
-// Floor filter resolution
-if ($floorFilter >= 1 && $floorFilter <= 5) {
+// Dynamic Floor filter resolution based on this branch's actual floor architecture
+if ($floorFilter > 0 && in_array($floorFilter, $distinctFloors, true)) {
     $whereClauses[] = "b.floor_number = :floor_num";
     $params[':floor_num'] = $floorFilter;
 }
 
 // Status filter resolution
-if (in_array($statusFilter, ['available', 'occupied', 'maintenance', 'reserved'])) {
+if (in_array($statusFilter, ['available', 'occupied', 'maintenance', 'reserved', 'emergency hold'])) {
     $whereClauses[] = "b.status = :status_val";
     $params[':status_val'] = ucfirst($statusFilter);
 }
@@ -465,7 +551,7 @@ if (!empty($searchFilter)) {
     $params[':s_pat'] = '%' . $searchFilter . '%';
 }
 
-$whereSql = !empty($whereClauses) ? "WHERE " . implode(" AND ", $whereClauses) : "";
+$whereSql = "WHERE " . implode(" AND ", $whereClauses);
 
 // Count total matching records
 $totalFilteredBeds = 0;
@@ -498,6 +584,11 @@ try {
             b.floor_number,
             b.daily_rate,
             b.status,
+            b.relocation_status,
+            b.emergency_protocol_id,
+            ep.code AS ep_code,
+            ep.title AS ep_title,
+            ep.severity_level AS ep_severity,
             ba.allocation_id,
             ba.admitted_at,
             ba.patient_id,
@@ -505,6 +596,7 @@ try {
             p.user_id AS patient_user_id,
             d.full_name AS doctor_name
         FROM hospital_beds b
+        LEFT JOIN emergency_protocols ep ON ep.id = b.emergency_protocol_id
         LEFT JOIN bed_allocations ba ON b.bed_id = ba.bed_id AND ba.status = 'Active'
         LEFT JOIN users p ON ba.patient_id = p.user_id
         LEFT JOIN users d ON ba.attending_doctor_id = d.user_id
@@ -594,6 +686,7 @@ if (!function_exists('getDoctorPastelBadgeClass')) {
   <link rel="stylesheet" href="../assets/css/patient_dashboard.css">
   <link rel="stylesheet" href="../assets/css/admin/live-pulse.css?v=<?= time() ?>">
   <link rel="stylesheet" href="../assets/css/admin/live-census.css?v=<?= time() ?>">
+  <link rel="stylesheet" href="../assets/css/medpulse_dialog.css">
 </head>
 <body>
 
@@ -607,7 +700,8 @@ if (!function_exists('getDoctorPastelBadgeClass')) {
     <div class="welcome-banner" style="margin-bottom: 24px;">
       <div class="welcome-text">
         <h1 style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-          Live Bed & Clinical Census
+          Live Bed &amp; Clinical Census
+          <span class="badge" style="background: rgba(13, 148, 136, 0.12); color: #0d9488; font-size: 0.76rem; padding: 4px 10px; border-radius: 999px; font-weight: 700; border: 1px solid rgba(13, 148, 136, 0.25);"><?= htmlspecialchars($currentHospital['name']) ?></span>
           <div class="ecg-pulse-monitor telemetry-pill <?= htmlspecialchars($telemetry_class) ?>" style="cursor: default;" title="Real-time clinical telemetry: <?= htmlspecialchars($telemetry_label) ?> (<?= htmlspecialchars($telemetry_bpm) ?>)">
             <svg class="ecg-wave-svg" viewBox="0 0 60 18" width="60" height="18" aria-hidden="true">
               <path class="ecg-wave-bg" d="M 0 9 L 10 9 L 13 6.5 L 16 9 L 20 9 L 22 11 L 25 2 L 28 16 L 31 9 L 35 9 L 40 5.5 L 45 9 L 60 9" pathLength="100"></path>
@@ -616,7 +710,7 @@ if (!function_exists('getDoctorPastelBadgeClass')) {
             <span class="ecg-label"><span class="ecg-bpm-dot"></span><?= htmlspecialchars($telemetry_bpm) ?> &bull; <?= htmlspecialchars($telemetry_label) ?> &bull; <?= htmlspecialchars((string)$total_active_beds) ?> BEDS ACTIVE</span>
           </div>
         </h1>
-        <p>Real-time inpatient occupancy, emergency admission allocations, intensive care load, and rapid triage routing across MedPulse.</p>
+        <p>Real-time inpatient occupancy, emergency admission allocations, intensive care load, and rapid triage routing for <?= htmlspecialchars($currentHospital['name']) ?>.</p>
       </div>
 
       <div class="banner-actions">
@@ -639,6 +733,75 @@ if (!function_exists('getDoctorPastelBadgeClass')) {
       </div>
     <?php endif; ?>
 
+    <!-- Active National Emergency / Multi-Disaster Carousel Banner -->
+    <?php if ($branchActiveCount > 0): ?>
+    <div class="disaster-carousel-container" id="branchDisasterCarousel" style="position: relative; margin-bottom: 22px; border-radius: 16px; overflow: hidden; box-shadow: 0 8px 26px rgba(136, 19, 55, 0.45); border: 2px solid #f43f5e; background: linear-gradient(135deg, #881337 0%, #4c0519 100%);">
+      <div class="disaster-slides-track" style="position: relative;">
+        <?php foreach ($branchActiveProtocols as $idx => $proto): 
+          $pSeverity = strtoupper($proto['severity_level'] ?? 'CODE RED');
+          $pQuota = (int)($proto['severity_quota'] ?? 20);
+          $pHeld = (int)($proto['hospital_held_count'] ?? 0);
+          $pReloc = (int)($proto['hospital_relocating_count'] ?? 0);
+        ?>
+        <div class="branch-carousel-slide <?= $idx === 0 ? 'active' : '' ?>" data-slide-index="<?= $idx ?>" style="transition: opacity 0.4s ease, transform 0.4s ease; padding: 18px 22px; color: #fff; display: flex; align-items: center; justify-content: space-between; gap: 18px; flex-wrap: wrap; <?= $idx === 0 ? 'position: relative; opacity: 1; pointer-events: auto;' : 'position: absolute; inset: 0; opacity: 0; pointer-events: none;' ?>">
+          <div style="display: flex; align-items: flex-start; gap: 14px; max-width: 72%;">
+            <div style="font-size: 1.8rem; width: 46px; height: 46px; border-radius: 12px; background: rgba(255,255,255,0.15); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">🚨</div>
+            <div>
+              <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 4px; flex-wrap: wrap;">
+                <span style="font-weight: 800; font-size: 1.12rem; letter-spacing: 0.02em; color: #fff;">
+                  NATIONAL EMERGENCY PROTOCOL: <?= htmlspecialchars($proto['title'], ENT_QUOTES, 'UTF-8') ?>
+                </span>
+                <span style="background: #f43f5e; color: #fff; font-size: 0.7rem; font-weight: 800; padding: 3px 8px; border-radius: 8px; text-transform: uppercase;">
+                  <?= htmlspecialchars($pSeverity) ?> (<?= $pQuota ?>% SURGE)
+                </span>
+                <span style="background: rgba(255,255,255,0.2); color: #fff; font-size: 0.65rem; font-weight: 700; padding: 2px 7px; border-radius: 6px;">
+                  Protocol #<?= (int)$proto['id'] ?>
+                </span>
+              </div>
+              <p style="font-size: 0.82rem; color: #fecdd3; margin: 0 0 6px; line-height: 1.45;">
+                <?= htmlspecialchars($proto['meta']['guidelines'] ?? $proto['notes']) ?>
+              </p>
+              <div style="font-size: 0.74rem; color: #fda4af;">
+                ⚠️ Evacuation &amp; Transfer Action: Patients moved during this disaster protocol will have their daily billing tier preserved automatically.
+              </div>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 14px; flex-shrink: 0;">
+            <div style="display: flex; gap: 12px; background: rgba(0,0,0,0.3); padding: 10px 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);">
+              <div id="btnSurgeHoldFilter" onclick="toggleSurgeHoldFilter()" style="text-align: center; cursor: pointer; padding: 2px 8px; border-radius: 6px; transition: background 0.15s;" title="Click to isolate surge beds on floor grid">
+                <div style="font-size: 1.25rem; font-weight: 800; color: #fda4af;"><?= number_format($pHeld) ?></div>
+                <div style="font-size: 0.65rem; color: #fecdd3; text-transform: uppercase; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 3px;">
+                  <span>Beds in Surge Hold</span>
+                  <svg style="width: 10px; height: 10px; stroke: currentColor; fill: none;" viewBox="0 0 24 24"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>
+                </div>
+              </div>
+              <div style="width: 1px; background: rgba(255,255,255,0.2);"></div>
+              <div style="text-align: center; padding: 2px 6px;">
+                <div style="font-size: 1.25rem; font-weight: 800; color: #fde047;"><?= number_format($pReloc) ?></div>
+                <div style="font-size: 0.65rem; color: #fecdd3; text-transform: uppercase; font-weight: 700;">Evacuations</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <?php endforeach; ?>
+      </div>
+
+      <?php if ($branchActiveCount > 1): ?>
+      <!-- Interactive Carousel Dot Pills -->
+      <div style="position: absolute; top: 12px; right: 18px; display: flex; align-items: center; gap: 6px; z-index: 10; background: rgba(0,0,0,0.4); padding: 4px 8px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.2);">
+        <span style="font-size: 0.65rem; color: #fecdd3; font-weight: 700; text-transform: uppercase; margin-right: 2px;">DISASTERS (<?= $branchActiveCount ?>):</span>
+        <?php foreach ($branchActiveProtocols as $idx => $proto): 
+          $shortName = explode(' ', trim($proto['title']))[0] ?? "P#{$proto['id']}";
+        ?>
+        <button type="button" onclick="switchBranchSlide(<?= $idx ?>)" class="branch-pill-btn <?= $idx === 0 ? 'active' : '' ?>" data-pill-idx="<?= $idx ?>" style="font-size: 0.68rem; font-weight: 700; padding: 2px 8px; border-radius: 12px; border: none; cursor: pointer; transition: all 0.2s; <?= $idx === 0 ? 'background: #f43f5e; color: #fff;' : 'background: rgba(255,255,255,0.15); color: #cbd5e1;' ?>">
+          <?= $idx === 0 ? '●' : '○' ?> <?= htmlspecialchars($shortName) ?>
+        </button>
+        <?php endforeach; ?>
+      </div>
+      <?php endif; ?>
+    </div>
+    <?php endif; ?>
+
     <!-- 4 Top Metrics Overview Cards (100% Dynamic Database Driven) -->
     <div class="census-metrics-grid">
       <!-- Metric 1: Total Ward Beds -->
@@ -652,7 +815,7 @@ if (!function_exists('getDoctorPastelBadgeClass')) {
         <div class="census-card-value"><?= number_format($totalHospitalBeds) ?></div>
         <div class="census-card-badge badge-active">
           <svg class="ui-ico ui-ico-sm" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
-          5-Floor Tertiary Capacity
+          <?= count($distinctFloors) ?>-Floor <?= htmlspecialchars($currentHospital['code'] ?? 'Facility') ?> Capacity
         </div>
       </div>
 
@@ -697,6 +860,25 @@ if (!function_exists('getDoctorPastelBadgeClass')) {
           <span>Critical Care Load (ICU+CCU)</span>
         </div>
       </div>
+
+      <?php if ($branchActiveCount > 0 || $totalEmergencyHoldBeds > 0): ?>
+      <!-- Metric 5: Beds in Surge Hold (Interactive Filter) -->
+      <div class="census-metric-card" id="surgeHoldMetricCard" onclick="toggleSurgeHoldFilter()" style="cursor: pointer; border: 1.5px solid rgba(244, 63, 94, 0.5); background: linear-gradient(135deg, rgba(255, 241, 242, 0.6) 0%, #fff 100%); transition: all 0.2s ease;" title="Click to isolate surge hold beds on floor grid">
+        <div class="census-card-top">
+          <span class="census-card-label" style="color: #9f1239; font-weight: 700;">Beds in Surge Hold</span>
+          <div class="census-card-icon" style="background: #ffe4e6; color: #e11d48;">
+            <svg class="ui-ico" viewBox="0 0 24 24"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>
+          </div>
+        </div>
+        <div class="census-card-value" style="color: #e11d48; display: flex; align-items: baseline; gap: 8px;">
+          <span><?= number_format($totalEmergencyHoldBeds) ?></span>
+          <span id="surgeFilterBadge" style="display: none; font-size: 0.65rem; background: #e11d48; color: #fff; padding: 2px 6px; border-radius: 4px; font-weight: 800;">FILTER ACTIVE</span>
+        </div>
+        <div class="census-card-badge" style="background: #ffe4e6; color: #9f1239;">
+          <span>⚡ Click to isolate surge beds</span>
+        </div>
+      </div>
+      <?php endif; ?>
     </div>
 
     <!-- Ward Floor Filter Bar -->
@@ -741,17 +923,22 @@ if (!function_exists('getDoctorPastelBadgeClass')) {
 
       <!-- Quick Floor Filter & Status Legend -->
       <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-        <!-- Floor Filter Dropdown -->
+        <!-- Dynamic Floor Filter Dropdown -->
         <select 
           onchange="location.href='?ward=<?= htmlspecialchars($wardFilter, ENT_QUOTES, 'UTF-8') ?>&floor=' + this.value"
           style="padding: 6px 10px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 0.78rem; font-weight: 600; color: #334155; background: #ffffff; cursor: pointer;"
         >
-          <option value="0" <?= $floorFilter === 0 ? 'selected' : '' ?>>All Floors (1-5)</option>
-          <option value="1" <?= $floorFilter === 1 ? 'selected' : '' ?>>Floor 1 (Emergency)</option>
-          <option value="2" <?= $floorFilter === 2 ? 'selected' : '' ?>>Floor 2 (General Wards)</option>
-          <option value="3" <?= $floorFilter === 3 ? 'selected' : '' ?>>Floor 3 (Pediatrics/Cabins)</option>
-          <option value="4" <?= $floorFilter === 4 ? 'selected' : '' ?>>Floor 4 (VIP & Presidential)</option>
-          <option value="5" <?= $floorFilter === 5 ? 'selected' : '' ?>>Floor 5 (ICU/CCU/NICU)</option>
+          <option value="0" <?= $floorFilter === 0 ? 'selected' : '' ?>>All Floors (1-<?= !empty($distinctFloors) ? max($distinctFloors) : 5 ?>)</option>
+          <?php foreach ($distinctFloors as $fl): 
+            $wDesc = $floorWards[$fl] ?? '';
+            $flLabel = "Floor $fl";
+            if (!empty($wDesc)) {
+                $shortW = strlen($wDesc) > 24 ? substr($wDesc, 0, 22) . '…' : $wDesc;
+                $flLabel .= " ($shortW)";
+            }
+          ?>
+            <option value="<?= $fl ?>" <?= $floorFilter === $fl ? 'selected' : '' ?>><?= htmlspecialchars($flLabel, ENT_QUOTES, 'UTF-8') ?></option>
+          <?php endforeach; ?>
         </select>
 
         <!-- Status Legend -->
@@ -812,7 +999,34 @@ if (!function_exists('getDoctorPastelBadgeClass')) {
               ? date('M j, Y', strtotime($slot['admitted_at'])) 
               : 'Active Care';
         ?>
-          <div class="bed-slot-card slot-<?= htmlspecialchars($rawStatus, ENT_QUOTES, 'UTF-8') ?> <?= $isPresidential ? 'slot-presidential' : '' ?>">
+          <?php
+            $epCode = strtoupper((string)($slot['ep_code'] ?? ''));
+            if ($rawStatus === 'emergency hold') {
+                if (strpos($epCode, 'DENGUE') !== false) {
+                    $surgeClass = 'badge-surge-dengue';
+                    $surgeLabel = 'SURGE: DENGUE ISOLATION';
+                } elseif (strpos($epCode, 'ACCIDENT') !== false || strpos($epCode, 'MASS_CASUALTY') !== false || strpos($epCode, 'TRAUMA') !== false) {
+                    $surgeClass = 'badge-surge-trauma';
+                    $surgeLabel = 'SURGE: TRAUMA / ACCIDENT';
+                } elseif (strpos($epCode, 'BURN') !== false) {
+                    $surgeClass = 'badge-surge-burn';
+                    $surgeLabel = 'SURGE: BURN DISASTER';
+                } elseif (strpos($epCode, 'HAZMAT') !== false || strpos($epCode, 'BIO') !== false) {
+                    $surgeClass = 'badge-surge-hazmat';
+                    $surgeLabel = 'SURGE: HAZMAT QUARANTINE';
+                } elseif (strpos($epCode, 'NATURAL') !== false || strpos($epCode, 'FLOOD') !== false || strpos($epCode, 'CYCLONE') !== false) {
+                    $surgeClass = 'badge-surge-natural';
+                    $surgeLabel = 'SURGE: NATURAL DISASTER';
+                } else {
+                    $surgeClass = 'badge-surge-default';
+                    $surgeLabel = !empty($slot['ep_title']) ? 'SURGE: ' . strtoupper($slot['ep_title']) : 'SURGE: EMERGENCY HOLD';
+                }
+            } else {
+                $surgeClass = '';
+                $surgeLabel = '';
+            }
+          ?>
+          <div class="bed-slot-card slot-<?= htmlspecialchars($rawStatus, ENT_QUOTES, 'UTF-8') ?> <?= $isPresidential ? 'slot-presidential' : '' ?>" data-status="<?= htmlspecialchars($rawStatus, ENT_QUOTES, 'UTF-8') ?>" data-reloc="<?= htmlspecialchars($slot['relocation_status'] ?? '', ENT_QUOTES, 'UTF-8') ?>" data-protocol="<?= htmlspecialchars($slot['ep_code'] ?? '', ENT_QUOTES, 'UTF-8') ?>">
             <div>
               <!-- Bed Card Header -->
               <div class="bed-card-header">
@@ -840,13 +1054,30 @@ if (!function_exists('getDoctorPastelBadgeClass')) {
                   </span>
                 <?php elseif ($rawStatus === 'occupied'): ?>
                   <span class="bed-status-pill status-occupied-pill">Occupied</span>
+                <?php elseif ($rawStatus === 'emergency hold'): ?>
+                  <span class="bed-status-pill <?= $surgeClass ?>" style="font-weight: 800; display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border-radius: 6px; font-size: 0.7rem; letter-spacing: 0.02em; text-transform: uppercase;">
+                    <span style="position: relative; display: inline-flex; width: 7px; height: 7px;">
+                      <span style="position: absolute; inset: 0; border-radius: 50%; background: #f43f5e; animation: saPingRing 1.4s cubic-bezier(0,0,0.2,1) infinite;"></span>
+                      <span style="position: relative; width: 7px; height: 7px; border-radius: 50%; background: #e11d48;"></span>
+                    </span>
+                    <?= htmlspecialchars($surgeLabel, ENT_QUOTES, 'UTF-8') ?>
+                  </span>
+                <?php elseif ($rawStatus === 'sanitizing'): ?>
+                  <span class="bed-status-pill" style="background:#e0f2fe;color:#0369a1;border:1px solid #7dd3fc;font-weight:800;">🧴 Sanitizing</span>
                 <?php else: ?>
-                  <span class="bed-status-pill status-maintenance-pill">Sanitizing</span>
+                  <span class="bed-status-pill status-maintenance-pill">Maintenance</span>
                 <?php endif; ?>
               </div>
 
               <!-- Bed Card Body -->
               <div class="bed-card-body">
+                <?php if (!empty($slot['relocation_status']) && $slot['relocation_status'] === 'PENDING_RELOCATION'): ?>
+                  <div style="background:#fee2e2;border:1.5px solid #ef4444;color:#991b1b;border-radius:8px;padding:6px 10px;margin-bottom:8px;font-size:0.72rem;font-weight:800;display:flex;align-items:center;justify-content:space-between;gap:6px;">
+                    <span>⚠️ EVACUATION REQUIRED (SURGE)</span>
+                    <span style="font-size:0.65rem;background:#ef4444;color:#fff;padding:1px 5px;border-radius:4px;">PRIORITY 2</span>
+                  </div>
+                <?php endif; ?>
+
                 <?php if ($rawStatus === 'occupied'): ?>
                   <div class="bed-patient-info">
                     <div class="patient-name">
@@ -905,6 +1136,24 @@ if (!function_exists('getDoctorPastelBadgeClass')) {
                     <span>Daily Rate: ৳ <?= number_format((float)$slot['daily_rate']) ?></span>
                     <span>Floor <?= (int)$slot['floor_number'] ?></span>
                   </div>
+                <?php elseif ($rawStatus === 'emergency hold'): ?>
+                  <div class="bed-vacant-msg" style="color:#b91c1c;">
+                    <span style="font-size:14px;">🚨</span>
+                    <span style="font-weight:700;">Locked for Emergency Protocol</span>
+                  </div>
+                  <div style="font-size: 0.74rem; color: #991b1b; opacity: 0.9; display: flex; justify-content: space-between;">
+                    <span>Disaster Surge Bed</span>
+                    <span>Floor <?= (int)$slot['floor_number'] ?></span>
+                  </div>
+                <?php elseif ($rawStatus === 'sanitizing'): ?>
+                  <div class="bed-maint-msg" style="color:#0369a1;">
+                    <span style="font-size:14px;">🧴</span>
+                    <span>Post-Disaster Decontamination</span>
+                  </div>
+                  <div style="font-size: 0.74rem; color: #0284c7; opacity: 0.85; display: flex; justify-content: space-between;">
+                    <span>Clinical Deep Sanitizing</span>
+                    <span>Floor <?= (int)$slot['floor_number'] ?></span>
+                  </div>
                 <?php else: ?>
                   <div class="bed-maint-msg">
                     <svg class="ui-ico ui-ico-sm" style="stroke: #d97706; width: 16px; height: 16px;" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
@@ -920,7 +1169,16 @@ if (!function_exists('getDoctorPastelBadgeClass')) {
 
             <!-- Quick Action Buttons on Hover -->
             <div class="bed-actions-bar">
-              <?php if ($rawStatus === 'available'): ?>
+              <?php if (!empty($slot['relocation_status']) && $slot['relocation_status'] === 'PENDING_RELOCATION'): ?>
+                <button 
+                  type="button" 
+                  class="btn-bed-action"
+                  style="background:linear-gradient(135deg,#e11d48 0%,#b91c1c 100%);color:#fff;font-weight:800;border:none;box-shadow:0 3px 8px rgba(225,29,72,.35);width:100%;"
+                  onclick="evacuateSurgePatient(<?= (int)$slot['bed_id'] ?>, '<?= htmlspecialchars($slot['bed_number'], ENT_QUOTES, 'UTF-8') ?>', '<?= htmlspecialchars($patientDisplayName, ENT_QUOTES, 'UTF-8') ?>')"
+                >
+                  🚨 Evacuate &amp; Transfer
+                </button>
+              <?php elseif ($rawStatus === 'available' || $rawStatus === 'emergency hold'): ?>
                 <button 
                   type="button" 
                   class="btn-bed-action btn-bed-primary"
@@ -1142,7 +1400,177 @@ if (!function_exists('getDoctorPastelBadgeClass')) {
         if (bedCard) bedCard.classList.add('has-active-popover');
       }
     };
+
+    // ── Emergency Surge Patient Evacuation & Transfer ────────────────────────
+    async function evacuateSurgePatient(bedId, bedNum, patientName) {
+      const confirmed = await MedPulseDialog.confirm({
+        title: 'Evacuate & Transfer Patient',
+        subtitle: `Priority 2 Surge Relocation · Bed ${bedNum}`,
+        type: 'danger',
+        confirmText: 'Execute Evacuation Transfer',
+        cancelText: 'Cancel / Hold',
+        html: `
+          <div style="font-size:0.86rem;color:#334155;line-height:1.55;margin-bottom:14px;">
+            Re-assign patient <strong>${patientName}</strong> from Bed <strong>${bedNum}</strong> to an available bed on an alternative floor within this facility?
+          </div>
+          <div style="background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;border-radius:12px;padding:12px 14px;font-size:0.8rem;line-height:1.45;">
+            ✓ <strong>Billing Tier Protection:</strong> The patient's daily room billing rate tier will be strictly preserved without surcharge.
+          </div>
+        `
+      });
+
+      if (!confirmed) return;
+
+      try {
+        const fd = new FormData();
+        fd.append('_action', 'evacuate_patient');
+        fd.append('bed_id', bedId);
+        fd.append('csrf_token', '<?= htmlspecialchars($_SESSION['csrf_token'] ?? '', ENT_QUOTES, 'UTF-8') ?>');
+
+        const res = await fetch('../backend/api/emergency_surge_action.php', { method: 'POST', body: fd });
+        const data = await res.json();
+
+        if (data.success) {
+          MedPulseDialog.toast({
+            title: 'Patient Relocated',
+            message: data.message,
+            type: 'success',
+            duration: 3500
+          });
+          setTimeout(() => location.reload(), 1400);
+        } else {
+          MedPulseDialog.toast({
+            title: 'Evacuation Failed',
+            message: data.message || 'Evacuation transfer failed.',
+            type: 'error',
+            duration: 5000
+          });
+        }
+      } catch (err) {
+        MedPulseDialog.toast({
+          title: 'Network Error',
+          message: 'Network error occurred during patient evacuation.',
+          type: 'error'
+        });
+      }
+    }
+
+    // Interactive Surge Hold Grid Filter
+    let isSurgeHoldFilterActive = false;
+    function toggleSurgeHoldFilter() {
+      isSurgeHoldFilterActive = !isSurgeHoldFilterActive;
+      const cards = document.querySelectorAll('.bed-slot-card');
+      const badge = document.getElementById('surgeFilterBadge');
+      const cardBox = document.getElementById('surgeHoldMetricCard');
+      const bannerBox = document.getElementById('btnSurgeHoldFilter');
+
+      let matched = 0;
+      cards.forEach(card => {
+        const rawStatus = (card.getAttribute('data-status') || '').toLowerCase();
+        const isReloc = (card.getAttribute('data-reloc') || '') === 'PENDING_RELOCATION';
+        const isHold = rawStatus === 'emergency hold' || card.classList.contains('slot-emergency-hold') || card.classList.contains('slot-emergency hold');
+
+        if (!isSurgeHoldFilterActive) {
+          card.style.display = '';
+        } else {
+          if (isHold || isReloc) {
+            card.style.display = '';
+            matched++;
+          } else {
+            card.style.display = 'none';
+          }
+        }
+      });
+
+      if (badge) badge.style.display = isSurgeHoldFilterActive ? 'inline-block' : 'none';
+      if (cardBox) {
+        if (isSurgeHoldFilterActive) {
+          cardBox.style.boxShadow = '0 0 0 3px rgba(244, 63, 94, 0.5), 0 8px 20px rgba(244, 63, 94, 0.2)';
+          cardBox.style.transform = 'translateY(-2px)';
+        } else {
+          cardBox.style.boxShadow = '';
+          cardBox.style.transform = '';
+        }
+      }
+      if (bannerBox) {
+        if (isSurgeHoldFilterActive) {
+          bannerBox.style.outline = '2px solid #fff';
+          bannerBox.style.background = 'rgba(255,255,255,0.25)';
+        } else {
+          bannerBox.style.outline = '';
+          bannerBox.style.background = '';
+        }
+      }
+
+      if (window.MedPulseDialog && window.MedPulseDialog.toast) {
+        MedPulseDialog.toast({
+          title: isSurgeHoldFilterActive ? 'Surge Beds Isolated' : 'Filter Restored',
+          message: isSurgeHoldFilterActive 
+            ? `Isolating disaster surge beds (${matched} visible on current page). Click again to restore full view.` 
+            : 'Displaying all beds across current floor.',
+          type: isSurgeHoldFilterActive ? 'warning' : 'info',
+          duration: 3200
+        });
+      }
+    }
+
+    // Multi-Emergency Carousel Slider
+    let branchSlideIdx = 0;
+    const branchSlides = document.querySelectorAll('.branch-carousel-slide');
+    const branchPills  = document.querySelectorAll('.branch-pill-btn');
+    let branchCarouselTimer = null;
+
+    function switchBranchSlide(idx) {
+      if (!branchSlides.length) return;
+      branchSlideIdx = idx;
+      branchSlides.forEach((s, i) => {
+        if (i === idx) {
+          s.style.position = 'relative';
+          s.style.opacity = '1';
+          s.style.pointerEvents = 'auto';
+        } else {
+          s.style.position = 'absolute';
+          s.style.opacity = '0';
+          s.style.pointerEvents = 'none';
+        }
+      });
+      branchPills.forEach((p, i) => {
+        const textOnly = p.textContent.replace(/^[●○]\s*/, '').trim();
+        if (i === idx) {
+          p.style.background = '#f43f5e';
+          p.style.color = '#fff';
+          p.innerHTML = '● ' + textOnly;
+        } else {
+          p.style.background = 'rgba(255,255,255,0.15)';
+          p.style.color = '#cbd5e1';
+          p.innerHTML = '○ ' + textOnly;
+        }
+      });
+    }
+
+    function initBranchCarousel() {
+      if (branchSlides.length <= 1) return;
+      branchCarouselTimer = setInterval(() => {
+        const next = (branchSlideIdx + 1) % branchSlides.length;
+        switchBranchSlide(next);
+      }, 5000);
+
+      const cWrap = document.getElementById('branchDisasterCarousel');
+      if (cWrap) {
+        cWrap.addEventListener('mouseenter', () => clearInterval(branchCarouselTimer));
+        cWrap.addEventListener('mouseleave', () => {
+          clearInterval(branchCarouselTimer);
+          branchCarouselTimer = setInterval(() => {
+            const next = (branchSlideIdx + 1) % branchSlides.length;
+            switchBranchSlide(next);
+          }, 5000);
+        });
+      }
+    }
+    document.addEventListener('DOMContentLoaded', initBranchCarousel);
   </script>
+  <!-- Dedicated MedPulse Modern Dialog & Toast Engine -->
+  <script src="../assets/js/medpulse_dialog.js"></script>
   <!-- Dedicated live census view script with cache-busting -->
   <script src="../assets/js/admin/live_census.js?v=<?= time() ?>"></script>
 

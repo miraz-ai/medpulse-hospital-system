@@ -102,6 +102,11 @@ try {
         $query .= " AND ba.bed_id = :bid";
         $params[':bid'] = $bedId;
     }
+
+    if (!empty($_SESSION['hospital_id'])) {
+        $query .= " AND b.hospital_id = :admin_hid";
+        $params[':admin_hid'] = (int)$_SESSION['hospital_id'];
+    }
     $query .= " LIMIT 1 FOR UPDATE";
 
     $allocStmt = $pdo->prepare($query);
