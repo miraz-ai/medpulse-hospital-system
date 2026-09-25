@@ -2,41 +2,11 @@
 /**
  * MedPulse Staff Portal Scaffold
  */
-if (session_status() === PHP_SESSION_NONE) {
-    ini_set('session.use_only_cookies', 1);
-    ini_set('session.use_strict_mode', 1);
-
-    $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') 
-            || (isset($_SERVER['SERVER_PORT']) && (int)$_SERVER['SERVER_PORT'] === 443);
-
-    session_set_cookie_params([
-        'lifetime' => 0,
-        'path'     => '/',
-        'domain'   => '',
-        'secure'   => $isHttps,
-        'httponly' => true,
-        'samesite' => 'Lax'
-    ]);
-
-    session_start();
-}
+require_once __DIR__ . '/../includes/session_guard.php';
 
 if (empty($_SESSION['user_id']) || strtolower($_SESSION['role'] ?? '') !== 'staff') {
-    $_SESSION = [];
-    if (ini_get("session.use_cookies")) {
-        $params = session_get_cookie_params();
-        setcookie(session_name(), '', time() - 3600, $params["path"], $params["domain"], $params["secure"], $params["httponly"]);
-    }
-    session_destroy();
-    header("Location: ../login.php");
-    exit();
+    medpulseDestroySession('../login.php');
 }
-
-// Anti-caching headers
-header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
-header('Cache-Control: post-check=0, pre-check=0', false);
-header('Pragma: no-cache');
-header('Expires: 0');
 
 $staffName = htmlspecialchars($_SESSION['full_name'] ?? 'Staff', ENT_QUOTES, 'UTF-8');
 ?>
@@ -59,5 +29,13 @@ $staffName = htmlspecialchars($_SESSION['full_name'] ?? 'Staff', ENT_QUOTES, 'UT
       <i class="fa-solid fa-right-from-bracket"></i> Sign Out
     </a>
   </div>
+  <script>
+    // Client-Side History Guard: Kill BFCache and re-verify session on back-navigation
+    window.addEventListener("pageshow", function(event) {
+      if (event.persisted || (window.performance && window.performance.navigation && window.performance.navigation.type === 2)) {
+        window.location.reload();
+      }
+    });
+  </script>
 </body>
 </html>

@@ -1,3 +1,13 @@
+<?php
+require_once __DIR__ . '/includes/session_guard.php';
+
+// If already authenticated, redirect immediately to role-specific dashboard
+if (!empty($_SESSION['user_id']) && !empty($_SESSION['role'])) {
+    $destination = medpulseGetRoleDashboard($_SESSION['role']);
+    header('Location: ' . $destination);
+    exit();
+}
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -19,9 +29,13 @@
   <?php
     $err = $_GET['error'] ?? $_GET['auth_error'] ?? '';
     $msg = $_GET['msg'] ?? '';
+    $isLoggedOut = isset($_GET['logged_out']) || ($msg === 'logged_out');
     $serverMsg = '';
     $serverClass = '';
-    if ($err === 'pending_approval') {
+    if ($isLoggedOut) {
+        $serverMsg = 'You have been successfully signed out of the MedPulse Network.';
+        $serverClass = 'alert-success';
+    } elseif ($err === 'pending_approval') {
         $serverMsg = 'Your account is currently under administrative verification. Please wait for official approval before accessing the clinical portal.';
         $serverClass = 'alert-error';
     } elseif ($err === 'account_suspended') {

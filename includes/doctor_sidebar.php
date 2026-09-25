@@ -182,4 +182,11 @@ if (isset($pdo) && isset($_SESSION['user_id'])) {
       toast.style.display = 'none';
     }, 4000);
   }
+
+  // Client-Side History Guard: Kill BFCache and re-verify session on back-navigation
+  window.addEventListener('pageshow', function(event) {
+    if (event.persisted || (window.performance && window.performance.navigation && window.performance.navigation.type === 2)) {
+      window.location.reload();
+    }
+  });
 </script>

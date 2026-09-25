@@ -5,38 +5,7 @@
 // File: patient/bed_discovery.php
 // ============================================================================
 
-if (session_status() === PHP_SESSION_NONE) {
-    ini_set('session.use_only_cookies', 1);
-    ini_set('session.use_strict_mode', 1);
-    $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-               || (isset($_SERVER['SERVER_PORT']) && $_SERVER['SERVER_PORT'] == 443);
-    session_set_cookie_params([
-        'lifetime' => 0, 'path' => '/', 'domain' => '',
-        'secure' => $isHttps, 'httponly' => true, 'samesite' => 'Lax'
-    ]);
-    session_start();
-}
-
-// RBAC Guard – Patient Only
-if (empty($_SESSION['user_id']) || strtolower($_SESSION['role'] ?? '') !== 'patient') {
-    $_SESSION = [];
-    session_destroy();
-    header('Location: ../login.php');
-    exit();
-}
-
-// Inactivity timeout
-$inactiveTimeout = 1800;
-if (isset($_SESSION['last_activity']) && (time() - $_SESSION['last_activity'] > $inactiveTimeout)) {
-    $_SESSION = [];
-    session_destroy();
-    header('Location: ../login.php?error=session_timeout');
-    exit();
-}
-$_SESSION['last_activity'] = time();
-
-header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
-header('Pragma: no-cache');
+require_once __DIR__ . '/../includes/patient_auth.php';
 
 require_once __DIR__ . '/../config/db.php';
 

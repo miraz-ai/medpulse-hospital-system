@@ -70,7 +70,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || (isset($_GET['_action']) && in_arra
                     SUM(status = 'Occupied')       AS occupied_beds,
                     SUM(status = 'Available')      AS available_beds,
                     SUM(status = 'Maintenance')    AS maintenance_beds,
-                    SUM(status = 'Emergency Hold') AS emergency_hold_beds
+                    SUM(status = 'Emergency Hold') AS emergency_hold_beds,
+                    SUM(status = 'Sanitizing')     AS sanitizing_beds
                 FROM hospital_beds
                 WHERE hospital_id = ?
             ");
@@ -354,6 +355,79 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || (isset($_GET['_action']) && in_arra
         exit;
     }
 
+    // -------------------------------------------------------------------------
+    // Action: batch_sanitize (Branch Admin Housekeeping Batch Clear)
+    // -------------------------------------------------------------------------
+    if ($action === 'batch_sanitize') {
+        $rawBedIds = $_POST['bed_ids'] ?? [];
+        $targetBeds = [];
+        if (is_array($rawBedIds)) {
+            $targetBeds = array_filter(array_map('intval', $rawBedIds));
+        }
+
+        try {
+            $pdo->beginTransaction();
+
+            if (!empty($targetBeds)) {
+                $inQuery = implode(',', array_fill(0, count($targetBeds), '?'));
+                $fetchStmt = $pdo->prepare("SELECT bed_id, bed_number FROM hospital_beds WHERE hospital_id = ? AND bed_id IN ({$inQuery}) AND status = 'Sanitizing'");
+                $fetchParams = array_merge([$adminHospitalId], $targetBeds);
+                $fetchStmt->execute($fetchParams);
+                $bedsToSanitize = $fetchStmt->fetchAll(PDO::FETCH_ASSOC);
+
+                if (!empty($bedsToSanitize)) {
+                    $validIds = array_column($bedsToSanitize, 'bed_id');
+                    $validInQuery = implode(',', array_fill(0, count($validIds), '?'));
+                    $updStmt = $pdo->prepare("UPDATE hospital_beds SET status = 'Available' WHERE hospital_id = ? AND bed_id IN ({$validInQuery}) AND status = 'Sanitizing'");
+                    $updStmt->execute(array_merge([$adminHospitalId], $validIds));
+                    $clearedCount = count($validIds);
+                } else {
+                    $clearedCount = 0;
+                }
+            } else {
+                // Clear ALL sanitizing beds for this branch hospital
+                $fetchStmt = $pdo->prepare("SELECT bed_id, bed_number FROM hospital_beds WHERE hospital_id = ? AND status = 'Sanitizing'");
+                $fetchStmt->execute([$adminHospitalId]);
+                $bedsToSanitize = $fetchStmt->fetchAll(PDO::FETCH_ASSOC);
+
+                $clearedCount = count($bedsToSanitize);
+                if ($clearedCount > 0) {
+                    $upd = $pdo->prepare("UPDATE hospital_beds SET status = 'Available' WHERE hospital_id = ? AND status = 'Sanitizing'");
+                    $upd->execute([$adminHospitalId]);
+                }
+            }
+
+            if ($clearedCount > 0) {
+                $bedNums = implode(', ', array_slice(array_column($bedsToSanitize, 'bed_number'), 0, 8));
+                if ($clearedCount > 8) {
+                    $bedNums .= " and " . ($clearedCount - 8) . " more";
+                }
+                pushAuditLog(
+                    $pdo, $actorId,
+                    'BED_SANITIZED',
+                    "Batch sanitization executed by Branch Admin: {$clearedCount} bed(s) [{$bedNums}] decontaminated and cleared for immediate intake.",
+                    'SYSTEM', 'Batch Sanitization Cleared',
+                    "Branch #{$adminHospitalId}", $clientIp
+                );
+            }
+
+            $pdo->commit();
+
+            echo json_encode([
+                'success' => true,
+                'cleared_count' => $clearedCount,
+                'message' => $clearedCount > 0 
+                    ? "✓ Successfully sanitized {$clearedCount} bed(s). All units returned to Available capacity."
+                    : "No beds currently require sanitization in this branch."
+            ]);
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            error_log("Batch Sanitize Error: " . $e->getMessage());
+            echo json_encode(['success' => false, 'message' => 'Batch sanitization failed: ' . $e->getMessage()]);
+        }
+        exit;
+    }
+
     // Unknown action fallback
     http_response_code(400);
     echo json_encode(['success' => false, 'message' => 'Unknown action.']);
@@ -382,7 +456,8 @@ try {
             SUM(status = 'Occupied') AS occupied_beds,
             SUM(status = 'Available') AS available_beds,
             SUM(status = 'Maintenance') AS maintenance_beds,
-            SUM(status = 'Emergency Hold') AS emergency_hold_beds
+            SUM(status = 'Emergency Hold') AS emergency_hold_beds,
+            SUM(status = 'Sanitizing') AS sanitizing_beds
         FROM hospital_beds
         WHERE hospital_id = ?
     ");
@@ -394,6 +469,17 @@ try {
     $totalAvailableBeds = (int)($statRow['available_beds'] ?? 0);
     $totalMaintenanceBeds = (int)($statRow['maintenance_beds'] ?? 0);
     $totalEmergencyHoldBeds = (int)($statRow['emergency_hold_beds'] ?? 0);
+    $totalSanitizingBeds = (int)($statRow['sanitizing_beds'] ?? 0);
+
+    // Fetch active sanitizing queue for branch housekeeping actions
+    $sanitizingBedsStmt = $pdo->prepare("
+        SELECT bed_id, bed_number, floor_number, ward_type, status, price_per_day
+        FROM hospital_beds
+        WHERE hospital_id = ? AND status = 'Sanitizing'
+        ORDER BY floor_number ASC, bed_number ASC
+    ");
+    $sanitizingBedsStmt->execute([$adminHospitalId]);
+    $branchSanitizingQueue = $sanitizingBedsStmt->fetchAll(PDO::FETCH_ASSOC);
 
     // Dynamic Critical/ICU Occupancy %:
     $icuStmt = $pdo->prepare("
@@ -539,9 +625,9 @@ if ($floorFilter > 0 && in_array($floorFilter, $distinctFloors, true)) {
 }
 
 // Status filter resolution
-if (in_array($statusFilter, ['available', 'occupied', 'maintenance', 'reserved', 'emergency hold'])) {
+if (in_array($statusFilter, ['available', 'occupied', 'maintenance', 'reserved', 'emergency hold', 'sanitizing'])) {
     $whereClauses[] = "b.status = :status_val";
-    $params[':status_val'] = ucfirst($statusFilter);
+    $params[':status_val'] = ucwords($statusFilter);
 }
 
 // Search filter (bed code or patient name)
@@ -868,8 +954,27 @@ if (!function_exists('getDoctorPastelBadgeClass')) {
         </div>
       </div>
 
+      <!-- Metric 5: Housekeeping & Sanitization Queue -->
+      <div class="census-metric-card" onclick="location.href='?status=sanitizing'" style="cursor: pointer; border: 1.5px solid rgba(2, 132, 199, 0.4); background: linear-gradient(135deg, rgba(240, 249, 255, 0.7) 0%, #fff 100%); transition: all 0.2s ease;" title="Click to view Housekeeping & Sanitization Queue">
+        <div class="census-card-top">
+          <span class="census-card-label" style="color: #0369a1; font-weight: 700;">Housekeeping Queue</span>
+          <div class="census-card-icon" style="background: #e0f2fe; color: #0284c7;">
+            <span style="font-size: 16px;">🧴</span>
+          </div>
+        </div>
+        <div class="census-card-value" style="color: #0284c7; display: flex; align-items: baseline; gap: 8px;">
+          <span id="sanitizingCounter"><?= number_format($totalSanitizingBeds) ?></span>
+          <?php if ($totalSanitizingBeds > 0): ?>
+            <span style="font-size: 0.65rem; background: #0284c7; color: #fff; padding: 2px 6px; border-radius: 4px; font-weight: 800;">ACTION REQUIRED</span>
+          <?php endif; ?>
+        </div>
+        <div class="census-card-badge" style="background: #e0f2fe; color: #0369a1;">
+          <span><?= $totalSanitizingBeds > 0 ? 'Beds in Decontamination' : 'All Units Sanitized' ?></span>
+        </div>
+      </div>
+
       <?php if ($branchActiveCount > 0 || $totalEmergencyHoldBeds > 0): ?>
-      <!-- Metric 5: Beds in Surge Hold (Interactive Filter) -->
+      <!-- Metric 6: Beds in Surge Hold (Interactive Filter) -->
       <div class="census-metric-card" id="surgeHoldMetricCard" onclick="toggleSurgeHoldFilter()" style="cursor: pointer; border: 1.5px solid rgba(244, 63, 94, 0.5); background: linear-gradient(135deg, rgba(255, 241, 242, 0.6) 0%, #fff 100%); transition: all 0.2s ease;" title="Click to isolate surge hold beds on floor grid">
         <div class="census-card-top">
           <span class="census-card-label" style="color: #9f1239; font-weight: 700;">Beds in Surge Hold</span>
@@ -926,6 +1031,12 @@ if (!function_exists('getDoctorPastelBadgeClass')) {
           <span>VIP & Presidential</span>
           <span class="ward-tab-count"><?= $wardCounts['vip'] ?></span>
         </a>
+
+        <a href="?status=sanitizing<?= $floorFilter ? '&floor=' . $floorFilter : '' ?>" class="ward-filter-tab <?= $statusFilter === 'sanitizing' ? 'active' : '' ?>" style="<?= $statusFilter === 'sanitizing' ? 'background: #0284c7 !important; color: #fff !important;' : '' ?>">
+          <span style="font-size: 13px;">🧴</span>
+          <span>Housekeeping Queue</span>
+          <span class="ward-tab-count" style="<?= $totalSanitizingBeds > 0 ? ($statusFilter === 'sanitizing' ? 'background: #fff; color: #0284c7;' : 'background: #0284c7; color: #fff;') : '' ?>"><?= $totalSanitizingBeds ?></span>
+        </a>
       </div>
 
       <!-- Quick Floor Filter & Status Legend -->
@@ -962,9 +1073,106 @@ if (!function_exists('getDoctorPastelBadgeClass')) {
             <span class="legend-dot dot-maintenance"></span>
             <span>Maintenance</span>
           </div>
+          <div class="legend-item">
+            <span class="legend-dot" style="background: #0284c7;"></span>
+            <span>Sanitizing (<?= $totalSanitizingBeds ?>)</span>
+          </div>
         </div>
       </div>
     </div>
+
+    <!-- Actionable Housekeeping & Sanitization Queue (Branch Admin Responsibility) -->
+    <?php if ($totalSanitizingBeds > 0 || $statusFilter === 'sanitizing'): ?>
+    <div class="housekeeping-queue-card" style="margin-bottom: 24px; background: #ffffff; border: 1.5px solid #7dd3fc; border-radius: 16px; padding: 20px 24px; box-shadow: 0 4px 20px rgba(2, 132, 199, 0.08);">
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px; margin-bottom: 16px;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <div style="width: 44px; height: 44px; border-radius: 12px; background: #e0f2fe; color: #0284c7; display: flex; align-items: center; justify-content: center; font-size: 1.4rem;">
+            🧴
+          </div>
+          <div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <h3 style="font-size: 1.05rem; font-weight: 800; color: #0f172a; margin: 0;">Housekeeping &amp; Sanitization Queue</h3>
+              <span id="queueCountBadge" style="background: #0284c7; color: #ffffff; font-size: 0.72rem; font-weight: 800; padding: 2px 8px; border-radius: 12px;"><?= $totalSanitizingBeds ?> Pending Decontamination</span>
+            </div>
+            <p style="font-size: 0.8rem; color: #64748b; margin: 2px 0 0 0;">
+              Branch-delegated clinical sanitation pipeline. Units must be sanitized and cleared before new patient admission.
+            </p>
+          </div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <?php if ($totalSanitizingBeds > 0): ?>
+          <button type="button" id="btnBatchSanitize" onclick="batchSanitizeBeds()" style="display: inline-flex; align-items: center; gap: 8px; padding: 9px 18px; background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: #fff; border: none; border-radius: 10px; font-size: 0.84rem; font-weight: 800; cursor: pointer; box-shadow: 0 2px 10px rgba(2,132,199,0.3); transition: all 0.2s;">
+            <svg class="ui-ico ui-ico-sm" style="width: 14px; height: 14px;" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            Mark All <?= $totalSanitizingBeds ?> Beds Sanitized &amp; Available
+          </button>
+          <?php endif; ?>
+          <?php if ($statusFilter === 'sanitizing'): ?>
+            <a href="live_census.php" style="font-size: 0.82rem; color: #64748b; text-decoration: none; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px;">Show All Wards</a>
+          <?php else: ?>
+            <a href="?status=sanitizing" style="font-size: 0.82rem; color: #0284c7; font-weight: 700; text-decoration: none; padding: 8px 12px; border: 1px solid #7dd3fc; background: #f0f9ff; border-radius: 8px;">Filter Grid to Queue &rarr;</a>
+          <?php endif; ?>
+        </div>
+      </div>
+
+      <?php if (!empty($branchSanitizingQueue)): ?>
+      <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem;">
+          <thead>
+            <tr style="border-bottom: 1.5px solid #e2e8f0; text-align: left; color: #64748b; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em;">
+              <th style="padding: 8px 12px;">Bed Number</th>
+              <th style="padding: 8px 12px;">Ward / Floor</th>
+              <th style="padding: 8px 12px;">Protocol Status</th>
+              <th style="padding: 8px 12px;">Standard Rate</th>
+              <th style="padding: 8px 12px; text-align: right;">Sanitization Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            <?php foreach (array_slice($branchSanitizingQueue, 0, 10) as $sBed): ?>
+            <tr style="border-bottom: 1px solid #f1f5f9;">
+              <td style="padding: 10px 12px; font-weight: 800; color: #0f172a;">
+                <?= htmlspecialchars($sBed['bed_number'], ENT_QUOTES, 'UTF-8') ?>
+              </td>
+              <td style="padding: 10px 12px; color: #475569;">
+                Floor <?= (int)$sBed['floor_number'] ?> &bull; <?= htmlspecialchars($sBed['ward_type'], ENT_QUOTES, 'UTF-8') ?>
+              </td>
+              <td style="padding: 10px 12px;">
+                <span style="background: #e0f2fe; color: #0369a1; padding: 3px 8px; border-radius: 6px; font-size: 0.72rem; font-weight: 700; border: 1px solid #bae6fd;">
+                  🧴 Decontamination Active
+                </span>
+              </td>
+              <td style="padding: 10px 12px; color: #64748b;">
+                ৳ <?= number_format((float)$sBed['price_per_day']) ?>/day
+              </td>
+              <td style="padding: 10px 12px; text-align: right;">
+                <button 
+                  type="button" 
+                  class="btn-bed-action" 
+                  style="background: #10b981; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; font-weight: 700; cursor: pointer;"
+                  onclick="markBedReady(this, <?= (int)$sBed['bed_id'] ?>, '<?= htmlspecialchars($sBed['bed_number'], ENT_QUOTES, 'UTF-8') ?>')"
+                >
+                  ✓ Mark Sanitized &amp; Available
+                </button>
+              </td>
+            </tr>
+            <?php endforeach; ?>
+            <?php if (count($branchSanitizingQueue) > 10): ?>
+            <tr>
+              <td colspan="5" style="text-align: center; padding: 10px; color: #64748b; font-style: italic;">
+                Showing 10 of <?= count($branchSanitizingQueue) ?> sanitizing beds. Use "Mark All Beds Sanitized &amp; Available" to clear entire queue at once.
+              </td>
+            </tr>
+            <?php endif; ?>
+          </tbody>
+        </table>
+      </div>
+      <?php else: ?>
+        <div style="background: #f8fafc; border-radius: 10px; padding: 14px; text-align: center; color: #64748b; font-size: 0.84rem;">
+          ✓ Housekeeping Queue is currently clear. All branch beds are clinically decontaminated and available.
+        </div>
+      <?php endif; ?>
+    </div>
+    <?php endif; ?>
 
     <!-- Interactive Bed Matrix Grid (Real DB Rows) -->
     <div class="bed-matrix-grid" id="bedMatrixGrid">
@@ -1210,6 +1418,15 @@ if (!function_exists('getDoctorPastelBadgeClass')) {
                   onclick="openDischargeConfirm(<?= (int)$slot['bed_id'] ?>, '<?= htmlspecialchars($slot['bed_number'], ENT_QUOTES, 'UTF-8') ?>', '<?= htmlspecialchars($patientDisplayName, ENT_QUOTES, 'UTF-8') ?>')"
                 >
                   Discharge
+                </button>
+              <?php elseif ($rawStatus === 'sanitizing'): ?>
+                <button 
+                  type="button" 
+                  class="btn-bed-action"
+                  style="background: #10b981; color: #fff; border: none; font-weight: 700; width: 100%;"
+                  onclick="markBedReady(this, <?= (int)$slot['bed_id'] ?>, '<?= htmlspecialchars($slot['bed_number'], ENT_QUOTES, 'UTF-8') ?>')"
+                >
+                  ✓ Mark Sanitized &amp; Available
                 </button>
               <?php else: ?>
                 <button 

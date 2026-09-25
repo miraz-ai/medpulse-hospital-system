@@ -4,50 +4,32 @@
  * GET  → renders index.php (login/register UI)
  * POST → proxied to backend/login_action.php
  *
- * This file only handles already-authenticated redirect logic for GET requests.
- * All POST logic lives in backend/login_action.php.
+ * Implements strict anti-caching, role-aware authenticated redirect, and fresh session isolation.
  */
 
-// 1. Session hardening
-if (session_status() === PHP_SESSION_NONE) {
-    ini_set('session.use_only_cookies', 1);
-    ini_set('session.use_strict_mode', 1);
+require_once __DIR__ . '/includes/session_guard.php';
 
-    $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-            || (isset($_SERVER['SERVER_PORT']) && (int)$_SERVER['SERVER_PORT'] === 443);
-
-    session_set_cookie_params([
-        'lifetime' => 0,
-        'path'     => '/',
-        'domain'   => '',
-        'secure'   => $isHttps,
-        'httponly' => true,
-        'samesite' => 'Lax'
-    ]);
-
-    session_start();
-}
-
-// 2. Universal already-authenticated redirect (role auto-detected from session)
-if (!empty($_SESSION['user_id']) && !empty($_SESSION['role'])) {
-    $roleNorm = strtolower($_SESSION['role']);
-    $map = [
-        'super_admin' => 'super_admin/dashboard.php',
-        'admin'       => 'admin/dashboard.php',
-        'doctor'      => 'doctor/dashboard.php',
-        'patient'     => 'patient/dashboard.php',
-        'staff'       => 'staff/dashboard.php',
-    ];
-    header('Location: ' . ($map[$roleNorm] ?? 'patient/dashboard.php'));
-    exit();
-}
-
-// 3. POST → hand off to backend/login_action.php (form action already points there)
+// ── 1. If incoming request is POST, wipe any existing stale session before authenticating ──
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Completely isolate new login attempt from any prior session state
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        session_unset();
+        $_SESSION = [];
+        session_destroy();
+    }
+    // Start brand-new clean session for this attempt
+    require __DIR__ . '/includes/session_guard.php';
     require_once __DIR__ . '/backend/login_action.php';
     exit();
 }
 
-// 4. GET → render the login/register UI
+// ── 2. GET Request: Role-Aware Already-Authenticated Redirect Guard ────────────
+if (!empty($_SESSION['user_id']) && !empty($_SESSION['role'])) {
+    $destination = medpulseGetRoleDashboard($_SESSION['role']);
+    header('Location: ' . $destination);
+    exit();
+}
+
+// ── 3. Render Authentication View ─────────────────────────────────────────────
 require_once __DIR__ . '/index.php';
 exit();

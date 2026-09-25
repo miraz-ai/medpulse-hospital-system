@@ -37,12 +37,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['_action'])) {
 
     if ($action === 'override_status' && $bedId > 0) {
         $newStatus = $_POST['new_status'] ?? '';
-        $allowed   = ['Maintenance', 'Emergency Hold', 'Available', 'Reserved', 'Sanitizing'];
+        $allowed   = ['Maintenance', 'Emergency Hold', 'Available', 'Reserved'];
         if (!in_array($newStatus, $allowed, true)) {
-            echo json_encode(['success' => false, 'message' => 'Invalid status.']);
+            echo json_encode(['success' => false, 'message' => 'Invalid status or status not permitted for Super Admin override.']);
             exit;
         }
+
         try {
+            // Check current bed status to protect branch-level sanitization pipeline
+            $currCheck = $pdo->prepare("SELECT status, bed_number FROM hospital_beds WHERE bed_id = ?");
+            $currCheck->execute([$bedId]);
+            $curBed = $currCheck->fetch(PDO::FETCH_ASSOC);
+
+            if ($curBed && $curBed['status'] === 'Sanitizing') {
+                echo json_encode([
+                    'success' => false,
+                    'message' => "Bed {$curBed['bed_number']} is undergoing clinical sanitization. Sanitization workflow is delegated strictly to Branch Admin (Housekeeping). Override denied."
+                ]);
+                exit;
+            }
+
             $upd = $pdo->prepare("UPDATE hospital_beds SET status = ? WHERE bed_id = ?");
             $upd->execute([$newStatus, $bedId]);
 
@@ -1317,7 +1331,7 @@ try {
       <div class="sa-modal-title" id="modalBedNum">Loading…</div>
       <div class="sa-modal-sub" id="modalBedSub"></div>
       <div id="modalDetails"></div>
-      <div class="sa-override-section">
+      <div class="sa-override-section" id="bedOverrideSection">
         <div class="sa-override-title">⚡ Force Status Override</div>
         <div class="sa-override-btns">
           <button class="sa-override-btn danger" onclick="forceOverride('Maintenance')">→ Maintenance</button>
@@ -1871,6 +1885,31 @@ try {
         }
 
         document.getElementById('modalDetails').innerHTML = html;
+
+        // Delegated Branch Sanitization Guard: hide override buttons if bed is Sanitizing
+        const overrideSec = document.getElementById('bedOverrideSection');
+        if (overrideSec) {
+          if (b.status === 'Sanitizing') {
+            overrideSec.innerHTML = `
+              <div style="background:#f0f9ff;border:1.5px solid #7dd3fc;color:#0369a1;padding:12px 14px;border-radius:10px;font-size:0.78rem;display:flex;align-items:flex-start;gap:10px;">
+                <span style="font-size:1.25rem;line-height:1;">🧴</span>
+                <div>
+                  <div style="font-weight:800;margin-bottom:3px;color:#0284c7;">Branch Housekeeping Decontamination Active</div>
+                  <div style="font-weight:500;color:#0369a1;font-size:0.75rem;line-height:1.4;">
+                    Sanitization protocol is delegated strictly to the local Branch Admin &amp; Housekeeping pipeline. Manual Super Admin status override is restricted for this unit.
+                  </div>
+                </div>
+              </div>`;
+          } else {
+            overrideSec.innerHTML = `
+              <div class="sa-override-title">⚡ Force Status Override</div>
+              <div class="sa-override-btns">
+                <button class="sa-override-btn danger" onclick="forceOverride('Maintenance')">→ Maintenance</button>
+                <button class="sa-override-btn hold" onclick="forceOverride('Emergency Hold')">→ Emergency Hold</button>
+                <button class="sa-override-btn restore" onclick="forceOverride('Available')">→ Mark Available</button>
+              </div>`;
+          }
+        }
 
       } catch(e) {
         document.getElementById('modalDetails').innerHTML = '<p style="color:var(--status-red);">Network error while loading bed telemetry.</p>';

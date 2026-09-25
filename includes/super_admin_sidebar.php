@@ -125,4 +125,11 @@ $currentRoute = basename($_SERVER['PHP_SELF'] ?? '');
     toast.style.display = 'flex';
     toastTimer = setTimeout(() => { toast.style.display = 'none'; }, 4000);
   }
+
+  // Client-Side History Guard: Kill BFCache and re-verify session on back-navigation
+  window.addEventListener('pageshow', function(event) {
+    if (event.persisted || (window.performance && window.performance.navigation && window.performance.navigation.type === 2)) {
+      window.location.reload();
+    }
+  });
 </script>

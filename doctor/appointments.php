@@ -4,24 +4,7 @@
  * Outpatient queue, appointment booking tracking, and clinical consultation records.
  */
 
-if (session_status() === PHP_SESSION_NONE) {
-    ini_set('session.use_only_cookies', 1);
-    ini_set('session.use_strict_mode', 1);
-    $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-            || (isset($_SERVER['SERVER_PORT']) && (int)$_SERVER['SERVER_PORT'] === 443);
-    session_set_cookie_params([
-        'lifetime' => 0, 'path' => '/', 'domain' => '',
-        'secure' => $isHttps, 'httponly' => true, 'samesite' => 'Lax'
-    ]);
-    session_start();
-}
-
-if (!isset($_SESSION['user_id']) || empty($_SESSION['user_id']) || !isset($_SESSION['role']) || strcasecmp($_SESSION['role'], 'Doctor') !== 0) {
-    header("Location: ../login.php");
-    exit();
-}
-
-require_once __DIR__ . '/../config/db.php';
+require_once __DIR__ . '/../includes/doctor_auth.php';
 require_once __DIR__ . '/../includes/doctor_helpers.php';
 
 $doctorUserId = (int)$_SESSION['user_id'];

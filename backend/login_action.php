@@ -5,45 +5,27 @@
  * Strict session hardening, inactivity guard, anti-caching headers, and role-based redirection.
  */
 
-// 1. Session hardening
-if (session_status() === PHP_SESSION_NONE) {
-    ini_set('session.use_only_cookies', 1);
-    ini_set('session.use_strict_mode', 1);
+require_once __DIR__ . '/../includes/session_guard.php';
 
-    $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-            || (isset($_SERVER['SERVER_PORT']) && (int)$_SERVER['SERVER_PORT'] === 443);
-
-    session_set_cookie_params([
-        'lifetime' => 0,
-        'path'     => '/',
-        'domain'   => '',
-        'secure'   => $isHttps,
-        'httponly' => true,
-        'samesite' => 'Lax'
-    ]);
-
-    session_start();
-}
-
-// 2. Already authenticated — send to correct dashboard immediately
-if (!empty($_SESSION['user_id']) && !empty($_SESSION['role']) && !empty($_SESSION['logged_in'])) {
-    $role = strtolower($_SESSION['role']);
-    $map  = [
-        'super_admin' => '../super_admin/dashboard.php',
-        'admin'       => '../admin/dashboard.php',
-        'doctor'      => '../doctor/dashboard.php',
-        'patient'     => '../patient/dashboard.php',
-        'staff'       => '../staff/dashboard.php',
-    ];
-    header('Location: ' . ($map[$role] ?? '../patient/dashboard.php'));
-    exit();
-}
-
-// 3. Only accept POST
+// 1. Only accept POST
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    if (!empty($_SESSION['user_id']) && !empty($_SESSION['role'])) {
+        header('Location: ' . medpulseGetRoleDashboard($_SESSION['role'], '../'));
+        exit();
+    }
     header('Location: ../login.php');
     exit();
 }
+
+// 2. Complete Session Isolation: ALWAYS unset and destroy any existing session before authenticating new credentials
+if (session_status() === PHP_SESSION_ACTIVE) {
+    session_unset();
+    $_SESSION = [];
+    session_destroy();
+}
+
+// 3. Start a brand-new clean session for this authentication attempt
+require __DIR__ . '/../includes/session_guard.php';
 
 require_once __DIR__ . '/../config/db.php';
 
@@ -211,14 +193,15 @@ try {
 
     // 14. Universal role-based redirection (DB role is authoritative — no client hint)
     $redirectMap = [
-        'super_admin' => '../super_admin/dashboard.php',
-        'admin'       => '../admin/dashboard.php',
-        'doctor'      => '../doctor/dashboard.php',
-        'patient'     => '../patient/dashboard.php',
-        'staff'       => '../staff/dashboard.php',
+        'super_admin'    => '../super_admin/dashboard.php',
+        'hospital_admin' => '../admin/executive_overview.php',
+        'admin'          => '../admin/executive_overview.php',
+        'doctor'         => '../doctor/dashboard.php',
+        'patient'        => '../patient/portal.php',
+        'staff'          => '../staff/dashboard.php',
     ];
 
-    $destination = $redirectMap[$roleNorm] ?? '../patient/dashboard.php';
+    $destination = $redirectMap[$roleNorm] ?? '../patient/portal.php';
     header('Location: ' . $destination);
     exit();
 

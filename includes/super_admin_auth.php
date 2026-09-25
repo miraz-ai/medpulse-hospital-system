@@ -4,41 +4,11 @@
  * Allows role: 'super_admin' only (strictly enforced)
  */
 
-if (session_status() === PHP_SESSION_NONE) {
-    ini_set('session.use_only_cookies', 1);
-    ini_set('session.use_strict_mode', 1);
-
-    $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-            || (isset($_SERVER['SERVER_PORT']) && (int)$_SERVER['SERVER_PORT'] === 443);
-
-    session_set_cookie_params([
-        'lifetime' => 0,
-        'path'     => '/',
-        'domain'   => '',
-        'secure'   => $isHttps,
-        'httponly' => true,
-        'samesite' => 'Lax'
-    ]);
-
-    session_start();
-}
-
-// 1. Mandatory anti-caching headers (prevents Back-button session leakage)
-header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
-header('Cache-Control: post-check=0, pre-check=0', false);
-header('Pragma: no-cache');
-header('Expires: 0');
+require_once __DIR__ . '/session_guard.php';
 
 // Helper: destroy session and redirect
 function _saAuthRedirect(string $target): never {
-    $_SESSION = [];
-    if (ini_get('session.use_cookies')) {
-        $p = session_get_cookie_params();
-        setcookie(session_name(), '', time() - 3600, $p['path'], $p['domain'], $p['secure'], $p['httponly']);
-    }
-    session_destroy();
-    header('Location: ' . $target);
-    exit();
+    medpulseDestroySession($target);
 }
 
 // 2. Strict RBAC Guard — must be logged in AND role = super_admin

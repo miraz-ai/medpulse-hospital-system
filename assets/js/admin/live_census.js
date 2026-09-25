@@ -52,6 +52,15 @@
       if (vals[0]) vals[0].textContent = Number(s.total_beds).toLocaleString();
       if (vals[1]) vals[1].textContent = Number(s.occupied_beds).toLocaleString();
       if (vals[2]) vals[2].textContent = Number(s.available_beds).toLocaleString();
+      // Update sanitizing counter if present
+      const sanitEl = document.getElementById('sanitizingCounter');
+      if (sanitEl && s.sanitizing_beds !== undefined) {
+        sanitEl.textContent = Number(s.sanitizing_beds).toLocaleString();
+      }
+      const queueBadge = document.getElementById('queueCountBadge');
+      if (queueBadge && s.sanitizing_beds !== undefined) {
+        queueBadge.textContent = `${Number(s.sanitizing_beds).toLocaleString()} Pending Decontamination`;
+      }
       // vals[3] = ICU% — server doesn't return it in get_stats (complex), skip live update
 
       // Update dynamic clinical telemetry pill
@@ -209,10 +218,11 @@
   };
 
   // ------------------------------------------------------------------
-  // MARK BED READY
+  // MARK BED READY (Sanitized & Available)
   // ------------------------------------------------------------------
   window.markBedReady = async function (btn, bedId, bedNumber) {
     btn.disabled    = true;
+    const oldText   = btn.textContent;
     btn.textContent = 'Clearing…';
 
     const fd = new FormData();
@@ -226,16 +236,53 @@
       if (resp.success) {
         censusToast(resp.message, 'success');
         refreshMetricChips();
-        setTimeout(() => window.location.reload(), 2800);
+        setTimeout(() => window.location.reload(), 900);
       } else {
         censusToast(resp.message || 'Mark Ready failed.', 'error');
         btn.disabled    = false;
-        btn.textContent = 'Mark Ready';
+        btn.textContent = oldText;
       }
     } catch (err) {
       censusToast('Network error. Please retry.', 'error');
       btn.disabled    = false;
-      btn.textContent = 'Mark Ready';
+      btn.textContent = oldText;
+    }
+  };
+
+  // ------------------------------------------------------------------
+  // BATCH SANITIZE BEDS (Housekeeping Batch Action)
+  // ------------------------------------------------------------------
+  window.batchSanitizeBeds = async function () {
+    const btn = document.getElementById('btnBatchSanitize');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Clearing Sanitization Queue…';
+    }
+
+    const fd = new FormData();
+    fd.append('_action',    'batch_sanitize');
+    fd.append('csrf_token', CSRF);
+
+    try {
+      const res  = await fetch(PAGE_URL, { method: 'POST', body: fd, credentials: 'same-origin' });
+      const resp = await res.json();
+      if (resp.success) {
+        censusToast(resp.message, 'success');
+        refreshMetricChips();
+        setTimeout(() => window.location.reload(), 1000);
+      } else {
+        censusToast(resp.message || 'Batch sanitization failed.', 'error');
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'Retry Batch Sanitization';
+        }
+      }
+    } catch (err) {
+      censusToast('Network error during batch sanitization. Please retry.', 'error');
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Retry Batch Sanitization';
+      }
     }
   };
 
