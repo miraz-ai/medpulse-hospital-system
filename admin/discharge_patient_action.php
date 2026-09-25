@@ -83,7 +83,7 @@ try {
     // 5. Fetch Active Bed Allocation with Row-Lock FOR UPDATE
     $query = "
         SELECT ba.allocation_id, ba.bed_id, ba.patient_id, ba.attending_doctor_id, ba.admitted_at,
-               b.bed_number, b.ward_type, b.floor_number, b.daily_rate, b.status AS bed_status,
+               b.hospital_id, b.bed_number, b.ward_type, b.floor_number, b.daily_rate, b.status AS bed_status,
                u.full_name AS patient_name, u.email AS patient_email, u.phone AS patient_phone
         FROM bed_allocations ba
         JOIN hospital_beds b ON ba.bed_id = b.bed_id
@@ -123,6 +123,7 @@ try {
     $targetPatientId = (int)$activeAlloc['patient_id'];
     $targetBedId     = (int)$activeAlloc['bed_id'];
     $targetAllocId   = (int)$activeAlloc['allocation_id'];
+    $hospitalId      = (int)($activeAlloc['hospital_id'] ?? $_SESSION['hospital_id'] ?? 1);
     $patientName     = $activeAlloc['patient_name'];
     $bedNumber       = $activeAlloc['bed_number'];
     $wardType        = $activeAlloc['ward_type'];
@@ -223,15 +224,16 @@ try {
         }
     } while (true);
 
-    // Insert Centralized Master Invoice
+    // Insert Centralized Master Invoice with Strict Branch Hospital Scoping
     $insInvoice = $pdo->prepare("
         INSERT INTO invoices 
-            (invoice_number, patient_id, admission_id, generated_by, subtotal, vat_percentage, discount, net_payable, paid_amount, due_amount, payment_method, status, discharge_status, payment_status, created_at)
+            (invoice_number, hospital_id, patient_id, admission_id, generated_by, subtotal, vat_percentage, discount, net_payable, paid_amount, due_amount, payment_method, status, discharge_status, payment_status, created_at)
         VALUES 
-            (:inv_num, :pid, :aid, :actor, :subtotal, :vat_pct, :discount, :net, 0.00, :due, 'Cash', 'Pending', 'discharged', 'unpaid', NOW())
+            (:inv_num, :hid, :pid, :aid, :actor, :subtotal, :vat_pct, :discount, :net, 0.00, :due, 'Cash', 'Pending', 'discharged', 'unpaid', NOW())
     ");
     $insInvoice->execute([
         ':inv_num'   => $invoiceNumber,
+        ':hid'       => $hospitalId,
         ':pid'       => $targetPatientId,
         ':aid'       => $targetAllocId,
         ':actor'     => $actorId,
@@ -294,16 +296,32 @@ try {
         ]);
     }
 
-    // 11. Release Bed Allocation & End Care Team Assignments
-    $updBed = $pdo->prepare("UPDATE hospital_beds SET status = 'Available' WHERE bed_id = :bid");
-    $updBed->execute([':bid' => $targetBedId]);
+    // 11. Transition Bed to Sanitizing Status & Enqueue into Housekeeping Cycle
+    $updBed = $pdo->prepare("
+        UPDATE hospital_beds 
+        SET status = 'Sanitizing', patient_id = NULL, updated_at = NOW() 
+        WHERE bed_id = :bid AND hospital_id = :hid
+    ");
+    $updBed->execute([':bid' => $targetBedId, ':hid' => $hospitalId]);
+
+    // Insert into Branch Housekeeping & Sanitization Queue
+    $insQueue = $pdo->prepare("
+        INSERT INTO bed_sanitization_queue 
+            (hospital_id, bed_id, discharged_at, cleaning_type, status, assigned_staff) 
+        VALUES 
+            (:hid, :bid, NOW(), 'UV/Chemical Cycle', 'in_progress', 'UV Decon Team')
+    ");
+    $insQueue->execute([':hid' => $hospitalId, ':bid' => $targetBedId]);
 
     $closeAlloc = $pdo->prepare("
         UPDATE bed_allocations 
-        SET status = 'Discharged', discharged_at = NOW() 
+        SET status = 'Discharged', discharged_at = NOW(), discharge_summary = :summary 
         WHERE allocation_id = :aid
     ");
-    $closeAlloc->execute([':aid' => $targetAllocId]);
+    $closeAlloc->execute([
+        ':aid'     => $targetAllocId,
+        ':summary' => $dischargeSummary
+    ]);
 
     $endAssignments = $pdo->prepare("
         UPDATE patient_doctor_assignments 
@@ -339,6 +357,17 @@ try {
             "Invoice {$invoiceNumber} (Patient #{$targetPatientId})",
             $clientIp
         );
+
+        EventDispatcher::pushAuditLog(
+            $pdo,
+            $actorId,
+            'BED_SANITIZATION_QUEUED',
+            "Bed {$bedNumber} ({$wardType}) placed in UV/Chemical Sanitization Queue following discharge of patient {$patientName}.",
+            'BRANCH_OPS',
+            'Housekeeping & Sanitization',
+            "Bed #{$targetBedId} ({$bedNumber})",
+            $clientIp
+        );
     } catch (Throwable $notifErr) {
         // Non-blocking notification failure
         error_log("Notification dispatch error on discharge: " . $notifErr->getMessage());
@@ -348,13 +377,15 @@ try {
 
     echo json_encode([
         'success' => true,
-        'message' => "✓ Patient {$patientName} discharged successfully. Central Invoice {$invoiceNumber} generated (৳" . number_format($netPayable, 2) . ").",
+        'message' => "✓ Patient {$patientName} discharged successfully. Bed {$bedNumber} transitioned immediately to UV/Chemical Sanitization Queue. Central Invoice {$invoiceNumber} generated (৳" . number_format($netPayable, 2) . ").",
         'data'    => [
             'invoice_id'     => $newInvoiceId,
             'invoice_number' => $invoiceNumber,
             'patient_id'     => $targetPatientId,
             'patient_name'   => $patientName,
+            'bed_id'         => $targetBedId,
             'bed_number'     => $bedNumber,
+            'bed_status'     => 'Sanitizing',
             'ward_type'      => $wardType,
             'nights'         => $nights,
             'bed_rate'       => $bedDailyRate,

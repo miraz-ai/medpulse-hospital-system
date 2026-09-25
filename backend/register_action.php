@@ -9,13 +9,21 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-// Sanitize and collect form inputs
-$name      = trim(filter_input(INPUT_POST, 'name', FILTER_SANITIZE_FULL_SPECIAL_CHARS) ?? '');
-$raw_email = trim($_POST['email'] ?? '');
-$raw_phone = trim($_POST['phone'] ?? '');
-$gender    = trim($_POST['gender'] ?? 'Male');
-$password  = $_POST['password'] ?? '';
-$role      = trim($_POST['register_role'] ?? 'Patient');
+$name        = trim($_POST['name'] ?? (filter_input(INPUT_POST, 'name', FILTER_SANITIZE_FULL_SPECIAL_CHARS) ?? ''));
+$raw_email   = trim($_POST['email'] ?? '');
+$raw_phone   = trim($_POST['phone'] ?? '');
+$gender      = trim($_POST['gender'] ?? 'Male');
+$password    = $_POST['password'] ?? '';
+$role        = trim($_POST['register_role'] ?? 'Patient');
+$raw_dob     = trim($_POST['dob'] ?? '');
+$raw_blood   = trim($_POST['blood_group'] ?? 'Unknown');
+if (preg_match('/^(A|B|AB|O)\s*$/i', $raw_blood, $m)) {
+    $raw_blood = strtoupper($m[1]) . '+';
+} elseif (preg_match('/^(A|B|AB|O)[\+\-]$/i', $raw_blood)) {
+    $raw_blood = strtoupper($raw_blood);
+} elseif (stripos($raw_blood, 'Unknown') !== false) {
+    $raw_blood = 'Unknown';
+}
 
 // 1. Role Assignment & Restriction (No public Admin registration)
 $allowed_roles = ['Patient', 'Doctor', 'Staff'];
@@ -31,6 +39,34 @@ $status = ($role === 'Patient') ? 'active' : 'pending';
 if ($name === '' || $raw_email === '' || $raw_phone === '' || $gender === '' || $password === '') {
     echo json_encode(['status' => 'error', 'message' => 'All mandatory fields are required.']);
     exit;
+}
+
+// Patient Specific Mandatory Fields (DOB & Blood Group)
+if ($role === 'Patient') {
+    if ($raw_dob === '') {
+        echo json_encode(['status' => 'error', 'message' => 'Date of birth is required for patient registration.']);
+        exit;
+    }
+    $dobTimestamp = strtotime($raw_dob);
+    if (!$dobTimestamp || $dobTimestamp > time()) {
+        echo json_encode(['status' => 'error', 'message' => 'Please provide a valid date of birth (cannot be in the future).']);
+        exit;
+    }
+}
+
+$allowed_blood_groups = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-', 'Unknown'];
+$blood_group = in_array($raw_blood, $allowed_blood_groups, true) ? $raw_blood : 'Unknown';
+$dob = !empty($raw_dob) ? date('Y-m-d', strtotime($raw_dob)) : null;
+
+// Dynamic Age Calculation
+$age = null;
+if (!empty($dob)) {
+    try {
+        $dobObj = new DateTime($dob);
+        $age = (new DateTime())->diff($dobObj)->y;
+    } catch (Exception $e) {
+        $age = null;
+    }
 }
 
 // 4. Email Validity Check
@@ -143,10 +179,10 @@ try {
         $name = 'Dr. ' . $cleanName;
     }
 
-    // 10. Database Persistence with Role & Status
+    // 10. Database Persistence with Role, Demographics & Status
     $insert = $pdo->prepare("
-        INSERT INTO users (full_name, email, phone, gender, role, status, password_hash)
-        VALUES (:name, :email, :phone, :gender, :role, :status, :hash)
+        INSERT INTO users (full_name, email, phone, gender, role, status, password_hash, blood_group, date_of_birth, age)
+        VALUES (:name, :email, :phone, :gender, :role, :status, :hash, :bg, :dob, :age)
     ");
     $insert->execute([
         'name'   => $name,
@@ -155,9 +191,87 @@ try {
         'gender' => $gender,
         'role'   => $role,
         'status' => $status,
-        'hash'   => $hashedPassword
+        'hash'   => $hashedPassword,
+        'bg'     => $blood_group,
+        'dob'    => $dob,
+        'age'    => $age
     ]);
     $newUserId = (int)$pdo->lastInsertId();
+
+    // 11. Linked Patient Profile Provisioning with Auto-Generated Enterprise Sequence UID
+    if ($role === 'Patient') {
+        // Sequence format: MP-YYYY-XXXXX (e.g. MP-2026-00042)
+        $currentYear = date('Y');
+        $seqStmt = $pdo->query("SELECT COALESCE(MAX(id), 0) + 1 AS next_seq FROM patients");
+        $nextSeq = (int)$seqStmt->fetchColumn();
+
+        do {
+            $patientUid = sprintf("MP-%s-%05d", $currentYear, $nextSeq);
+            $chkUid = $pdo->prepare("SELECT 1 FROM patients WHERE patient_uid = ? LIMIT 1");
+            $chkUid->execute([$patientUid]);
+            $exists = (bool)$chkUid->fetchColumn();
+            if ($exists) {
+                $nextSeq++;
+            }
+        } while ($exists);
+
+        $insPatient = $pdo->prepare("
+            INSERT INTO patients 
+                (user_id, patient_uid, full_name, email, phone, gender, dob, blood_group, created_at)
+            VALUES 
+                (:uid, :p_uid, :name, :email, :phone, :gender, :dob, :bg, NOW())
+        ");
+        $insPatient->execute([
+            ':uid'     => $newUserId,
+            ':p_uid'   => $patientUid,
+            ':name'    => $name,
+            ':email'   => $email,
+            ':phone'   => $phone,
+            ':gender'  => $gender,
+            ':dob'     => $dob ?: date('Y-m-d', strtotime('-22 years')),
+            ':bg'      => $blood_group
+        ]);
+
+        // Audit Log Entry
+        try {
+            $ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+            $auditStmt = $pdo->prepare("
+                INSERT INTO audit_logs 
+                    (actor_id, actor_role, action, action_name, description, category, target_entity, ip_address, security_level)
+                VALUES 
+                    (:actor, 'Patient', 'PATIENT_REGISTRATION', 'Patient Registration', :desc, 'REGISTRATION', :target, :ip, 'INFO')
+            ");
+            $auditStmt->execute([
+                ':actor'  => $newUserId,
+                ':desc'   => "Patient registered with UID {$patientUid}, Blood Group {$blood_group}, DOB {$dob}",
+                ':target' => $patientUid,
+                ':ip'     => $ip
+            ]);
+        } catch (Throwable $e) {}
+
+        // Automatic login session population for patient
+        $_SESSION['user_id']       = $newUserId;
+        $_SESSION['patient_uid']   = $patientUid;
+        $_SESSION['full_name']     = $name;
+        $_SESSION['email']         = $email;
+        $_SESSION['phone']         = $phone;
+        $_SESSION['gender']        = $gender;
+        $_SESSION['role']          = 'Patient';
+        $_SESSION['status']        = 'active';
+        $_SESSION['logged_in']     = true;
+        $_SESSION['last_activity'] = time();
+
+        echo json_encode([
+            'status'      => 'success',
+            'success'     => true,
+            'pending'     => false,
+            'role'        => 'Patient',
+            'patient_uid' => $patientUid,
+            'message'     => "Welcome to MedPulse! Registration successful. Your Patient ID is {$patientUid}. Entering patient portal...",
+            'redirect'    => 'patient/portal.php'
+        ]);
+        exit;
+    }
 
     // 11. Linked Doctor Profile Provisioning (Strictly Pending Admin Approval Gatekeeper)
     if ($role === 'Doctor') {
@@ -270,6 +384,12 @@ try {
             echo json_encode([
                 'status'  => 'error',
                 'message' => 'This BMDC registration number is already registered under an existing doctor profile.'
+            ]);
+            exit;
+        } elseif (stripos($errorMessage, 'patient_uid') !== false) {
+            echo json_encode([
+                'status'  => 'error',
+                'message' => 'A patient record with this UID sequence already exists. Please re-submit to assign the next available number.'
             ]);
             exit;
         } else {

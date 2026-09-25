@@ -138,6 +138,36 @@ if (!empty($_SESSION['user_id']) && !empty($_SESSION['role'])) {
           <i class="fa-solid fa-phone f-icon"></i>
         </div>
 
+        <div class="field-grid-patient">
+          <div class="field-box" style="margin-bottom: 0;">
+            <label for="regDob" style="display: block; font-size: 0.72rem; font-weight: 700; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.04em;">Date of Birth</label>
+            <div style="position: relative;">
+              <input type="date" id="regDob" name="dob" max="<?= date('Y-m-d') ?>" required style="padding-left: 38px; color-scheme: dark; width: 100%;" />
+              <i class="fa-regular fa-calendar f-icon" style="left: 12px;"></i>
+            </div>
+          </div>
+
+          <div class="field-box" style="margin-bottom: 0;">
+            <label for="regBloodGroup" style="display: block; font-size: 0.72rem; font-weight: 700; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.04em;">Blood Group</label>
+            <div style="position: relative;">
+              <select id="regBloodGroup" name="blood_group" required style="padding-left: 38px; padding-right: 28px; appearance: none; width: 100%;">
+                <option value="" disabled selected>Select Blood Group</option>
+                <option value="A+">A+</option>
+                <option value="A-">A-</option>
+                <option value="B+">B+</option>
+                <option value="B-">B-</option>
+                <option value="AB+">AB+</option>
+                <option value="AB-">AB-</option>
+                <option value="O+">O+</option>
+                <option value="O-">O-</option>
+                <option value="Unknown">Unknown / Not Tested</option>
+              </select>
+              <i class="fa-solid fa-droplet f-icon" style="left: 12px; color: #ef4444;"></i>
+              <i class="fa-solid fa-chevron-down" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; color: var(--text-muted); font-size: 0.75rem;"></i>
+            </div>
+          </div>
+        </div>
+
         <div class="gender-section">
           <div class="gender-selector">
             <input type="radio" id="g-male" name="gender" value="Male" checked>

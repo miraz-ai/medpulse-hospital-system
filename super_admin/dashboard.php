@@ -67,48 +67,27 @@ try {
         }
     }
 
-    // --- Critical Resource Telemetry 1: ICU Ventilator Utilization ---
-    $ventData = $pdo->query("
+    // --- Dynamic Telemetry Binding from `hospital_resources` ---
+    // 1. Oxygen Reserves per Facility
+    $oxStmt = $pdo->query("
         SELECT 
-            COUNT(*) AS total_icu,
-            SUM(status = 'Occupied') AS active_ventilators,
-            SUM(status = 'Available') AS standby_ventilators
-        FROM hospital_beds
-        WHERE ward_type LIKE '%ICU%' OR ward_type LIKE '%CCU%' OR ward_type LIKE '%HDU%'
-    ")->fetch(PDO::FETCH_ASSOC);
-    $totalVentilators = (int)($ventData['total_icu'] ?? 0);
-    $activeVentilators = (int)($ventData['active_ventilators'] ?? 0);
-    $standbyVentilators = (int)($ventData['standby_ventilators'] ?? 0);
-    $ventUtilizationPct = $totalVentilators > 0 ? round(($activeVentilators / $totalVentilators) * 100, 1) : 0;
-
-    // --- Critical Resource Telemetry 2: Central Oxygen Reserves across the 6 Facilities ---
+            h.hospital_id,
+            h.name,
+            h.code,
+            h.city,
+            COALESCE(hr.oxygen_reserve_pct, 75) AS oxygen_reserve_pct,
+            COALESCE(hr.current_pressure_psi, 2200) AS current_pressure_psi,
+            COALESCE(hr.depletion_days, 7.5) AS depletion_days,
+            hr.last_calibrated_at
+        FROM hospitals h
+        LEFT JOIN hospital_resources hr ON h.hospital_id = hr.hospital_id
+        ORDER BY h.hospital_id ASC
+    ");
     $oxygenReserves = [];
-    $allHospitalsList = $pdo->query("SELECT hospital_id, name, code, city FROM hospitals ORDER BY hospital_id ASC")->fetchAll(PDO::FETCH_ASSOC);
-    foreach ($allHospitalsList as $hosp) {
-        $hid = (int)$hosp['hospital_id'];
-        $hBedStat = $pdo->query("SELECT COUNT(*) AS total, SUM(status='Occupied') AS occ, SUM(status='Emergency Hold') AS hold FROM hospital_beds WHERE hospital_id = {$hid}")->fetch(PDO::FETCH_ASSOC);
-        $hTot = (int)($hBedStat['total'] ?? 100);
-        $hOcc = (int)($hBedStat['occ'] ?? 0);
-        $hHold = (int)($hBedStat['hold'] ?? 0);
-        $hOccPct = $hTot > 0 ? ($hOcc / $hTot) * 100 : 0;
-
-        // Base reserve computation: reflects clinical load and burn surge draw
-        if ($hosp['code'] === 'NIBPS') {
-            $pct = round(max(45, 90 - ($hOccPct * 0.48)));
-        } elseif ($hosp['code'] === 'MEDPULSE') {
-            $pct = round(max(55, 94 - ($hOccPct * 0.32) - ($hHold > 0 ? 6 : 0)));
-        } elseif ($hosp['code'] === 'SQUARE') {
-            $pct = round(max(62, 96 - ($hOccPct * 0.22)));
-        } elseif ($hosp['code'] === 'UNITED') {
-            $pct = round(max(68, 94 - ($hOccPct * 0.20)));
-        } elseif ($hosp['code'] === 'UMCH') {
-            $pct = round(max(54, 88 - ($hOccPct * 0.28)));
-        } else { // Evercare
-            $pct = round(max(70, 95 - ($hOccPct * 0.20)));
-        }
-
-        // Threshold badges: Normal: >70% Emerald, Caution: 50-70% Amber, Critical: <50% Rose
-        if ($pct > 70) {
+    while ($oxRow = $oxStmt->fetch(PDO::FETCH_ASSOC)) {
+        $pct = (int)$oxRow['oxygen_reserve_pct'];
+        // Dynamic threshold badges: >=70% NORMAL, 50-69% CAUTION, <50% CRITICAL
+        if ($pct >= 70) {
             $badgeText = 'Normal';
             $badgeClass = 'ox-normal';
             $badgeColor = '#10b981';
@@ -123,26 +102,75 @@ try {
         }
 
         $oxygenReserves[] = [
-            'id' => $hid,
-            'name' => $hosp['name'],
-            'code' => $hosp['code'],
-            'city' => $hosp['city'],
+            'id' => (int)$oxRow['hospital_id'],
+            'name' => $oxRow['name'],
+            'code' => $oxRow['code'],
+            'city' => $oxRow['city'],
             'percentage' => $pct,
+            'psi' => (int)$oxRow['current_pressure_psi'],
+            'days_left' => (float)$oxRow['depletion_days'],
             'badgeText' => $badgeText,
             'badgeClass' => $badgeClass,
             'badgeColor' => $badgeColor
         ];
     }
 
-    // --- Critical Resource Telemetry 3: Universal Blood Bank Reserves ---
+    // 2. Ventilator Fleet Utilization: Sum active and total across all facilities
+    $ventData = $pdo->query("
+        SELECT 
+            COALESCE(SUM(ventilators_total), 0) AS total_vents,
+            COALESCE(SUM(ventilators_active), 0) AS active_vents
+        FROM hospital_resources
+    ")->fetch(PDO::FETCH_ASSOC);
+
+    $totalVentilators = (int)($ventData['total_vents'] ?? 0);
+    $activeVentilators = (int)($ventData['active_vents'] ?? 0);
+    $standbyVentilators = max(0, $totalVentilators - $activeVentilators);
+    $ventUtilizationPct = $totalVentilators > 0 ? round(($activeVentilators / $totalVentilators) * 100, 1) : 0;
+
+    // 3. Blood Bank Aggregation: Full 8-group ABO/Rh + Components across all facilities
+    $bloodData = $pdo->query("
+        SELECT 
+            COALESCE(SUM(blood_o_neg), 0)   AS total_o_neg,
+            COALESCE(SUM(blood_o_pos), 0)   AS total_o_pos,
+            COALESCE(SUM(blood_a_pos), 0)   AS total_a_pos,
+            COALESCE(SUM(blood_a_neg), 0)   AS total_a_neg,
+            COALESCE(SUM(blood_b_pos), 0)   AS total_b_pos,
+            COALESCE(SUM(blood_b_neg), 0)   AS total_b_neg,
+            COALESCE(SUM(blood_ab_pos), 0)  AS total_ab_pos,
+            COALESCE(SUM(blood_ab_neg), 0)  AS total_ab_neg,
+            COALESCE(SUM(blood_trauma_packs), 0) AS total_trauma,
+            COALESCE(SUM(platelet_bags), 0) AS total_platelets,
+            COALESCE(SUM(cryo_units), 0)    AS total_cryo,
+            COUNT(*) AS hub_count
+        FROM hospital_resources
+    ")->fetch(PDO::FETCH_ASSOC);
+
+    $totalONegNow = (int)($bloodData['total_o_neg'] ?? 0);
+    // Derive a dynamic O-neg network status label based on total stock level
+    if ($totalONegNow < 100) {
+        $oNegStatusLabel = 'Network Critical — Replenish';
+    } elseif ($totalONegNow < 150) {
+        $oNegStatusLabel = 'Below Safety Buffer';
+    } else {
+        $oNegStatusLabel = 'Network Optimal';
+    }
+
     $bloodBankStats = [
-        'o_negative_units' => 148,
-        'o_neg_change' => '+14 today',
-        'trauma_emergency_units' => 642, // PRBC, FFP, Platelets
-        'trauma_hubs_count' => 6,
-        'crossmatch_status' => 'Standby Active • Rapid Dispatch Ready',
-        'platelet_concentrates' => 184,
-        'cryo_units' => 96
+        'o_negative_units'       => $totalONegNow,
+        'o_neg_change'           => $oNegStatusLabel,
+        'o_pos_units'            => (int)($bloodData['total_o_pos']  ?? 0),
+        'a_pos_units'            => (int)($bloodData['total_a_pos']  ?? 0),
+        'a_neg_units'            => (int)($bloodData['total_a_neg']  ?? 0),
+        'b_pos_units'            => (int)($bloodData['total_b_pos']  ?? 0),
+        'b_neg_units'            => (int)($bloodData['total_b_neg']  ?? 0),
+        'ab_pos_units'           => (int)($bloodData['total_ab_pos'] ?? 0),
+        'ab_neg_units'           => (int)($bloodData['total_ab_neg'] ?? 0),
+        'trauma_emergency_units' => (int)($bloodData['total_trauma'] ?? 0),
+        'trauma_hubs_count'      => (int)($bloodData['hub_count']    ?? 6),
+        'crossmatch_status'      => 'Standby Active • Rapid Dispatch Ready',
+        'platelet_concentrates'  => (int)($bloodData['total_platelets'] ?? 0),
+        'cryo_units'             => (int)($bloodData['total_cryo']  ?? 0)
     ];
 
     // --- Multi-Hospital Live Status Table ---
@@ -786,6 +814,31 @@ if (!function_exists('getHospitalCrest')) {
       display: flex;
       flex-direction: column;
       justify-content: space-between;
+      transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .consumable-panel-interactive {
+      cursor: pointer;
+      position: relative;
+    }
+    .consumable-panel-interactive:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+      border-color: rgba(124, 58, 237, 0.4);
+    }
+    .inspect-deep-link {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: var(--sa-accent);
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      text-decoration: none;
+      opacity: 0.85;
+      transition: opacity 0.15s ease, transform 0.15s ease;
+    }
+    .consumable-panel-interactive:hover .inspect-deep-link {
+      opacity: 1;
+      transform: translateX(3px);
     }
     .consumable-panel-header {
       display: flex;
@@ -1967,14 +2020,14 @@ if (!function_exists('getHospitalCrest')) {
 
       <div class="sa-consumables-grid">
         <!-- Panel 1: Central Oxygen Reserves across 6 Facilities -->
-        <div class="consumable-panel">
+        <div class="consumable-panel consumable-panel-interactive" onclick="window.location.href='resource_telemetry.php?tab=oxygen'" title="Click to inspect facility-wise oxygen pressure, PSI, and depletion runway">
           <div>
             <div class="consumable-panel-header">
               <span class="consumable-panel-title">
                 <svg class="ui-ico ui-ico-sm" style="stroke: #0284c7; width: 16px; height: 16px;" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M12 6v6l4 2"></path></svg>
                 Central Oxygen Reserves
               </span>
-              <span style="font-size: 0.68rem; color: var(--text-muted); font-weight: 700;">6 FACILITIES</span>
+              <span class="inspect-deep-link">Inspect Deep Grid &rarr;</span>
             </div>
 
             <div style="display: flex; flex-direction: column; gap: 2px;">
@@ -2000,19 +2053,19 @@ if (!function_exists('getHospitalCrest')) {
           </div>
 
           <div style="margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--surface-border-subtle); display: flex; justify-content: space-between; font-size: 0.72rem; color: var(--text-muted);">
-            <span>Thresholds: <span style="color:#065f46; font-weight:700;">&gt;70% Normal</span> &bull; <span style="color:#92400e; font-weight:700;">50-70% Caution</span> &bull; <span style="color:#991b1b; font-weight:700;">&lt;50% Critical</span></span>
+            <span>Thresholds: <span style="color:#065f46; font-weight:700;">&ge;70% Normal</span> &bull; <span style="color:#92400e; font-weight:700;">50-69% Caution</span> &bull; <span style="color:#991b1b; font-weight:700;">&lt;50% Critical</span></span>
           </div>
         </div>
 
         <!-- Panel 2: ICU Ventilator Utilization -->
-        <div class="consumable-panel">
+        <div class="consumable-panel consumable-panel-interactive" onclick="window.location.href='resource_telemetry.php?tab=ventilators'" title="Click to inspect ventilator fleet allocations, active models, and standby hookups">
           <div>
             <div class="consumable-panel-header">
               <span class="consumable-panel-title">
                 <svg class="ui-ico ui-ico-sm" style="stroke: var(--sa-accent); width: 16px; height: 16px;" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
                 ICU Ventilator Utilization
               </span>
-              <span class="license-chip" style="font-size: 0.68rem;"><?= $ventUtilizationPct ?>% LOAD</span>
+              <span class="inspect-deep-link">Inspect Fleet &rarr;</span>
             </div>
 
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px;">
@@ -2040,7 +2093,7 @@ if (!function_exists('getHospitalCrest')) {
           </div>
 
           <div style="margin-top: 14px; padding-top: 8px; border-top: 1px solid var(--surface-border-subtle); display: flex; align-items: center; justify-content: space-between; font-size: 0.72rem;">
-            <span style="color: var(--text-muted);">Deployment Readiness:</span>
+            <span style="color: var(--text-muted);">Fleet Load: <strong style="color:var(--text-heading);"><?= $ventUtilizationPct ?>%</strong></span>
             <span style="color: #10b981; font-weight: 800; display: inline-flex; align-items: center; gap: 4px;">
               <span class="status-pulse-dot" style="background:#10b981; width:5px; height:5px;"></span> 100% Calibrated
             </span>
@@ -2048,30 +2101,28 @@ if (!function_exists('getHospitalCrest')) {
         </div>
 
         <!-- Panel 3: Universal Blood Bank Reserves -->
-        <div class="consumable-panel">
+        <div class="consumable-panel consumable-panel-interactive" onclick="window.location.href='resource_telemetry.php?tab=blood'" title="Click to inspect blood bank reserves, O-Negative units, and cross-match readiness">
           <div>
             <div class="consumable-panel-header">
               <span class="consumable-panel-title">
                 <span style="font-size: 15px;">🩸</span>
                 Universal Blood Bank
               </span>
-              <span style="background: #ffe4e6; color: #e11d48; border: 1px solid #fecdd3; padding: 2px 7px; border-radius: 6px; font-size: 0.68rem; font-weight: 800;">
-                O- UNIVERSAL
-              </span>
+              <span class="inspect-deep-link">Inspect Reserves &rarr;</span>
             </div>
 
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px;">
               <div style="background: var(--surface); border: 1px solid var(--surface-border-subtle); border-radius: 10px; padding: 10px 12px;">
                 <div style="font-size: 0.68rem; color: #e11d48; font-weight: 800; text-transform: uppercase;">O- Negative (O-)</div>
                 <div style="font-size: 1.45rem; font-weight: 800; color: var(--text-heading); margin-top: 2px;">
-                  <?= $bloodBankStats['o_negative_units'] ?> <span style="font-size: 0.72rem; font-weight: 600; color: var(--text-muted);">Units</span>
+                  <?= number_format($bloodBankStats['o_negative_units']) ?> <span style="font-size: 0.72rem; font-weight: 600; color: var(--text-muted);">Units</span>
                 </div>
                 <div style="font-size: 0.68rem; color: #10b981; font-weight: 700;"><?= $bloodBankStats['o_neg_change'] ?></div>
               </div>
               <div style="background: var(--surface); border: 1px solid var(--surface-border-subtle); border-radius: 10px; padding: 10px 12px;">
                 <div style="font-size: 0.68rem; color: #0284c7; font-weight: 800; text-transform: uppercase;">Trauma Emergency</div>
                 <div style="font-size: 1.45rem; font-weight: 800; color: var(--text-heading); margin-top: 2px;">
-                  <?= $bloodBankStats['trauma_emergency_units'] ?> <span style="font-size: 0.72rem; font-weight: 600; color: var(--text-muted);">Units</span>
+                  <?= number_format($bloodBankStats['trauma_emergency_units']) ?> <span style="font-size: 0.72rem; font-weight: 600; color: var(--text-muted);">Units</span>
                 </div>
                 <div style="font-size: 0.68rem; color: var(--text-muted); font-weight: 600;">PRBC &bull; FFP &bull; Platelets</div>
               </div>
@@ -2079,17 +2130,40 @@ if (!function_exists('getHospitalCrest')) {
 
             <div style="background: var(--surface); border-radius: 8px; padding: 8px 10px; font-size: 0.74rem; display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
               <span style="color: var(--text-muted);">Platelet Concentrates:</span>
-              <strong style="color: var(--text-heading);"><?= $bloodBankStats['platelet_concentrates'] ?> bags</strong>
+              <strong style="color: var(--text-heading);"><?= number_format($bloodBankStats['platelet_concentrates']) ?> bags</strong>
             </div>
-            <div style="background: var(--surface); border-radius: 8px; padding: 8px 10px; font-size: 0.74rem; display: flex; justify-content: space-between; align-items: center;">
+            <div style="background: var(--surface); border-radius: 8px; padding: 8px 10px; font-size: 0.74rem; display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
               <span style="color: var(--text-muted);">Cryoprecipitate Reserves:</span>
-              <strong style="color: var(--text-heading);"><?= $bloodBankStats['cryo_units'] ?> units</strong>
+              <strong style="color: var(--text-heading);"><?= number_format($bloodBankStats['cryo_units']) ?> units</strong>
+            </div>
+            <!-- 8-Group Network Total Mini Grid -->
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-top:8px;">
+              <?php
+              $netBloodGroups = [
+                  'O-' => ['val' => $bloodBankStats['o_negative_units'], 'hi' => true],
+                  'O+' => ['val' => $bloodBankStats['o_pos_units'],  'hi' => false],
+                  'A+' => ['val' => $bloodBankStats['a_pos_units'],  'hi' => false],
+                  'A-' => ['val' => $bloodBankStats['a_neg_units'],  'hi' => false],
+                  'B+' => ['val' => $bloodBankStats['b_pos_units'],  'hi' => false],
+                  'B-' => ['val' => $bloodBankStats['b_neg_units'],  'hi' => false],
+                  'AB+' => ['val' => $bloodBankStats['ab_pos_units'], 'hi' => false],
+                  'AB-' => ['val' => $bloodBankStats['ab_neg_units'], 'hi' => false],
+              ];
+              foreach ($netBloodGroups as $grp => $info):
+                  $bg  = $info['hi'] ? 'background:#fff1f2;border:1px solid rgba(225,29,72,0.25);' : 'background:var(--surface-secondary);border:1px solid var(--surface-border-subtle);';
+                  $col = $info['hi'] ? 'color:#e11d48;' : 'color:var(--text-heading);';
+              ?>
+              <div style="<?= $bg ?> border-radius:7px;padding:5px 4px;text-align:center;">
+                <div style="font-size:0.60rem;font-weight:800;color:var(--text-muted);text-transform:uppercase;"><?= $grp ?></div>
+                <div style="font-size:0.92rem;font-weight:800;<?= $col ?>"><?= number_format($info['val']) ?></div>
+              </div>
+              <?php endforeach; ?>
             </div>
           </div>
 
           <div style="margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--surface-border-subtle); display: flex; align-items: center; justify-content: space-between; font-size: 0.72rem;">
             <span style="color: var(--text-muted);">Dispatch Status:</span>
-            <span style="color: #0284c7; font-weight: 700;">6 Hubs Synced</span>
+            <span style="color: #0284c7; font-weight: 700;"><?= $bloodBankStats['trauma_hubs_count'] ?> Hubs Synced</span>
           </div>
         </div>
       </div>

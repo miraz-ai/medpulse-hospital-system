@@ -84,8 +84,11 @@ body {
   border-radius: 24px;
   border: 1px solid var(--border-color);
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7), 0 0 25px var(--border-glow);
+  /* overflow:hidden kept via slider-overlay's own overflow:hidden;
+     the card itself must NOT clip taller signup pane */
   overflow: hidden;
   display: flex;
+  align-items: stretch;
 }
 
 .mobile-nav-pills {
@@ -115,7 +118,8 @@ body {
 
 .form-pane {
   width: 50%;
-  height: 100%;
+  /* Use min-height instead of fixed height so pane can grow */
+  min-height: 100%;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -123,10 +127,49 @@ body {
   transition: all 0.65s cubic-bezier(0.77, 0, 0.175, 1);
   position: absolute;
   top: 0;
+  /* Allow pane height to expand beyond card min-height */
+  height: auto;
 }
 
-.signin-pane { left: 0; z-index: 2; opacity: 1; }
-.signup-pane { left: 0; opacity: 0; z-index: 1; pointer-events: none; }
+.signin-pane {
+  left: 0;
+  z-index: 2;
+  opacity: 1;
+  /* Sign-in has few fields — keep vertically centered */
+  justify-content: center;
+}
+.signup-pane {
+  left: 0;
+  opacity: 0;
+  z-index: 1;
+  pointer-events: none;
+  /* Sign-up can have many fields — align from top, scroll internally */
+  justify-content: flex-start;
+  /* height:100% matches the card height (690px min); overflow-y:auto allows
+     the form to scroll within the card rather than clipping the header */
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* Custom scrollbar — thin, teal-tinted */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(14,165,233,0.35) transparent;
+  /* Top/bottom padding for breathing room */
+  padding-top: 32px;
+  padding-bottom: 32px;
+}
+.signup-pane::-webkit-scrollbar {
+  width: 4px;
+}
+.signup-pane::-webkit-scrollbar-track {
+  background: transparent;
+}
+.signup-pane::-webkit-scrollbar-thumb {
+  background: rgba(14,165,233,0.35);
+  border-radius: 4px;
+}
+.signup-pane::-webkit-scrollbar-thumb:hover {
+  background: rgba(14,165,233,0.6);
+}
 
 .auth-card.active-signup .signin-pane {
   transform: translateX(100%);
@@ -254,6 +297,40 @@ p.desc { color: var(--text-muted); font-size: 0.83rem; margin-bottom: 18px; }
 .field-box input:focus {
   border-color: var(--primary);
   background: rgba(255, 255, 255, 0.06);
+}
+.field-box select {
+  width: 100%;
+  padding: 12px 14px 12px 42px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  color: var(--text-main);
+  font-size: 0.88rem;
+  outline: none;
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+.field-box select:focus {
+  border-color: var(--primary);
+  background: rgba(255, 255, 255, 0.06);
+}
+.field-box select option {
+  background: #0f172a;
+  color: #f8fafc;
+}
+.field-box input[type="date"] {
+  color-scheme: dark;
+}
+.field-grid-patient {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+@media (max-width: 480px) {
+  .field-grid-patient {
+    grid-template-columns: 1fr !important;
+  }
 }
 
 .password-input-group,
@@ -432,11 +509,27 @@ p.desc { color: var(--text-muted); font-size: 0.83rem; margin-bottom: 18px; }
     position: static;
     width: 100%;
     height: auto;
+    /* Reset desktop scroll constraints — mobile body handles scrolling */
+    min-height: 0;
+    max-height: none;
+    overflow-y: visible;
+    overflow-x: visible;
     padding: 0;
     transform: none !important;
     left: auto;
     top: auto;
     transition: none;
+  }
+
+  /* Reset signup-pane desktop scroll behaviour for mobile */
+  .signup-pane {
+    height: auto;
+    max-height: none;
+    overflow-y: visible;
+    overflow-x: visible;
+    padding-top: 0;
+    padding-bottom: 0;
+    justify-content: flex-start;
   }
 
   /* Prevent any desktop translateX or opacity overrides from active-signup */

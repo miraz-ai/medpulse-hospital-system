@@ -3,9 +3,10 @@ require_once __DIR__ . '/../includes/patient_auth.php';
 
 try {
     $stmt = $pdo->prepare("
-        SELECT *
-        FROM users 
-        WHERE user_id = :id AND role = 'Patient' 
+        SELECT u.*, p.patient_uid, p.dob AS patient_dob, p.blood_group AS patient_blood_group
+        FROM users u 
+        LEFT JOIN patients p ON u.user_id = p.user_id
+        WHERE u.user_id = :id AND u.role = 'Patient' 
         LIMIT 1
     ");
     $stmt->execute([':id' => $_SESSION['user_id']]);
@@ -25,9 +26,26 @@ try {
 
     $patientName    = $patient['full_name'];
     $patientEmail   = $patient['email'];
-    $bloodGroup     = !empty($patient['blood_group']) ? $patient['blood_group'] : 'B+';
+    $patientUid     = !empty($patient['patient_uid']) ? $patient['patient_uid'] : ($_SESSION['patient_uid'] ?? ('MP-' . date('Y') . '-' . str_pad((string)$patient['user_id'], 5, '0', STR_PAD_LEFT)));
+    $bloodGroup     = !empty($patient['patient_blood_group']) ? $patient['patient_blood_group'] : (!empty($patient['blood_group']) ? $patient['blood_group'] : 'Unknown');
     $gender         = !empty($patient['gender']) ? $patient['gender'] : 'Male';
     $prescriptions  = !empty($patient['prescriptions']) ? $patient['prescriptions'] : null;
+    $rawDob         = !empty($patient['patient_dob']) ? $patient['patient_dob'] : ($patient['date_of_birth'] ?? null);
+
+    // Calculate dynamic age strictly from actual dob
+    $age = null;
+    $dobFormatted = null;
+    if (!empty($rawDob)) {
+        try {
+            $dobObj = new DateTime($rawDob);
+            $age = (new DateTime())->diff($dobObj)->y;
+            $dobFormatted = $dobObj->format('d M Y');
+        } catch (Exception $e) {
+            $age = !empty($patient['age']) ? (int)$patient['age'] : null;
+        }
+    } else {
+        $age = !empty($patient['age']) ? (int)$patient['age'] : null;
+    }
 
     // Relational Assigned Doctor Lookup:
     // 1. Prioritize active inpatient attending physician from bed allocations
@@ -70,17 +88,7 @@ try {
 
     $assignedDoctor = !empty($assignedDoctor) ? $assignedDoctor : 'Unassigned';
 
-    // Calculate dynamic age if date_of_birth exists, else fallback to age column or default
-    if (!empty($patient['date_of_birth'])) {
-        try {
-            $dobObj = new DateTime($patient['date_of_birth']);
-            $age = (new DateTime())->diff($dobObj)->y;
-        } catch (Exception $e) {
-            $age = !empty($patient['age']) ? (int)$patient['age'] : 22;
-        }
-    } else {
-        $age = !empty($patient['age']) ? (int)$patient['age'] : 22;
-    }
+
 
 } catch (PDOException $e) {
     error_log("Database error in patient_dashboard.php: " . $e->getMessage());
@@ -497,8 +505,16 @@ if ($hour < 12) {
           <svg class="ui-ico" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
         </div>
       </div>
-      <h3 style="font-size: 1.05rem; font-weight: 800; color: var(--text-heading);"><?= htmlspecialchars($patientName, ENT_QUOTES, 'UTF-8') ?></h3>
-      <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;"><?= htmlspecialchars($patientEmail, ENT_QUOTES, 'UTF-8') ?></p>
+      <h3 style="font-size: 1.05rem; font-weight: 800; color: var(--text-heading); margin-bottom: 3px;"><?= htmlspecialchars($patientName, ENT_QUOTES, 'UTF-8') ?></h3>
+      <div style="margin-bottom: 4px;">
+        <span style="font-family: monospace; font-size: 0.76rem; font-weight: 800; color: var(--brand-primary); background: rgba(14,165,233,0.12); padding: 2px 8px; border-radius: 6px; letter-spacing: 0.04em;">
+          <?= htmlspecialchars($patientUid, ENT_QUOTES, 'UTF-8') ?>
+        </span>
+      </div>
+      <p style="font-size: 0.8rem; color: var(--text-muted);"><?= htmlspecialchars($patientEmail, ENT_QUOTES, 'UTF-8') ?></p>
+      <?php if (!empty($dobFormatted)): ?>
+        <p style="font-size: 0.74rem; color: var(--text-muted); margin-top: 2px;">DOB: <strong style="color: var(--text-heading);"><?= htmlspecialchars($dobFormatted, ENT_QUOTES, 'UTF-8') ?></strong></p>
+      <?php endif; ?>
     </div>
 
     <!-- Health Vitals -->
@@ -510,7 +526,7 @@ if ($hour < 12) {
       </div>
       <div class="vital-cell">
         <label>Age / Sex</label>
-        <strong><?= htmlspecialchars((string)$age, ENT_QUOTES, 'UTF-8') ?> / <?= htmlspecialchars($gender, ENT_QUOTES, 'UTF-8') ?></strong>
+        <strong><?= $age !== null ? htmlspecialchars((string)$age, ENT_QUOTES, 'UTF-8') . ' yrs' : 'N/A' ?> / <?= htmlspecialchars($gender, ENT_QUOTES, 'UTF-8') ?></strong>
         <div class="vital-progress"><div class="vital-progress-bar bar-optimal"></div></div>
       </div>
       <div class="vital-cell">

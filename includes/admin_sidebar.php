@@ -107,12 +107,21 @@ if (!isset($pendingCount) && isset($pdo)) {
         <span class="live-chip-sm">LIVE</span>
       </a>
     </li>
+    <li class="nav-item <?= ($currentRoute === 'resource_inventory.php') ? 'active' : '' ?>">
+      <a href="resource_inventory.php">
+        <div class="nav-item-inner">
+          <svg class="ui-ico" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
+          Resource Inventory
+        </div>
+        <span class="live-chip-sm" style="background-color: #0284c7; color: #ffffff !important; font-weight: 700; font-size: 10px; padding: 2px 6px; border-radius: 4px;">IOT</span>
+      </a>
+    </li>
   </ul>
 
   <!-- 2. Finance & Diagnostics -->
   <div class="nav-label">Finance & Diagnostics</div>
   <ul class="nav-menu">
-    <li class="nav-item <?= ($currentRoute === 'billing_management.php') ? 'active' : '' ?>">
+    <li class="nav-item <?= in_array($currentRoute, ['billing_management.php', 'billing.php', 'invoices.php', 'collect_payment.php']) ? 'active' : '' ?>">
       <a href="billing_management.php">
         <div class="nav-item-inner">
           <svg class="ui-ico" viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect><line x1="1" y1="10" x2="23" y2="10"></line></svg>

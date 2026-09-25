@@ -9,6 +9,24 @@ require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../includes/doctor_helpers.php';
 
 // ----------------------------------------------------------------------------
+// Strict Multi-Branch Direct URL Gatekeeper (?invoice_id=XYZ)
+// ----------------------------------------------------------------------------
+$sessionHospitalId = (int)($_SESSION['hospital_id'] ?? 1);
+
+if (!empty($_GET['invoice_id']) && !isset($_GET['action'])) {
+    $directInvId = filter_var($_GET['invoice_id'], FILTER_VALIDATE_INT);
+    if ($directInvId) {
+        $chkStmt = $pdo->prepare("SELECT invoice_id, hospital_id FROM invoices WHERE invoice_id = ? LIMIT 1");
+        $chkStmt->execute([$directInvId]);
+        $directInv = $chkStmt->fetch(PDO::FETCH_ASSOC);
+        if ($directInv && (int)$directInv['hospital_id'] !== $sessionHospitalId) {
+            http_response_code(403);
+            exit('Access Denied: Record belongs to another facility.');
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
 // AJAX Endpoint: Fetch Itemized Invoice Breakdown & Doctor Payout Details
 // ----------------------------------------------------------------------------
 if (isset($_GET['action']) && $_GET['action'] === 'get_invoice_breakdown') {
@@ -25,6 +43,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'get_invoice_breakdown') {
             SELECT 
                 i.invoice_id,
                 i.invoice_number,
+                i.hospital_id,
                 i.patient_id,
                 i.admission_id,
                 i.subtotal,
@@ -59,6 +78,13 @@ if (isset($_GET['action']) && $_GET['action'] === 'get_invoice_breakdown') {
 
         if (!$invoice) {
             echo json_encode(['success' => false, 'message' => 'Invoice record not found.']);
+            exit;
+        }
+
+        // Strict Multi-Branch Read Isolation Guard
+        if ((int)$invoice['hospital_id'] !== $sessionHospitalId) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'message' => 'Access Denied: Record belongs to another facility.']);
             exit;
         }
 
@@ -119,8 +145,8 @@ if (isset($_GET['action']) && $_GET['action'] === 'get_invoice_breakdown') {
 if (isset($_GET['action']) && $_GET['action'] === 'get_treasury_summary') {
     header('Content-Type: application/json; charset=utf-8');
     try {
-        // Hospital-wide financial aggregates
-        $summaryStmt = $pdo->query("
+        // Hospital-wide financial aggregates strictly scoped to this branch
+        $summaryStmt = $pdo->prepare("
             SELECT
                 COALESCE(SUM(net_payable), 0)  AS total_invoiced,
                 COALESCE(SUM(paid_amount), 0)  AS total_collected,
@@ -129,19 +155,25 @@ if (isset($_GET['action']) && $_GET['action'] === 'get_treasury_summary') {
                 SUM(IF(status = 'Paid', 1, 0))    AS paid_count,
                 SUM(IF(status != 'Paid', 1, 0))   AS pending_count
             FROM invoices
+            WHERE hospital_id = :hid
         ");
+        $summaryStmt->execute([':hid' => $sessionHospitalId]);
         $summary = $summaryStmt->fetch(PDO::FETCH_ASSOC);
 
-        // Doctor fee liabilities (not yet disbursed)
-        $liabilityStmt = $pdo->query("
-            SELECT COALESCE(SUM(doctor_payout_amount), 0) AS doctor_fee_liability
-            FROM invoice_items
-            WHERE doctor_payout_status != 'DISBURSED' AND doctor_id IS NOT NULL
+        // Doctor fee liabilities (scoped to this facility)
+        $liabilityStmt = $pdo->prepare("
+            SELECT COALESCE(SUM(ii.doctor_payout_amount), 0) AS doctor_fee_liability
+            FROM invoice_items ii
+            JOIN invoices i ON ii.invoice_id = i.invoice_id
+            WHERE ii.doctor_payout_status != 'DISBURSED' 
+              AND ii.doctor_id IS NOT NULL
+              AND i.hospital_id = :hid
         ");
+        $liabilityStmt->execute([':hid' => $sessionHospitalId]);
         $summary['doctor_fee_liability'] = (float)$liabilityStmt->fetchColumn();
 
-        // Pending payout items for clearance table
-        $payoutStmt = $pdo->query("
+        // Pending payout items for clearance table (scoped to this facility)
+        $payoutStmt = $pdo->prepare("
             SELECT
                 ii.item_id, ii.invoice_id, ii.doctor_id,
                 ii.description, ii.doctor_payout_amount, ii.doctor_payout_status,
@@ -159,9 +191,11 @@ if (isset($_GET['action']) && $_GET['action'] === 'get_treasury_summary') {
             LEFT JOIN doctor_profiles dp ON doc.user_id  = dp.user_id
             WHERE ii.doctor_id IS NOT NULL
               AND ii.doctor_payout_status != 'DISBURSED'
+              AND i.hospital_id = :hid
             ORDER BY ii.item_id DESC
             LIMIT 100
         ");
+        $payoutStmt->execute([':hid' => $sessionHospitalId]);
         $payouts = $payoutStmt->fetchAll(PDO::FETCH_ASSOC);
 
         foreach ($payouts as &$p) {
@@ -216,8 +250,8 @@ if (isset($_GET['action']) && $_GET['action'] === 'settle_payment' && $_SERVER['
     try {
         $pdo->beginTransaction();
 
-        // Fetch current state
-        $fetchStmt = $pdo->prepare("SELECT due_amount, paid_amount, status FROM invoices WHERE invoice_id = ? LIMIT 1");
+        // Fetch current state strictly including hospital_id
+        $fetchStmt = $pdo->prepare("SELECT invoice_id, invoice_number, hospital_id, due_amount, paid_amount, status FROM invoices WHERE invoice_id = ? LIMIT 1");
         $fetchStmt->execute([$invId]);
         $inv = $fetchStmt->fetch(PDO::FETCH_ASSOC);
         if (!$inv) {
@@ -226,18 +260,40 @@ if (isset($_GET['action']) && $_GET['action'] === 'settle_payment' && $_SERVER['
             exit;
         }
 
+        // Strict Branch Write & Cash Collection Guard
+        if ((int)$inv['hospital_id'] !== $sessionHospitalId) {
+            $pdo->rollBack();
+            // Record security alert in audit_logs
+            $secAudit = $pdo->prepare("
+                INSERT INTO audit_logs
+                    (actor_id, actor_role, action, action_name, description, category, target_entity, ip_address, security_level)
+                VALUES
+                    (:actor, 'Admin', 'UNAUTHORIZED_PAYMENT_ATTEMPT', 'UNAUTHORIZED_PAYMENT_ATTEMPT', :desc, 'SECURITY', :target, :ip, 'CRITICAL')
+            ");
+            $secAudit->execute([
+                ':actor'  => $adminId ?: null,
+                ':desc'   => sprintf('Security Alert: Cross-branch payment collection rejected! Admin #%d (Hospital #%d) attempted payment on Invoice %s (Hospital #%d).',
+                                      $adminId, $sessionHospitalId, $inv['invoice_number'], (int)$inv['hospital_id']),
+                ':target' => $inv['invoice_number'],
+                ':ip'     => $ip
+            ]);
+            http_response_code(403);
+            echo json_encode(['success' => false, 'message' => 'Access Denied: You cannot collect payments on invoices belonging to another facility.']);
+            exit;
+        }
+
         $received = min((float)$received, (float)$inv['due_amount']); // cap at due
         $newPaid  = (float)$inv['paid_amount'] + $received;
         $newDue   = max(0, (float)$inv['due_amount'] - $received);
         $newStatus = $newDue <= 0 ? 'Paid' : 'Partial';
 
-        // Update invoice
+        // Update invoice strictly scoped by hospital_id
         $paymentStatus = $newDue <= 0 ? 'paid' : 'unpaid';
         $updateStmt = $pdo->prepare("
             UPDATE invoices
                SET paid_amount = :paid, due_amount = :due, status = :status,
                    payment_status = :pay_status, payment_method = :method
-             WHERE invoice_id = :id
+             WHERE invoice_id = :id AND hospital_id = :hid
         ");
         $updateStmt->execute([
             ':paid'       => $newPaid,
@@ -246,6 +302,24 @@ if (isset($_GET['action']) && $_GET['action'] === 'settle_payment' && $_SERVER['
             ':pay_status' => $paymentStatus,
             ':method'     => $method,
             ':id'         => $invId,
+            ':hid'        => $sessionHospitalId
+        ]);
+
+        // Record in invoice_payments table
+        $insPay = $pdo->prepare("
+            INSERT INTO invoice_payments
+                (hospital_id, invoice_id, amount, payment_method, transaction_reference, collected_by_user_id, payment_notes, payment_date)
+            VALUES
+                (:hid, :inv_id, :amt, :method, :ref, :user_id, :notes, NOW())
+        ");
+        $insPay->execute([
+            ':hid'     => $sessionHospitalId,
+            ':inv_id'  => $invId,
+            ':amt'     => $received,
+            ':method'  => $method,
+            ':ref'     => $txnId ?: null,
+            ':user_id' => $adminId,
+            ':notes'   => "Collected by Admin #{$adminId} at Branch #{$sessionHospitalId}"
         ]);
 
         // When payment is settled (Paid), release doctor earnings to available_for_disbursement
@@ -261,21 +335,19 @@ if (isset($_GET['action']) && $_GET['action'] === 'settle_payment' && $_SERVER['
         }
 
         // Fetch invoice number for audit
-        $invNumStmt = $pdo->prepare("SELECT invoice_number FROM invoices WHERE invoice_id = ?");
-        $invNumStmt->execute([$invId]);
-        $invNumber = $invNumStmt->fetchColumn() ?: "INV-{$invId}";
+        $invNumber = $inv['invoice_number'] ?: "INV-{$invId}";
 
         // Audit log
         $auditStmt = $pdo->prepare("
             INSERT INTO audit_logs
                 (actor_id, actor_role, action, action_name, description, category, target_entity, ip_address)
             VALUES
-                (:actor, 'Admin', 'PAYMENT_COLLECTED', 'PAYMENT_COLLECTED', :desc, 'SYSTEM', :target, :ip)
+                (:actor, 'Admin', 'PAYMENT_COLLECTED', 'PAYMENT_COLLECTED', :desc, 'BRANCH_TREASURY', :target, :ip)
         ");
         $auditStmt->execute([
             ':actor'  => $adminId ?: null,
-            ':desc'   => sprintf('Collected %.2f via %s | Ref: %s | Invoice: %s | New due: %.2f',
-                                  $received, $method, $txnId ?: 'N/A', $invNumber, $newDue),
+            ':desc'   => sprintf('Collected ৳%.2f via %s | Ref: %s | Invoice: %s (Branch #%d) | New due: ৳%.2f',
+                                  $received, $method, $txnId ?: 'N/A', $invNumber, $sessionHospitalId, $newDue),
             ':target' => $invNumber,
             ':ip'     => $ip,
         ]);
@@ -320,10 +392,10 @@ if (isset($_GET['action']) && $_GET['action'] === 'approve_doctor_payout' && $_S
     try {
         $pdo->beginTransaction();
 
-        // Fetch item details for audit
+        // Fetch item details for audit strictly including hospital_id
         $itemFetchStmt = $pdo->prepare("
             SELECT ii.invoice_id, ii.doctor_id, ii.doctor_payout_amount, ii.doctor_payout_status,
-                   doc.full_name AS doctor_name, i.invoice_number
+                   doc.full_name AS doctor_name, i.invoice_number, i.hospital_id
             FROM invoice_items ii
             JOIN invoices i ON ii.invoice_id = i.invoice_id
             JOIN users doc  ON ii.doctor_id  = doc.user_id
@@ -336,6 +408,14 @@ if (isset($_GET['action']) && $_GET['action'] === 'approve_doctor_payout' && $_S
         if (!$item || $item['doctor_payout_status'] === 'DISBURSED') {
             $pdo->rollBack();
             echo json_encode(['success' => false, 'message' => $item ? 'Payout already disbursed.' : 'Item not found.']);
+            exit;
+        }
+
+        // Branch Isolation Guard for Doctor Payouts
+        if ((int)$item['hospital_id'] !== $sessionHospitalId) {
+            $pdo->rollBack();
+            http_response_code(403);
+            echo json_encode(['success' => false, 'message' => 'Access Denied: Record belongs to another facility.']);
             exit;
         }
 
@@ -392,7 +472,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'approve_doctor_payout' && $_S
 }
 
 // ----------------------------------------------------------------------------
-// AJAX Endpoint: Audit Feed — Recent Billing-Related Events
+// AJAX Endpoint: Audit Feed — Recent Billing-Related Events (Branch Scoped)
 // ----------------------------------------------------------------------------
 if (isset($_GET['action']) && $_GET['action'] === 'get_audit_feed') {
     header('Content-Type: application/json; charset=utf-8');
@@ -404,13 +484,14 @@ if (isset($_GET['action']) && $_GET['action'] === 'get_audit_feed') {
                 u.full_name AS admin_name
             FROM audit_logs a
             LEFT JOIN users u ON a.actor_id = u.user_id
-            WHERE a.action LIKE '%INVOICE%'
+            WHERE (a.action LIKE '%INVOICE%'
                OR a.action LIKE '%PAYMENT%'
-               OR a.action LIKE '%PAYOUT%'
+               OR a.action LIKE '%PAYOUT%')
+              AND (u.hospital_id = :hid OR a.target_entity IN (SELECT invoice_number FROM invoices WHERE hospital_id = :hid2))
             ORDER BY a.created_at DESC
             LIMIT 40
         ");
-        $feedStmt->execute();
+        $feedStmt->execute([':hid' => $sessionHospitalId, ':hid2' => $sessionHospitalId]);
         $events = $feedStmt->fetchAll(PDO::FETCH_ASSOC);
         echo json_encode(['success' => true, 'events' => $events]);
     } catch (PDOException $e) {
@@ -420,14 +501,15 @@ if (isset($_GET['action']) && $_GET['action'] === 'get_audit_feed') {
 }
 
 // ----------------------------------------------------------------------------
-// Page Load: Fetch All Central Invoices with Doctor Breakdown Aggregates
+// Page Load: Fetch Branch Invoices with Doctor Breakdown Aggregates
 // ----------------------------------------------------------------------------
 $invoices = [];
 try {
-    $invoicesStmt = $pdo->query("
+    $invoicesStmt = $pdo->prepare("
         SELECT 
             i.invoice_id,
             i.invoice_number,
+            i.hospital_id,
             i.patient_id,
             i.admission_id,
             i.subtotal,
@@ -454,9 +536,11 @@ try {
         LEFT JOIN hospital_beds hb ON ba.bed_id = hb.bed_id
         LEFT JOIN invoice_items ii ON i.invoice_id = ii.invoice_id
         LEFT JOIN users doc ON ii.doctor_id = doc.user_id AND doc.role = 'Doctor'
+        WHERE i.hospital_id = :hid
         GROUP BY i.invoice_id
         ORDER BY i.created_at DESC
     ");
+    $invoicesStmt->execute([':hid' => $sessionHospitalId]);
     $invoices = $invoicesStmt->fetchAll(PDO::FETCH_ASSOC);
 
     foreach ($invoices as &$inv) {

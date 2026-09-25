@@ -192,7 +192,21 @@ async function handleAuthSubmit(e, endpoint) {
     formData.set('login_role', selectedTab);
   }
 
-  if (endpoint.includes('register_action.php')) {
+  if (endpoint.includes('register_action.php') || endpoint.includes('register.php')) {
+    const role = formData.get('register_role') || 'Patient';
+    if (role === 'Patient') {
+      const dob = (formData.get('dob') || '').trim();
+      if (!dob) {
+        showAlert('Please select your date of birth.', 'error');
+        return;
+      }
+      const bg = (formData.get('blood_group') || '').trim();
+      if (!bg) {
+        showAlert('Please select your blood group.', 'error');
+        return;
+      }
+    }
+
     const email = (formData.get('email') || '').trim();
     const emailPattern = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
     if (!emailPattern.test(email)) {
@@ -271,4 +285,34 @@ function toggleDoctorFields(role) {
   if (docFields) {
     docFields.style.display = (role === 'Doctor') ? 'block' : 'none';
   }
+
+  // DOB and Blood Group are Patient-only registration fields
+  const patientDobBgRow = document.querySelector('.field-grid-patient');
+  if (patientDobBgRow) {
+    patientDobBgRow.style.display = (role === 'Patient') ? 'grid' : 'none';
+    // Toggle required attribute to avoid HTML5 validation errors on hidden fields
+    const dobInput = document.getElementById('regDob');
+    const bgSelect = document.getElementById('regBloodGroup');
+    if (dobInput) dobInput.required = (role === 'Patient');
+    if (bgSelect) bgSelect.required = (role === 'Patient');
+  }
+
+  // Always scroll the signup pane back to top when switching tabs,
+  // so the MedPulse logo header is fully visible regardless of tab content height.
+  const signupPane = document.getElementById('signUpSection');
+  if (signupPane) {
+    signupPane.scrollTop = 0;
+  }
 }
+
+// Auto-open register tab if requested via query parameter
+document.addEventListener('DOMContentLoaded', () => {
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get('tab') === 'register' || urlParams.get('action') === 'register') {
+    if (window.innerWidth <= 840) {
+      mobileToggle('register');
+    } else {
+      toggleDesktopSlider(true);
+    }
+  }
+});

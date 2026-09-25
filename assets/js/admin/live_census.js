@@ -390,10 +390,42 @@
     });
   }
 
+  // ------------------------------------------------------------------
+  // Live Housekeeping Elapsed Cleaning Timers
+  // ------------------------------------------------------------------
+  function updateElapsedCleaningTimers() {
+    const timerEls = document.querySelectorAll('.elapsed-cleaning-timer');
+    if (!timerEls.length) return;
+    const now = Math.floor(Date.now() / 1000);
+
+    timerEls.forEach(el => {
+      const ts = parseInt(el.getAttribute('data-timestamp'), 10);
+      if (!ts) return;
+      const diff = Math.max(0, now - ts);
+      const m = Math.floor(diff / 60);
+      const s = diff % 60;
+      const h = Math.floor(m / 60);
+      const remM = m % 60;
+
+      const textEl = el.querySelector('.timer-display') || el;
+      if (h > 0) {
+        textEl.textContent = `${h}h ${remM}m ${s < 10 ? '0' : ''}${s}s`;
+      } else {
+        textEl.textContent = `${m}m ${s < 10 ? '0' : ''}${s}s`;
+      }
+    });
+  }
+
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initModalsBackdrop);
+    document.addEventListener('DOMContentLoaded', () => {
+      initModalsBackdrop();
+      updateElapsedCleaningTimers();
+    });
   } else {
     initModalsBackdrop();
+    updateElapsedCleaningTimers();
   }
+
+  setInterval(updateElapsedCleaningTimers, 1000);
 
 }());

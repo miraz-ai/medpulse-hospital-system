@@ -47,8 +47,10 @@ try {
             u.email AS patient_email,
             u.phone AS patient_phone,
             u.gender,
-            u.age,
-            u.blood_group,
+            COALESCE(TIMESTAMPDIFF(YEAR, pat.dob, CURDATE()), u.age, 0) AS age,
+            COALESCE(pat.blood_group, u.blood_group, 'Unknown') AS blood_group,
+            pat.patient_uid,
+            pat.dob,
             b.bed_id,
             b.bed_number,
             b.ward_type,
@@ -56,6 +58,7 @@ try {
             b.daily_rate
         FROM bed_allocations ba
         JOIN users u ON ba.patient_id = u.user_id
+        LEFT JOIN patients pat ON u.user_id = pat.user_id
         JOIN hospital_beds b ON ba.bed_id = b.bed_id
         WHERE ba.status = 'Active'
         ORDER BY ba.admitted_at DESC
@@ -112,8 +115,12 @@ try {
 
     // 6. Fetch Registered Non-Admitted Patients for Quick Admission Modal
     $unadmittedPatientsStmt = $pdo->query("
-        SELECT u.user_id, u.full_name, u.email, u.phone, u.gender, u.age, u.blood_group
+        SELECT u.user_id, u.full_name, u.email, u.phone, u.gender,
+               COALESCE(TIMESTAMPDIFF(YEAR, pat.dob, CURDATE()), u.age, 0) AS age,
+               COALESCE(pat.blood_group, u.blood_group, 'Unknown') AS blood_group,
+               pat.patient_uid, pat.dob
         FROM users u
+        LEFT JOIN patients pat ON u.user_id = pat.user_id
         WHERE u.role = 'Patient' 
           AND u.user_id NOT IN (
               SELECT patient_id FROM bed_allocations WHERE status = 'Active'
@@ -294,12 +301,12 @@ try {
                       </strong>
                     </div>
                     <div style="display: flex; gap: 6px; align-items: center; margin-top: 4px;">
-                      <span class="patient-id-chip">PAT-<?= str_pad((string)$pid, 4, '0', STR_PAD_LEFT) ?></span>
+                      <span class="patient-id-chip"><?= htmlspecialchars(!empty($p['patient_uid']) ? $p['patient_uid'] : ('PAT-' . str_pad((string)$pid, 4, '0', STR_PAD_LEFT)), ENT_QUOTES, 'UTF-8') ?></span>
                       <span style="font-size: 0.74rem; color: var(--ipc-slate-400);">
-                        <?= htmlspecialchars($p['gender'] ?? 'Male', ENT_QUOTES, 'UTF-8') ?>, <?= htmlspecialchars((string)($p['age'] ?? 24), ENT_QUOTES, 'UTF-8') ?>y
+                        <?= htmlspecialchars($p['gender'] ?? 'Male', ENT_QUOTES, 'UTF-8') ?><?= !empty($p['age']) ? ', ' . (int)$p['age'] . 'y' : '' ?>
                       </span>
                       <span style="font-size: 0.72rem; font-weight: 700; color: #dc2626; background: #fee2e2; padding: 1px 5px; border-radius: 4px;">
-                        <?= htmlspecialchars($p['blood_group'] ?? 'B+', ENT_QUOTES, 'UTF-8') ?>
+                        <?= htmlspecialchars($p['blood_group'] ?? 'Unknown', ENT_QUOTES, 'UTF-8') ?>
                       </span>
                     </div>
                   </td>
@@ -556,8 +563,12 @@ try {
             <select id="admitPatientSelect" name="patient_id" class="ipc-select" required>
               <option value="">-- Choose Patient for Admission --</option>
               <?php foreach ($eligiblePatients as $ep): ?>
+                <?php
+                  $epUid = !empty($ep['patient_uid']) ? $ep['patient_uid'] : ('PAT-' . str_pad((string)$ep['user_id'], 4, '0', STR_PAD_LEFT));
+                  $epAgeStr = !empty($ep['age']) ? ((int)$ep['age'] . 'y') : 'Age N/A';
+                ?>
                 <option value="<?= (int)$ep['user_id'] ?>">
-                  <?= htmlspecialchars($ep['full_name'], ENT_QUOTES, 'UTF-8') ?> (PAT-<?= str_pad((string)$ep['user_id'], 4, '0', STR_PAD_LEFT) ?> • <?= htmlspecialchars($ep['gender'] ?? 'Male', ENT_QUOTES, 'UTF-8') ?>, <?= (int)($ep['age'] ?? 24) ?>y, <?= htmlspecialchars($ep['blood_group'] ?? 'B+', ENT_QUOTES, 'UTF-8') ?>)
+                  <?= htmlspecialchars($ep['full_name'], ENT_QUOTES, 'UTF-8') ?> (<?= htmlspecialchars($epUid, ENT_QUOTES, 'UTF-8') ?> • <?= htmlspecialchars($ep['gender'] ?? 'Male', ENT_QUOTES, 'UTF-8') ?>, <?= $epAgeStr ?>, <?= htmlspecialchars($ep['blood_group'] ?? 'Unknown', ENT_QUOTES, 'UTF-8') ?>)
                 </option>
               <?php endforeach; ?>
             </select>
@@ -638,8 +649,8 @@ try {
             </div>
           </div>
 
-          <div style="background: #fffbeb; border: 1px solid #fef3c7; border-left: 4px solid #f59e0b; border-radius: 6px; padding: 12px; margin-bottom: 16px; font-size: 0.82rem; color: #92400e;">
-            <strong>Data Integrity Protocol:</strong> Discharging this inpatient will atomically release the occupied bed back to 'Available' status, log the clinical discharge timestamp, and end active care team assignments.
+          <div style="background: #eff6ff; border: 1px solid #dbeafe; border-left: 4px solid #0284c7; border-radius: 6px; padding: 12px; margin-bottom: 16px; font-size: 0.82rem; color: #0369a1;">
+            <strong>Clinical Sanitization Protocol:</strong> Discharging this inpatient will transition the bed immediately into <strong>'Sanitizing'</strong> status in the branch UV/Chemical Housekeeping queue. The bed will not be available for new admissions until clinical decontamination is certified.
           </div>
 
           <div class="form-group-ipc">

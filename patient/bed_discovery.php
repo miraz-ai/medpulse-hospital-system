@@ -11,21 +11,32 @@ require_once __DIR__ . '/../config/db.php';
 
 // Fetch patient basics
 try {
-    $stmt = $pdo->prepare("SELECT user_id, full_name, email, gender, blood_group, age, date_of_birth FROM users WHERE user_id = :id AND role = 'Patient' LIMIT 1");
+    $stmt = $pdo->prepare("
+        SELECT u.user_id, u.full_name, u.email, u.gender, 
+               COALESCE(p.blood_group, u.blood_group, 'Unknown') AS blood_group, 
+               COALESCE(p.dob, u.date_of_birth) AS dob,
+               p.patient_uid,
+               u.age
+        FROM users u 
+        LEFT JOIN patients p ON u.user_id = p.user_id
+        WHERE u.user_id = :id AND u.role = 'Patient' 
+        LIMIT 1
+    ");
     $stmt->execute([':id' => $_SESSION['user_id']]);
     $patient = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$patient) { header('Location: ../login.php'); exit(); }
 
     $patientName  = $patient['full_name'];
     $patientEmail = $patient['email'];
-    $bloodGroup   = !empty($patient['blood_group']) ? $patient['blood_group'] : 'B+';
+    $bloodGroup   = !empty($patient['blood_group']) ? $patient['blood_group'] : 'Unknown';
     $gender       = !empty($patient['gender'])       ? $patient['gender']      : 'Male';
+    $patientUid   = !empty($patient['patient_uid'])  ? $patient['patient_uid'] : ($_SESSION['patient_uid'] ?? ('MP-' . date('Y') . '-' . str_pad((string)$patient['user_id'], 5, '0', STR_PAD_LEFT)));
 
-    if (!empty($patient['date_of_birth'])) {
-        try { $age = (new DateTime())->diff(new DateTime($patient['date_of_birth']))->y; }
-        catch (Exception $e) { $age = !empty($patient['age']) ? (int)$patient['age'] : 22; }
+    if (!empty($patient['dob'])) {
+        try { $age = (new DateTime())->diff(new DateTime($patient['dob']))->y; }
+        catch (Exception $e) { $age = !empty($patient['age']) ? (int)$patient['age'] : 0; }
     } else {
-        $age = !empty($patient['age']) ? (int)$patient['age'] : 22;
+        $age = !empty($patient['age']) ? (int)$patient['age'] : 0;
     }
 } catch (PDOException $e) {
     die('Database error. Please contact support.');

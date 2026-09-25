@@ -7,12 +7,24 @@
 require_once __DIR__ . '/../includes/admin_auth.php';
 
 try {
-    // Fetch registered patients
+    // Fetch registered patients joined with patients table
     $patientsStmt = $pdo->prepare("
-        SELECT user_id, full_name, email, phone, gender, role, status, blood_group, age, date_of_birth, created_at 
-        FROM users 
-        WHERE role = 'Patient' 
-        ORDER BY created_at DESC
+        SELECT 
+            u.user_id, 
+            u.full_name, 
+            u.email, 
+            u.phone, 
+            u.gender, 
+            u.role, 
+            u.status, 
+            COALESCE(p.blood_group, u.blood_group, 'Unknown') AS blood_group, 
+            COALESCE(p.dob, u.date_of_birth) AS dob,
+            p.patient_uid,
+            u.created_at 
+        FROM users u 
+        LEFT JOIN patients p ON u.user_id = p.user_id
+        WHERE u.role = 'Patient' 
+        ORDER BY u.created_at DESC
     ");
     $patientsStmt->execute();
     $patientsRegistry = $patientsStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -137,10 +149,19 @@ try {
                 <td colspan="8" style="text-align: center; color: var(--text-muted); padding: 2rem;">No patient records found.</td>
               </tr>
             <?php else: ?>
-              <?php foreach ($patientsRegistry as $patient): ?>
+              <?php foreach ($patientsRegistry as $patient): 
+                $calcAge = 'N/A';
+                if (!empty($patient['dob'])) {
+                    try {
+                        $calcAge = (new DateTime())->diff(new DateTime($patient['dob']))->y . ' yrs';
+                    } catch (Exception $e) {}
+                }
+                $displayUid = !empty($patient['patient_uid']) ? $patient['patient_uid'] : ('MP-' . date('Y') . '-' . str_pad((string)$patient['user_id'], 5, '0', STR_PAD_LEFT));
+                $bg = !empty($patient['blood_group']) ? $patient['blood_group'] : 'Unknown';
+              ?>
                 <tr>
                   <td>
-                    <span class="license-chip">PAT-<?= str_pad((string)$patient['user_id'], 4, '0', STR_PAD_LEFT) ?></span>
+                    <span class="license-chip" style="font-family: monospace; font-weight: 700;"><?= htmlspecialchars($displayUid, ENT_QUOTES, 'UTF-8') ?></span>
                   </td>
                   <td>
                     <strong style="font-size: 0.92rem; color: var(--text-heading);">
@@ -151,11 +172,11 @@ try {
                   <td><?= htmlspecialchars($patient['phone'], ENT_QUOTES, 'UTF-8') ?></td>
                   <td>
                     <span style="font-weight: 800; color: var(--status-red); background: var(--status-red-bg); padding: 2px 7px; border-radius: 4px; font-size: 0.74rem;">
-                      <?= htmlspecialchars($patient['blood_group'] ?? 'B+', ENT_QUOTES, 'UTF-8') ?>
+                      <?= htmlspecialchars($bg, ENT_QUOTES, 'UTF-8') ?>
                     </span>
                   </td>
                   <td>
-                    <?= htmlspecialchars((string)($patient['age'] ?? 22), ENT_QUOTES, 'UTF-8') ?> / <?= htmlspecialchars($patient['gender'] ?? 'Male', ENT_QUOTES, 'UTF-8') ?>
+                    <?= htmlspecialchars($calcAge, ENT_QUOTES, 'UTF-8') ?> / <?= htmlspecialchars($patient['gender'] ?? 'Male', ENT_QUOTES, 'UTF-8') ?>
                   </td>
                   <td style="font-size: 0.78rem; color: var(--text-muted);">
                     <?= htmlspecialchars(date('d M Y', strtotime($patient['created_at'])), ENT_QUOTES, 'UTF-8') ?>

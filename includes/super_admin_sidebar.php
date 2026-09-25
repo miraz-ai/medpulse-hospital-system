@@ -68,11 +68,29 @@ $currentRoute = basename($_SERVER['PHP_SELF'] ?? '');
         <span class="live-chip-sm">LIVE</span>
       </a>
     </li>
+    <li class="nav-item <?= ($currentRoute === 'resource_telemetry.php') ? 'active' : '' ?>">
+      <a href="resource_telemetry.php">
+        <div class="nav-item-inner">
+          <svg class="ui-ico" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
+          Resource Telemetry
+        </div>
+        <span class="live-chip-sm" style="background:#0284c7;">IOT</span>
+      </a>
+    </li>
   </ul>
 
-  <!-- 2. Governance -->
-  <div class="nav-label">Governance</div>
+  <!-- 2. Finance & Governance -->
+  <div class="nav-label">Finance & Governance</div>
   <ul class="nav-menu">
+    <li class="nav-item <?= ($currentRoute === 'financial_overview.php') ? 'active' : '' ?>">
+      <a href="financial_overview.php">
+        <div class="nav-item-inner">
+          <svg class="ui-ico" viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+          Executive Financials
+        </div>
+        <span class="live-chip-sm" style="background:#10b981; color:#fff;">FIN</span>
+      </a>
+    </li>
     <li class="nav-item <?= ($currentRoute === 'audit_logs.php') ? 'active' : '' ?>">
       <a href="audit_logs.php">
         <div class="nav-item-inner">

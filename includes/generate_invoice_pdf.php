@@ -68,6 +68,7 @@ try {
         SELECT
             i.invoice_id,
             i.invoice_number,
+            i.hospital_id,
             i.patient_id,
             i.admission_id,
             i.subtotal,
@@ -108,8 +109,14 @@ if (!$invoice) {
     die('<h2 style="font-family:sans-serif;color:#64748b;padding:40px;">Invoice not found.</h2>');
 }
 
-// ── Patient Ownership Gatekeeper ─────────────────────────────────────────────
-if ($sessionRole === 'Patient') {
+// ── Multi-Branch Isolation & Ownership Gatekeeper ────────────────────────────
+if ($sessionRole === 'Admin') {
+    $sessionHospitalId = (int)($_SESSION['hospital_id'] ?? 1);
+    if ((int)$invoice['hospital_id'] !== $sessionHospitalId) {
+        http_response_code(403);
+        die('<h2 style="font-family:sans-serif;color:#dc2626;padding:40px;">Access Denied: Record belongs to another facility.</h2>');
+    }
+} elseif ($sessionRole === 'Patient') {
     if ((int) $invoice['patient_id'] !== $sessionUserId) {
         http_response_code(403);
         die('<h2 style="font-family:sans-serif;color:#dc2626;padding:40px;">Access Denied: You are not authorized to view or download this billing statement.</h2>');

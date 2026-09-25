@@ -132,7 +132,29 @@ try {
         $waveColor = '#0d9488';
     }
 
-    // 4. Live Event Telemetry Ticker (Latest 5 Events from audit_logs)
+    // 4. Branch Critical Resource Telemetry (Oxygen, Ventilators, Blood Bank)
+    $resStmt = $pdo->prepare("SELECT * FROM hospital_resources WHERE hospital_id = ?");
+    $resStmt->execute([$adminHospitalId]);
+    $branchResource = $resStmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$branchResource) {
+        $branchResource = [
+            'oxygen_reserve_pct'   => 75,
+            'current_pressure_psi' => 2200,
+            'depletion_days'       => 7.5,
+            'tanker_dispatched'    => 0,
+            'ventilators_total'    => 80,
+            'ventilators_active'   => 50,
+            'hardware_spec'        => 'Standard Dual Mode ICU Ventilator',
+            'blood_o_neg'          => 25,
+            'blood_trauma_packs'   => 100,
+            'platelet_bags'        => 30,
+            'cryo_units'           => 15,
+            'courier_dispatched'   => 0
+        ];
+    }
+
+    // 5. Live Event Telemetry Ticker (Latest 5 Events from audit_logs)
     $tickerLogs = $pdo->query("
         SELECT log_id, action, description, category, ip_address, created_at 
         FROM audit_logs 
@@ -645,6 +667,62 @@ try {
           <span><?= $pendingCount > 0 ? 'Review Required' : 'All Clear' ?></span>
         </div>
       </a>
+    </div>
+
+    <!-- LOCALIZED CRITICAL RESOURCE INVENTORY SUMMARY CARD -->
+    <div style="background: var(--surface); border: 1.5px solid var(--surface-border); border-radius: 16px; padding: 18px 22px; margin-bottom: 24px; box-shadow: 0 2px 10px rgba(0,0,0,0.03); display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap;">
+      <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
+        <div style="width: 44px; height: 44px; border-radius: 12px; background: rgba(2, 132, 199, 0.1); border: 1px solid rgba(2, 132, 199, 0.25); display: flex; align-items: center; justify-content: center; font-size: 1.4rem; color: #0284c7; flex-shrink: 0;">
+          ⚡
+        </div>
+        <div>
+          <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+            <h3 style="margin: 0; font-size: 1.05rem; font-weight: 800; color: var(--text-heading);">
+              Branch Life-Support &amp; Clinical Inventory
+            </h3>
+            <span style="font-size: 0.70rem; font-weight: 800; text-transform: uppercase; padding: 2px 8px; border-radius: 12px; background: #ecfdf5; color: #065f46; border: 1px solid rgba(16, 185, 129, 0.3);">
+              Live Dynamic Telemetry
+            </span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 14px; margin-top: 6px; font-size: 0.82rem; color: var(--text-heading); flex-wrap: wrap;">
+            <!-- Oxygen -->
+            <span style="display: inline-flex; align-items: center; gap: 6px;">
+              <span style="color: #0284c7; font-weight: 700;">Liquid Oxygen:</span>
+              <strong style="color: <?= (int)$branchResource['oxygen_reserve_pct'] >= 70 ? '#059669' : ((int)$branchResource['oxygen_reserve_pct'] >= 50 ? '#d97706' : '#e11d48') ?>;">
+                <?= (int)$branchResource['oxygen_reserve_pct'] ?>%
+              </strong>
+              <span style="color: var(--text-muted); font-size: 0.74rem;">(<?= number_format((int)$branchResource['current_pressure_psi']) ?> PSI • <?= $branchResource['depletion_days'] ?>d)</span>
+            </span>
+            <span style="color: var(--surface-border);">&bull;</span>
+            <!-- ICU Vents -->
+            <span style="display: inline-flex; align-items: center; gap: 6px;">
+              <span style="color: #7c3aed; font-weight: 700;">ICU Vents:</span>
+              <strong><?= (int)$branchResource['ventilators_active'] ?> / <?= (int)$branchResource['ventilators_total'] ?> Active</strong>
+              <span style="color: #10b981; font-weight: 700; font-size: 0.74rem;">(<?= max(0, (int)$branchResource['ventilators_total'] - (int)$branchResource['ventilators_active']) ?> Standby)</span>
+            </span>
+            <span style="color: var(--surface-border);">&bull;</span>
+            <!-- Blood Bank -->
+            <span style="display: inline-flex; align-items: center; gap: 6px;">
+              <span style="color: #e11d48; font-weight: 700;">O- Bank:</span>
+              <strong style="color: <?= (int)$branchResource['blood_o_neg'] < 20 ? '#e11d48' : 'var(--text-heading)' ?>;">
+                <?= (int)$branchResource['blood_o_neg'] ?> Units
+              </strong>
+              <span style="color: var(--text-muted); font-size: 0.74rem;">(<?= (int)$branchResource['blood_trauma_packs'] ?> Trauma Packs)</span>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <?php if (!empty($branchResource['tanker_dispatched']) || !empty($branchResource['courier_dispatched'])): ?>
+          <span style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; background: #fff1f2; border: 1px solid #fecdd3; color: #9f1239; border-radius: 8px; font-size: 0.76rem; font-weight: 800; animation: saPulse 1.6s infinite;">
+            🚨 <?= !empty($branchResource['tanker_dispatched']) ? 'LOX Tanker En Route' : 'Blood Courier En Route' ?>
+          </span>
+        <?php endif; ?>
+        <a href="resource_inventory.php" style="display: inline-flex; align-items: center; gap: 6px; padding: 9px 16px; background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: #fff; font-size: 0.82rem; font-weight: 800; text-decoration: none; border-radius: 10px; box-shadow: 0 2px 8px rgba(2, 132, 199, 0.3); transition: transform 0.15s;" onmouseenter="this.style.transform='translateY(-1px)';" onmouseleave="this.style.transform='none';">
+          Manage Resource Inventory &rarr;
+        </a>
+      </div>
     </div>
 
     <!-- DEDICATED BRANCH DISASTER READINESS WIDGET -->

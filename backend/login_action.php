@@ -171,7 +171,29 @@ try {
     $_SESSION['logged_in']     = true;
     $_SESSION['last_activity'] = time();
 
-    // 13. Doctor profile resolution (provision if missing)
+    // 13a. Patient profile & Enterprise UID resolution
+    if ($roleNorm === 'patient') {
+        $patStmt = $pdo->prepare("SELECT patient_uid FROM patients WHERE user_id = ? LIMIT 1");
+        $patStmt->execute([(int)$user['user_id']]);
+        $patUid = $patStmt->fetchColumn();
+
+        if (!$patUid) {
+            $currentYear = date('Y');
+            $seqStmt = $pdo->query("SELECT COALESCE(MAX(id), 0) + 1 AS next_seq FROM patients");
+            $nextSeq = (int)$seqStmt->fetchColumn();
+            $patUid = sprintf("MP-%s-%05d", $currentYear, $nextSeq);
+            $dob = $user['date_of_birth'] ?? '2004-01-01';
+            $bg = $user['blood_group'] ?? 'Unknown';
+            $insP = $pdo->prepare("
+                INSERT INTO patients (user_id, patient_uid, full_name, email, phone, gender, dob, blood_group, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
+            ");
+            $insP->execute([(int)$user['user_id'], $patUid, $user['full_name'], $user['email'], $user['phone'] ?? '', $user['gender'] ?? 'Male', $dob, $bg]);
+        }
+        $_SESSION['patient_uid'] = $patUid;
+    }
+
+    // 13b. Doctor profile resolution (provision if missing)
     if ($roleNorm === 'doctor') {
         $docStmt = $pdo->prepare("SELECT doctor_id FROM doctor_profiles WHERE user_id = ? LIMIT 1");
         $docStmt->execute([(int)$user['user_id']]);
