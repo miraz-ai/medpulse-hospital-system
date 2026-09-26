@@ -121,6 +121,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $insAlloc->execute([':bid' => $bedId, ':pid' => $patientId]);
                 }
 
+                // 4. Create/Sync admissions ledger record
+                $admCheck = $pdo->prepare("SELECT admission_id FROM admissions WHERE bed_id = ? AND patient_id = ? AND status = 'Admitted' LIMIT 1");
+                $admCheck->execute([$bedId, $patientId]);
+                if (!$admCheck->fetchColumn()) {
+                    $docStmt = $pdo->query("SELECT user_id FROM users WHERE role = 'Doctor' AND status = 'active' ORDER BY user_id ASC LIMIT 1");
+                    $defDocId = (int)$docStmt->fetchColumn() ?: 1;
+
+                    $patUidStmt = $pdo->prepare("SELECT patient_uid FROM patients WHERE user_id = ? OR id = ? LIMIT 1");
+                    $patUidStmt->execute([$patientId, $patientId]);
+                    $pUid = $patUidStmt->fetchColumn() ?: ('MP-P' . str_pad((string)$patientId, 5, '0', STR_PAD_LEFT));
+
+                    $staffId = (int)($_SESSION['user_id'] ?? 1);
+                    $admNum = 'ADM-' . date('Ymd') . '-' . str_pad((string)mt_rand(1000, 9999), 4, '0', STR_PAD_LEFT);
+                    $dailyRate = (float)($targetBed['daily_rate'] ?? 1500.0);
+
+                    $insAdm = $pdo->prepare("
+                        INSERT INTO admissions (
+                            admission_number, reservation_id, hospital_id, bed_id, patient_id, patient_uid,
+                            admitting_staff_id, attending_doctor_id, admission_reason, primary_diagnosis,
+                            triage_acuity, daily_rate, deposit_amount, payment_method, status, admitted_at, created_at
+                        ) VALUES (
+                            :adm_num, :res_id, :hosp_id, :bed_id, :pat_id, :pat_uid,
+                            :staff_id, :doc_id, 'Direct Admission from Branch Bed Console', 'Under clinical investigation',
+                            'Routine', :rate, 0.00, 'Cash', 'Admitted', NOW(), NOW()
+                        )
+                    ");
+                    $insAdm->execute([
+                        ':adm_num'  => $admNum,
+                        ':res_id'   => $reservationId,
+                        ':hosp_id'  => $sessionHospitalId,
+                        ':bed_id'   => $bedId,
+                        ':pat_id'   => $patientId,
+                        ':pat_uid'  => $pUid,
+                        ':staff_id' => $staffId,
+                        ':doc_id'   => $defDocId,
+                        ':rate'     => $dailyRate
+                    ]);
+                }
+
                 $pdo->commit();
 
                 $msg = "Patient admission confirmed successfully. Bed {$targetBed['bed_number']} ({$targetBed['ward_type']}) is now OCCUPIED.";
@@ -207,6 +246,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // 3. Mark any held reservation as cancelled
                 $updRes = $pdo->prepare("UPDATE bed_reservations SET status = 'cancelled' WHERE bed_id = :bid AND status = 'held'");
                 $updRes->execute([':bid' => $bedId]);
+
+                // 4. Mark active admissions record as Discharged
+                $updAdm = $pdo->prepare("UPDATE admissions SET status = 'Discharged', discharged_at = NOW() WHERE bed_id = :bid AND status = 'Admitted'");
+                $updAdm->execute([':bid' => $bedId]);
 
                 $pdo->commit();
 
@@ -501,6 +544,10 @@ $wardTypes = $wardTypesStmt->fetchAll(PDO::FETCH_COLUMN);
         <p>Inpatient chamber controls, incoming 45-minute reservation hold confirmations, and real-time census telemetry strictly isolated to this hospital branch.</p>
       </div>
       <div class="banner-actions">
+        <a href="admissions.php" class="btn-action-gradient" style="text-decoration: none;">
+          <svg class="ui-ico ui-ico-sm" style="stroke: white;" viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect><path d="M9 14h6"></path><path d="M9 10h6"></path></svg>
+          Inpatient Registry
+        </a>
         <a href="live_census.php" class="btn-action-telemed">
           <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
           Live Census Dashboard

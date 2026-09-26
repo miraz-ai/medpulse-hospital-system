@@ -73,15 +73,27 @@ try {
         <p>Central electronic medical records, verified clinical demographics, and patient account status</p>
       </div>
       <div class="banner-actions">
-        <button class="btn-action-telemed" onclick="showToast('Electronic Medical Records (EMR) telemetry is synchronized.', 'success')">
-          <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
-          EMR Telemetry
-        </button>
+        <a href="admissions.php" class="btn-action-telemed" style="text-decoration: none;">
+          <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg>
+          Inpatient Registry
+        </a>
         <button class="btn-action-gradient" onclick="window.location.href='../index.php'">
           <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24" style="stroke: white;"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
           + Enroll Patient
         </button>
       </div>
+    </div>
+
+    <!-- Sub-Navigation Navigation Tabs -->
+    <div style="display: flex; gap: 10px; margin-bottom: 1.5rem; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px;">
+      <a href="manage_patients.php" style="padding: 8px 18px; border-radius: 8px; font-weight: 700; font-size: 0.9rem; text-decoration: none; color: #ffffff; background: linear-gradient(135deg, #0284c7, #0d9488); display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25);">
+        <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"></path></svg>
+        Master Patient Directory
+      </a>
+      <a href="admissions.php" style="padding: 8px 18px; border-radius: 8px; font-weight: 700; font-size: 0.9rem; text-decoration: none; color: #64748b; background: rgba(2, 132, 199, 0.06); display: inline-flex; align-items: center; gap: 8px;">
+        <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect><path d="M9 14h6"></path><path d="M9 10h6"></path><path d="M9 18h4"></path></svg>
+        Inpatient Admissions Registry (Live Sync)
+      </a>
     </div>
 
     <!-- Quick Vital KPI Stats -->

@@ -88,12 +88,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['_action'])) {
                        h.name AS hospital_name, h.city, h.code AS hospital_code,
                        ba.admitted_at, ba.allocation_id,
                        p.user_id AS patient_id, p.full_name AS patient_name, p.email AS patient_email, p.phone AS patient_phone,
-                       d.full_name AS doctor_name, d.email AS doctor_email
+                       COALESCE(pat.patient_uid, CONCAT('MP-P', LPAD(p.user_id, 5, '0'))) AS patient_uid,
+                       pat.blood_group,
+                       d.full_name AS doctor_name, d.email AS doctor_email,
+                       COALESCE(dp.specialty, d.department, 'General Medicine') AS doctor_specialty,
+                       -- Admission Dossier Fields
+                       adm.admission_id, adm.admission_number, adm.primary_diagnosis, adm.admission_reason,
+                       adm.triage_acuity, adm.guardian_name, adm.guardian_relation, adm.guardian_phone,
+                       adm.daily_rate AS admission_daily_rate, adm.deposit_amount, adm.payment_method, adm.payment_reference,
+                       su.full_name AS admitting_staff_name,
+                       COALESCE(stf.role_title, 'Senior Triage Officer / Admission Clerk') AS admitting_staff_designation,
+                       COALESCE(stf.staff_id, adm.admitting_staff_id) AS admitting_staff_id
                 FROM hospital_beds b
                 LEFT JOIN hospitals h ON h.hospital_id = b.hospital_id
                 LEFT JOIN bed_allocations ba ON ba.bed_id = b.bed_id AND ba.status = 'Active'
-                LEFT JOIN users p ON ba.patient_id = p.user_id
+                LEFT JOIN users p ON (ba.patient_id = p.user_id OR b.patient_id = p.user_id)
+                LEFT JOIN patients pat ON (pat.user_id = p.user_id OR pat.id = p.user_id)
                 LEFT JOIN users d ON ba.attending_doctor_id = d.user_id
+                LEFT JOIN doctor_profiles dp ON dp.user_id = d.user_id
+                LEFT JOIN admissions adm ON (adm.bed_id = b.bed_id AND adm.status = 'Admitted')
+                LEFT JOIN staff stf ON stf.staff_id = adm.admitting_staff_id
+                LEFT JOIN users su ON (su.user_id = stf.user_id OR su.user_id = adm.admitting_staff_id)
                 WHERE b.bed_id = ?
                 LIMIT 1
             ");
@@ -119,6 +134,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['_action'])) {
             echo json_encode(['success' => true, 'bed' => $row, 'audits' => $audits]);
         } catch (PDOException $e) {
             echo json_encode(['success' => false, 'message' => 'Query failed: ' . $e->getMessage()]);
+        }
+        exit;
+    }
+
+    if ($action === 'get_live_telemetry') {
+        try {
+            $telemetry = $pdo->query("
+                SELECT COUNT(*) total,
+                       SUM(status='Available') avail,
+                       SUM(status='Occupied') occ,
+                       SUM(status='Maintenance') maint,
+                       SUM(status='Emergency Hold') hold,
+                       SUM(status='Sanitizing') sanitizing,
+                       SUM(status='Reserved') reserved,
+                       SUM(relocation_status='PENDING_RELOCATION') pending_reloc
+                FROM hospital_beds
+            ")->fetch(PDO::FETCH_ASSOC);
+
+            // Fetch bed statuses for requested bed IDs
+            $rawBedIds = $_POST['bed_ids'] ?? [];
+            $bedIds = is_array($rawBedIds) ? array_filter(array_map('intval', $rawBedIds)) : [];
+            $bedStates = [];
+            if (!empty($bedIds)) {
+                $inQuery = implode(',', array_slice($bedIds, 0, 100));
+                $bStmt = $pdo->query("SELECT bed_id, status, relocation_status, patient_id FROM hospital_beds WHERE bed_id IN ($inQuery)");
+                $bedStates = $bStmt->fetchAll(PDO::FETCH_ASSOC);
+            }
+
+            echo json_encode([
+                'success' => true,
+                'telemetry' => $telemetry,
+                'bed_states' => $bedStates
+            ]);
+        } catch (PDOException $e) {
+            echo json_encode(['success' => false, 'message' => 'Telemetry error: ' . $e->getMessage()]);
         }
         exit;
     }
@@ -950,7 +1000,7 @@ try {
         <span class="net-chip-label">Available</span>
       </div>
       <div class="net-chip">
-        <span class="net-chip-val" style="color:var(--status-red);"><?= number_format((int)($netStats['occ'] ?? 0)) ?></span>
+        <span class="net-chip-val" id="chipValOcc" style="color:var(--status-red);"><?= number_format((int)($netStats['occ'] ?? 0)) ?></span>
         <span class="net-chip-label">Occupied</span>
       </div>
       <div class="net-chip">
@@ -962,7 +1012,7 @@ try {
         <span class="net-chip-label">Sanitizing</span>
       </div>
       <div class="net-chip">
-        <span class="net-chip-val" style="color:var(--status-amber);"><?= number_format((int)($netStats['maint'] ?? 0)) ?></span>
+        <span class="net-chip-val" id="chipValMaint" style="color:var(--status-amber);"><?= number_format((int)($netStats['maint'] ?? 0)) ?></span>
         <span class="net-chip-label">Maintenance</span>
       </div>
       <?php if (!empty($netStats['pending_reloc'])): ?>
@@ -1853,11 +1903,25 @@ try {
         if (b.patient_name) {
           if (b.patient_phone) rows.push(['Patient Phone', b.patient_phone]);
           if (b.patient_email) rows.push(['Patient Email', b.patient_email]);
-          rows.push(['Doctor', b.doctor_name || 'Unassigned']);
+          rows.push(['Doctor', b.doctor_name ? `${b.doctor_name} <span style="color:#0d9488;font-size:0.8rem;">(${b.doctor_specialty || 'General'})</span>` : 'Unassigned']);
           if (b.doctor_email) rows.push(['Doctor Contact', b.doctor_email]);
           rows.push(['Admitted At', b.admitted_at ? new Date(b.admitted_at).toLocaleString('en-BD') : 'Active Care']);
         } else {
           rows.push(['Attending Doctor', b.doctor_name || '<span style="color:var(--text-muted);">None assigned</span>']);
+        }
+
+        if (b.admission_number) {
+          rows.push(['Admission Dossier', `<strong style="color:var(--brand-primary); font-family:monospace;">${b.admission_number}</strong>`]);
+          rows.push(['Admitting Staff', `${b.admitting_staff_name || 'Senior Triage Officer'} <span style="color:var(--text-muted);font-size:0.8rem;">(${b.admitting_staff_designation || 'Admission Clerk'} · STF-${String(b.admitting_staff_id||1).padStart(4,'0')})</span>`]);
+          rows.push(['Primary Diagnosis', `<span style="font-weight:600; color:#0f172a;">${b.primary_diagnosis || b.admission_reason || 'Under clinical investigation'}</span>`]);
+          const acuityColor = b.triage_acuity === 'Critical' ? '#dc2626' : (b.triage_acuity === 'Post-Op' ? '#d97706' : '#059669');
+          rows.push(['Triage Acuity', `<span style="font-weight:700; color:${acuityColor};">${b.triage_acuity || 'Routine'}</span>`]);
+          if (b.guardian_name) {
+            rows.push(['Emergency Contact', `${b.guardian_name} (${b.guardian_relation || 'Kin'}) - ${b.guardian_phone || 'N/A'}`]);
+          }
+          if (b.deposit_amount) {
+            rows.push(['Initial Deposit', `৳${Number(b.deposit_amount).toLocaleString()} (${b.payment_method || 'Cash'})`]);
+          }
         }
 
         if (b.reserved_until) {
@@ -2071,11 +2135,69 @@ try {
       }, SA_TICK_INTERVAL);
     }
 
-    function pauseSaCarousel() {
-      clearInterval(saTimer);
+    // ── Live Bed Telemetry Dynamic Sync ───────────────────────────────────────
+    function pollLiveTelemetry() {
+      const tileEls = document.querySelectorAll('.bed-tile');
+      const bedIds = Array.from(tileEls).map(el => parseInt(el.id.replace('tile-', ''))).filter(n => !isNaN(n) && n > 0);
+      
+      const fd = new FormData();
+      fd.append('_action', 'get_live_telemetry');
+      fd.append('csrf_token', CSRF);
+      bedIds.slice(0, 100).forEach(id => fd.append('bed_ids[]', id));
+
+      fetch('bed_monitor.php', { method: 'POST', body: fd })
+        .then(res => res.json())
+        .then(res => {
+          if (!res.success) return;
+          const t = res.telemetry;
+          if (t) {
+            const availEl = document.getElementById('chipValAvail');
+            const occEl = document.getElementById('chipValOcc');
+            const holdEl = document.getElementById('chipValHold');
+            const sanEl = document.getElementById('chipValSanitizing');
+            const maintEl = document.getElementById('chipValMaint');
+            if (availEl && t.avail !== undefined) availEl.textContent = Number(t.avail).toLocaleString();
+            if (occEl && t.occ !== undefined) occEl.textContent = Number(t.occ).toLocaleString();
+            if (holdEl && t.hold !== undefined) holdEl.textContent = Number(t.hold).toLocaleString();
+            if (sanEl && t.sanitizing !== undefined) sanEl.textContent = Number(t.sanitizing).toLocaleString();
+            if (maintEl && t.maint !== undefined) maintEl.textContent = Number(t.maint).toLocaleString();
+          }
+
+          if (res.bed_states && Array.isArray(res.bed_states)) {
+            res.bed_states.forEach(st => {
+              const el = document.getElementById('tile-' + st.bed_id);
+              if (!el) return;
+              const s = (st.status || '').toLowerCase();
+              el.classList.remove('t-avail', 't-occ', 't-maint', 't-hold', 't-sanitizing', 't-res');
+              const cls = s === 'available' ? 't-avail' 
+                        : s === 'occupied' ? 't-occ' 
+                        : s === 'maintenance' ? 't-maint' 
+                        : s === 'emergency hold' ? 't-hold' 
+                        : s === 'sanitizing' ? 't-sanitizing' 
+                        : 't-res';
+              el.classList.add(cls);
+
+              const dot = el.querySelector('.bd-dot');
+              if (dot) {
+                dot.className = 'bd-dot ' + (
+                  s === 'available' ? 'bd-avail' :
+                  s === 'occupied' ? 'bd-occ' :
+                  s === 'maintenance' ? 'bd-maint' :
+                  s === 'emergency hold' ? 'bd-hold' :
+                  s === 'sanitizing' ? 'bd-sanitizing' : 'bd-res'
+                );
+              }
+            });
+          }
+        })
+        .catch(() => {});
     }
 
-    document.addEventListener('DOMContentLoaded', initSaCarousel);
+    document.addEventListener('DOMContentLoaded', () => {
+      initSaCarousel();
+      // Poll live telemetry every 12 seconds
+      setInterval(pollLiveTelemetry, 12000);
+    });
   </script>
   <!-- Dedicated MedPulse Modern Dialog & Toast Engine -->
   <script src="../assets/js/medpulse_dialog.js"></script>

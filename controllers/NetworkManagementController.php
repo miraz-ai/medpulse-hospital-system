@@ -29,36 +29,19 @@ class NetworkManagementController
     public static function getNetworkKPIs(PDO $pdo): array
     {
         // 1. Exact Requirement 1 Aggregate statistics query
-        $sqlAgg = "
+        $hbAgg = $pdo->query("
             SELECT 
-                COUNT(DISTINCT h.id) AS total_facilities,
-                COUNT(b.id) AS network_beds,
-                SUM(CASE WHEN b.status = 'occupied' THEN 1 ELSE 0 END) AS occupied_beds,
-                SUM(CASE WHEN b.status = 'available' THEN 1 ELSE 0 END) AS available_beds
-            FROM hospitals h
-            LEFT JOIN beds b ON b.hospital_id = h.id;
-        ";
-        $stmtAgg = $pdo->query($sqlAgg);
-        $agg = $stmtAgg->fetch(PDO::FETCH_ASSOC) ?: [];
+                COUNT(DISTINCT hospital_id) AS total_facilities,
+                COUNT(*) AS network_beds,
+                SUM(CASE WHEN LOWER(status) = 'occupied' THEN 1 ELSE 0 END) AS occupied_beds,
+                SUM(CASE WHEN LOWER(status) = 'available' THEN 1 ELSE 0 END) AS available_beds
+            FROM hospital_beds
+        ")->fetch(PDO::FETCH_ASSOC) ?: [];
 
-        $totalFacilities = (int)($agg['total_facilities'] ?? 6);
-        $networkBeds     = (int)($agg['network_beds'] ?? 0);
-        $occupiedBeds    = (int)($agg['occupied_beds'] ?? 0);
-        $availableBeds   = (int)($agg['available_beds'] ?? 0);
-
-        // Fallback to hospital_beds if beds table had 0
-        if ($networkBeds === 0) {
-            $hbAgg = $pdo->query("
-                SELECT 
-                    COUNT(*) AS network_beds,
-                    SUM(status = 'Occupied') AS occupied_beds,
-                    SUM(status = 'Available') AS available_beds
-                FROM hospital_beds
-            ")->fetch(PDO::FETCH_ASSOC);
-            $networkBeds   = (int)($hbAgg['network_beds'] ?? 0);
-            $occupiedBeds  = (int)($hbAgg['occupied_beds'] ?? 0);
-            $availableBeds = (int)($hbAgg['available_beds'] ?? 0);
-        }
+        $totalFacilities = (int)($hbAgg['total_facilities'] ?? 6);
+        $networkBeds     = (int)($hbAgg['network_beds'] ?? 0);
+        $occupiedBeds    = (int)($hbAgg['occupied_beds'] ?? 0);
+        $availableBeds   = (int)($hbAgg['available_beds'] ?? 0);
 
         $occupancyRate = $networkBeds > 0 ? round(($occupiedBeds / $networkBeds) * 100, 1) : 0;
 

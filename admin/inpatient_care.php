@@ -55,11 +55,19 @@ try {
             b.bed_number,
             b.ward_type,
             b.floor_number,
-            b.daily_rate
+            b.daily_rate,
+            adm.admission_number,
+            adm.primary_diagnosis,
+            adm.triage_acuity,
+            adm_u.full_name AS admitting_staff_name,
+            COALESCE(adm_stf.role_title, 'Senior Triage Officer') AS admitting_staff_designation
         FROM bed_allocations ba
         JOIN users u ON ba.patient_id = u.user_id
         LEFT JOIN patients pat ON u.user_id = pat.user_id
         JOIN hospital_beds b ON ba.bed_id = b.bed_id
+        LEFT JOIN admissions adm ON (adm.bed_id = b.bed_id AND adm.patient_id = u.user_id AND adm.status = 'Admitted')
+        LEFT JOIN staff adm_stf ON adm_stf.staff_id = adm.admitting_staff_id
+        LEFT JOIN users adm_u ON (adm_u.user_id = adm_stf.user_id OR adm_u.user_id = adm.admitting_staff_id)
         WHERE ba.status = 'Active'
         ORDER BY ba.admitted_at DESC
     ");
@@ -176,6 +184,10 @@ try {
           <span class="pulse-dot"></span>
           Real-Time Telemetry Active
         </div>
+        <a href="admissions.php" class="btn-ipc-action" style="background: #0284c7; color: #ffffff; text-decoration: none; padding: 7px 14px; font-size: 0.82rem; display: inline-flex; align-items: center; gap: 6px; border-radius: 8px; font-weight: 700; box-shadow: 0 2px 4px rgba(2,132,199,0.2);">
+          <svg class="ui-ico ui-ico-sm" style="stroke: #ffffff; width: 15px; height: 15px;" viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg>
+          Admissions Registry
+        </a>
         <button class="btn-ipc-action" style="background: #0d9488; color: #ffffff; padding: 7px 14px; font-size: 0.82rem; display: inline-flex; align-items: center; gap: 6px; border-radius: 8px; font-weight: 700; border: none; cursor: pointer; box-shadow: 0 2px 4px rgba(13,148,136,0.2);" onclick="openAdmitModal();">
           <svg class="ui-ico ui-ico-sm" style="stroke: #ffffff; width: 15px; height: 15px;" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
           + Admit New Inpatient
@@ -309,6 +321,19 @@ try {
                         <?= htmlspecialchars($p['blood_group'] ?? 'Unknown', ENT_QUOTES, 'UTF-8') ?>
                       </span>
                     </div>
+                    <?php if (!empty($p['primary_diagnosis'])): ?>
+                      <div style="font-size: 0.76rem; color: #0284c7; font-weight: 600; margin-top: 4px;">
+                        Dx: <?= htmlspecialchars($p['primary_diagnosis'], ENT_QUOTES, 'UTF-8') ?>
+                        <?php if (!empty($p['triage_acuity']) && $p['triage_acuity'] === 'Critical'): ?>
+                          <span style="background: #fee2e2; color: #dc2626; font-size: 0.68rem; padding: 1px 5px; border-radius: 4px; font-weight: 700;">CRITICAL</span>
+                        <?php endif; ?>
+                      </div>
+                    <?php endif; ?>
+                    <?php if (!empty($p['admitting_staff_name'])): ?>
+                      <div style="font-size: 0.72rem; color: var(--ipc-slate-400); margin-top: 2px;">
+                        Admitted by: <?= htmlspecialchars($p['admitting_staff_name'], ENT_QUOTES, 'UTF-8') ?> (<?= htmlspecialchars($p['admitting_staff_designation'] ?? 'Triage Officer', ENT_QUOTES, 'UTF-8') ?>)
+                      </div>
+                    <?php endif; ?>
                   </td>
 
                   <!-- Bed Info -->

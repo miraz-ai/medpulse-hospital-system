@@ -21,7 +21,7 @@ $bookingError   = null;
 $preselectDocId = isset($_GET['book_doctor_id']) ? (int)$_GET['book_doctor_id'] : 0;
 
 // ── Handle Booking Form Submission ──────────────────────────────────────────
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'confirm_booking') {
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['action']) && $_POST['action'] === 'confirm_booking') {
     // CSRF verification
     if (!hash_equals($_SESSION['csrf_token'] ?? '', $_POST['csrf_token'] ?? '')) {
         $bookingError = 'Security validation failed. Please refresh and try again.';
@@ -166,41 +166,42 @@ sort($specialties);
     /* Specialty Filter Pills */
     .filter-pills {
       display: flex;
-      gap: 0.5rem;
-      overflow-x: auto;
-      padding-bottom: 4px;
-      scrollbar-width: thin;
-    }
-    .filter-pills::-webkit-scrollbar {
-      height: 4px;
-    }
-    .filter-pills::-webkit-scrollbar-thumb {
-      background: #cbd5e1;
-      border-radius: 4px;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+      padding: 0;
     }
     .spec-pill {
-      background: #f1f5f9;
-      color: var(--text-body);
-      border: 1px solid transparent;
-      padding: 0.45rem 0.95rem;
-      border-radius: 999px;
-      font-size: 0.82rem;
+      background: #f8fafc;
+      color: var(--text-body, #475569);
+      border: 1px solid #e2e8f0;
+      padding: 6px 14px;
+      border-radius: 9999px;
+      font-size: 0.85rem;
       font-weight: 600;
       cursor: pointer;
       white-space: nowrap;
-      transition: all 0.2s ease;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
       display: inline-flex;
       align-items: center;
       gap: 6px;
+      user-select: none;
     }
     .spec-pill:hover {
-      background: #e2e8f0;
-      color: var(--text-heading);
+      background: #f1f5f9;
+      color: var(--text-heading, #0f172a);
+      border-color: #cbd5e1;
+      transform: translateY(-1px);
     }
     .spec-pill.active {
-      background: linear-gradient(135deg, var(--brand-primary), var(--brand-teal));
+      background: #0d9488;
       color: #ffffff;
-      box-shadow: 0 2px 8px rgba(2, 132, 199, 0.25);
+      border-color: #0d9488;
+      box-shadow: 0 2px 8px rgba(13, 148, 136, 0.3);
+      transform: none;
+    }
+    .spec-pill.active svg {
+      stroke: #ffffff;
     }
 
     /* Doctor Grid Layout */
@@ -683,7 +684,10 @@ sort($specialties);
       <div class="filter-section">
         <div class="search-row">
           <div class="search-input-wrap">
-            <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
             <input type="text" id="doctorSearchInput" placeholder="Search doctor by name, department, chamber room, or facility..." autocomplete="off">
           </div>
           <div class="search-counter" id="doctorCounter">
@@ -694,7 +698,7 @@ sort($specialties);
         <!-- Filter Pills -->
         <div class="filter-pills" id="filterPillsContainer">
           <button type="button" class="spec-pill active" data-specialty="all">
-            <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+            <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
             All Specialists (<?= count($doctors) ?>)
           </button>
           <?php foreach ($specialties as $sp): ?>
@@ -790,7 +794,7 @@ sort($specialties);
 
         <!-- Empty Filter State -->
         <div class="no-results-state" id="noResultsState">
-          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>
+          <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>
           <h3>No Matching Specialists Found</h3>
           <p>Try searching for a different doctor name or clear your department filter.</p>
         </div>
@@ -917,14 +921,15 @@ sort($specialties);
       // ── Filter Cards Function ──────────────────────────────────────────────
       function filterDoctors() {
         const query = (searchInput ? searchInput.value : '').toLowerCase().trim();
+        const terms = query.split(/\s+/).filter(Boolean);
         let visibleCount = 0;
 
         cards.forEach(card => {
-          const cardSearch = card.getAttribute('data-search') || '';
-          const cardSpec   = card.getAttribute('data-specialty') || '';
+          const cardSearch = (card.getAttribute('data-search') || '').toLowerCase();
+          const cardSpec   = (card.getAttribute('data-specialty') || '').toLowerCase().trim();
 
-          const matchesQuery = !query || cardSearch.includes(query);
-          const matchesSpec  = (currentSpecialty === 'all') || (cardSpec.toLowerCase() === currentSpecialty.toLowerCase());
+          const matchesQuery = terms.length === 0 || terms.every(term => cardSearch.includes(term));
+          const matchesSpec  = (currentSpecialty === 'all') || (cardSpec === currentSpecialty.toLowerCase().trim());
 
           if (matchesQuery && matchesSpec) {
             card.style.display = 'flex';
@@ -944,10 +949,14 @@ sort($specialties);
 
       if (searchInput) {
         searchInput.addEventListener('input', filterDoctors);
+        searchInput.addEventListener('keydown', function(e) {
+          if (e.key === 'Enter') e.preventDefault();
+        });
       }
 
       filterPills.forEach(pill => {
-        pill.addEventListener('click', function() {
+        pill.addEventListener('click', function(e) {
+          e.preventDefault();
           filterPills.forEach(p => p.classList.remove('active'));
           this.classList.add('active');
           currentSpecialty = this.getAttribute('data-specialty') || 'all';

@@ -49,18 +49,22 @@ class BedReservationController {
 
             $stmt = $pdo->query("
                 SELECT 
-                    h.id AS hospital_id,
+                    h.hospital_id,
+                    h.hospital_id AS id,
                     h.name AS hospital_name,
+                    h.code AS hospital_code,
+                    h.city,
                     h.location,
                     h.emergency_status,
-                    COUNT(b.id) AS total_beds,
-                    SUM(CASE WHEN b.status = 'occupied' THEN 1 ELSE 0 END) AS occupied_beds,
-                    SUM(CASE WHEN b.status = 'available' THEN 1 ELSE 0 END) AS available_beds,
-                    SUM(CASE WHEN b.status = 'reserved' THEN 1 ELSE 0 END) AS reserved_beds
+                    COUNT(hb.bed_id) AS total_beds,
+                    SUM(CASE WHEN LOWER(hb.status) = 'occupied' THEN 1 ELSE 0 END) AS occupied_beds,
+                    SUM(CASE WHEN LOWER(hb.status) = 'available' THEN 1 ELSE 0 END) AS available_beds,
+                    SUM(CASE WHEN LOWER(hb.status) = 'reserved' THEN 1 ELSE 0 END) AS reserved_beds,
+                    SUM(CASE WHEN LOWER(hb.status) IN ('maintenance', 'sanitizing', 'emergency hold') THEN 1 ELSE 0 END) AS other_beds
                 FROM hospitals h
-                LEFT JOIN beds b ON b.hospital_id = h.id
-                GROUP BY h.id, h.name, h.location, h.emergency_status
-                ORDER BY h.id ASC;
+                LEFT JOIN hospital_beds hb ON hb.hospital_id = h.hospital_id
+                GROUP BY h.hospital_id, h.name, h.code, h.city, h.location, h.emergency_status
+                ORDER BY h.hospital_id ASC;
             ");
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
         } catch (Throwable $e) {
@@ -337,10 +341,246 @@ class BedReservationController {
                 GROUP BY ward_type
                 ORDER BY ward_type ASC
             ");
-            $stmt->execute([':hospital_id' => $hospitalId]);
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
         } catch (Throwable $e) {
             return [];
+        }
+    }
+
+    /**
+     * Process Full Inpatient Admission Dossier from 45-Minute Hold or Direct Intake.
+     * Atomic transaction:
+     * 1. bed_reservations: status = 'admitted', admitted_at = NOW(), admitted_by_staff_id = :staff_id
+     * 2. admissions: complete medical intake dossier, guardian info, clinical acuity & billing ref
+     * 3. hospital_beds & beds: status = 'Occupied', patient_id = :patient_id
+     * 4. bed_allocations: status = 'Active', attending_doctor_id = :doctor_id
+     * 5. patient_doctor_assignments: link doctor to patient
+     * 6. audit_logs: secure compliance trail
+     */
+    public static function processAdmission(PDO $pdo, array $params): array {
+        try {
+            $reservationId     = !empty($params['reservation_id']) ? (int)$params['reservation_id'] : null;
+            $bedId             = (int)($params['bed_id'] ?? 0);
+            $patientId         = (int)($params['patient_id'] ?? 0);
+            $hospitalId        = (int)($params['hospital_id'] ?? 0);
+            $admittingStaffId  = (int)($params['admitting_staff_id'] ?? 0);
+            $staffUserId       = (int)($params['staff_user_id'] ?? 0);
+            $attendingDoctorId = (int)($params['attending_doctor_id'] ?? 0);
+            $guardianName      = trim($params['guardian_name'] ?? '');
+            $guardianRelation  = trim($params['guardian_relation'] ?? 'Next of Kin');
+            $guardianPhone     = trim($params['guardian_phone'] ?? '');
+            $admissionReason   = trim($params['admission_reason'] ?? 'Inpatient Clinical Care');
+            $primaryDiagnosis  = trim($params['primary_diagnosis'] ?? 'Acute Care Intake');
+            $triageAcuity      = in_array($params['triage_acuity'] ?? '', ['Routine', 'Critical', 'Post-Op'], true) ? $params['triage_acuity'] : 'Routine';
+            $dailyRate         = max(0.0, (float)($params['daily_rate'] ?? 0.0));
+            $depositAmount     = max(0.0, (float)($params['deposit_amount'] ?? 0.0));
+            $paymentMethod     = in_array($params['payment_method'] ?? '', ['Cash', 'Card', 'MFS'], true) ? $params['payment_method'] : 'Cash';
+            $paymentRef        = trim($params['payment_reference'] ?? '');
+
+            if ($bedId <= 0 || $patientId <= 0) {
+                return ['success' => false, 'message' => 'Invalid Bed ID or Patient ID for admission.'];
+            }
+
+            if ($attendingDoctorId <= 0) {
+                return ['success' => false, 'message' => 'Please select an Attending Physician/Consultant from the database.'];
+            }
+
+            $pdo->beginTransaction();
+
+            // 1. Resolve & Lock Bed
+            $bedStmt = $pdo->prepare("SELECT bed_id, hospital_id, bed_number, ward_type, floor_number, daily_rate, price_per_day, status FROM hospital_beds WHERE bed_id = :bid FOR UPDATE");
+            $bedStmt->execute([':bid' => $bedId]);
+            $bed = $bedStmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$bed) {
+                $pdo->rollBack();
+                return ['success' => false, 'message' => 'The selected bed does not exist in the hospital registry.'];
+            }
+
+            if ($hospitalId <= 0) {
+                $hospitalId = (int)$bed['hospital_id'];
+            }
+
+            if ($dailyRate <= 0.0) {
+                $dailyRate = (float)(!empty($bed['daily_rate']) ? $bed['daily_rate'] : (!empty($bed['price_per_day']) ? $bed['price_per_day'] : 1500.0));
+            }
+
+            // 2. Resolve & Lock Patient
+            $patStmt = $pdo->prepare("
+                SELECT u.user_id, u.full_name, u.phone, u.gender, p.patient_uid, p.blood_group 
+                FROM users u
+                LEFT JOIN patients p ON (p.user_id = u.user_id OR p.id = u.user_id)
+                WHERE u.user_id = :uid
+                FOR UPDATE
+            ");
+            $patStmt->execute([':uid' => $patientId]);
+            $patient = $patStmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$patient) {
+                $pdo->rollBack();
+                return ['success' => false, 'message' => 'Patient record could not be found.'];
+            }
+
+            $patientUid = !empty($patient['patient_uid']) ? $patient['patient_uid'] : ('MP-P' . str_pad((string)$patientId, 5, '0', STR_PAD_LEFT));
+
+            // 3. Update Bed Reservation if hold was used
+            if ($reservationId && $reservationId > 0) {
+                $updRes = $pdo->prepare("
+                    UPDATE bed_reservations 
+                    SET status = 'admitted', 
+                        admitted_at = NOW(), 
+                        admitted_by_staff_id = :staff_id 
+                    WHERE id = :res_id
+                ");
+                $updRes->execute([
+                    ':staff_id' => $admittingStaffId,
+                    ':res_id'   => $reservationId
+                ]);
+            } else {
+                // Also close any pending holds for this bed/patient
+                $updRes = $pdo->prepare("
+                    UPDATE bed_reservations 
+                    SET status = 'admitted', 
+                        admitted_at = NOW(), 
+                        admitted_by_staff_id = :staff_id 
+                    WHERE bed_id = :bid AND patient_id = :pid AND status = 'held'
+                ");
+                $updRes->execute([
+                    ':staff_id' => $admittingStaffId,
+                    ':bid'      => $bedId,
+                    ':pid'      => $patientId
+                ]);
+            }
+
+            // 4. Generate Unique Admission Number: ADM-YYYYMMDD-XXXX
+            $admNumber = 'ADM-' . date('Ymd') . '-' . str_pad((string)mt_rand(1000, 9999), 4, '0', STR_PAD_LEFT);
+
+            // 5. Insert Into `admissions` Table
+            $insAdm = $pdo->prepare("
+                INSERT INTO admissions (
+                    admission_number, reservation_id, hospital_id, bed_id, patient_id, patient_uid,
+                    guardian_name, guardian_relation, guardian_phone,
+                    admitting_staff_id, attending_doctor_id, admission_reason, primary_diagnosis,
+                    triage_acuity, daily_rate, deposit_amount, payment_method, payment_reference,
+                    status, admitted_at, created_at
+                ) VALUES (
+                    :adm_num, :res_id, :hosp_id, :bed_id, :pat_id, :pat_uid,
+                    :g_name, :g_rel, :g_phone,
+                    :staff_id, :doc_id, :reason, :diag,
+                    :acuity, :rate, :deposit, :pay_method, :pay_ref,
+                    'Admitted', NOW(), NOW()
+                )
+            ");
+            $insAdm->execute([
+                ':adm_num'    => $admNumber,
+                ':res_id'     => $reservationId,
+                ':hosp_id'    => $hospitalId,
+                ':bed_id'     => $bedId,
+                ':pat_id'     => $patientId,
+                ':pat_uid'    => $patientUid,
+                ':g_name'     => $guardianName,
+                ':g_rel'      => $guardianRelation,
+                ':g_phone'    => $guardianPhone,
+                ':staff_id'   => $admittingStaffId,
+                ':doc_id'     => $attendingDoctorId,
+                ':reason'     => $admissionReason,
+                ':diag'       => $primaryDiagnosis,
+                ':acuity'     => $triageAcuity,
+                ':rate'       => $dailyRate,
+                ':deposit'    => $depositAmount,
+                ':pay_method' => $paymentMethod,
+                ':pay_ref'    => $paymentRef
+            ]);
+            $admissionId = (int)$pdo->lastInsertId();
+
+            // 6. Update `hospital_beds` -> status = 'Occupied', patient_id = :patient_id
+            $updHb = $pdo->prepare("
+                UPDATE hospital_beds 
+                SET status = 'Occupied',
+                    patient_id = :pid,
+                    reserved_until = NULL,
+                    reservation_user_id = NULL,
+                    reservation_token = NULL,
+                    updated_at = NOW()
+                WHERE bed_id = :bid
+            ");
+            $updHb->execute([':pid' => $patientId, ':bid' => $bedId]);
+
+            // 7. Sync `bed_allocations` table (clinical rounding invariant)
+            $allocCheck = $pdo->prepare("SELECT allocation_id FROM bed_allocations WHERE bed_id = :bid AND patient_id = :pid AND status = 'Active' LIMIT 1");
+            $allocCheck->execute([':bid' => $bedId, ':pid' => $patientId]);
+            $existingAlloc = $allocCheck->fetchColumn();
+
+            if (!$existingAlloc) {
+                // Close any existing active allocation for this patient if any
+                $closeOld = $pdo->prepare("UPDATE bed_allocations SET status = 'Transferred', discharged_at = NOW() WHERE patient_id = :pid AND status = 'Active'");
+                $closeOld->execute([':pid' => $patientId]);
+
+                $insAlloc = $pdo->prepare("
+                    INSERT INTO bed_allocations (bed_id, patient_id, attending_doctor_id, admitted_at, status, created_at)
+                    VALUES (:bid, :pid, :doc_id, NOW(), 'Active', NOW())
+                ");
+                $insAlloc->execute([
+                    ':bid'    => $bedId,
+                    ':pid'    => $patientId,
+                    ':doc_id' => $attendingDoctorId
+                ]);
+            } else {
+                $updAlloc = $pdo->prepare("UPDATE bed_allocations SET attending_doctor_id = :doc_id WHERE allocation_id = :aid");
+                $updAlloc->execute([':doc_id' => $attendingDoctorId, ':aid' => $existingAlloc]);
+            }
+
+            // 8. Sync `patient_doctor_assignments`
+            try {
+                $pdaStmt = $pdo->prepare("
+                    INSERT INTO patient_doctor_assignments (patient_id, doctor_id, assigned_by, is_primary, status, notes, assigned_at)
+                    VALUES (:pid, :doc_id, :by_uid, 1, 'Active', 'Assigned at Inpatient Bed Admission', NOW())
+                    ON DUPLICATE KEY UPDATE is_primary = 1, status = 'Active'
+                ");
+                $pdaStmt->execute([
+                    ':pid'    => $patientId,
+                    ':doc_id' => $attendingDoctorId,
+                    ':by_uid' => $staffUserId ?: null
+                ]);
+            } catch (Throwable $e) {}
+
+            // 9. Compliance Audit Trail
+            try {
+                $audit = $pdo->prepare("
+                    INSERT INTO audit_logs (actor_id, actor_role, action, description, category, action_name, target_entity, ip_address, security_level)
+                    VALUES (?, 'staff', 'BED_ADMISSION', ?, 'INPATIENT', 'Process Hospital Admission', ?, ?, 'MEDIUM')
+                ");
+                $audit->execute([
+                    $staffUserId ?: $admittingStaffId,
+                    "Inpatient admitted to Bed {$bed['bed_number']} ({$bed['ward_type']}). Admission #{$admNumber}, Acuity: {$triageAcuity}.",
+                    "bed_id:{$bedId}:patient_id:{$patientId}",
+                    $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1'
+                ]);
+            } catch (Throwable $e) {}
+
+            $pdo->commit();
+
+            return [
+                'success'          => true,
+                'admission_id'     => $admissionId,
+                'admission_number' => $admNumber,
+                'bed_number'       => $bed['bed_number'],
+                'ward_type'        => $bed['ward_type'],
+                'patient_name'     => $patient['full_name'],
+                'patient_uid'      => $patientUid,
+                'triage_acuity'    => $triageAcuity,
+                'message'          => "Patient {$patient['full_name']} ({$patientUid}) successfully admitted to Bed {$bed['bed_number']} ({$bed['ward_type']}). Admission Dossier #{$admNumber} generated."
+            ];
+
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            error_log("Error in processAdmission: " . $e->getMessage());
+            return [
+                'success' => false,
+                'message' => 'Admission transaction failed: ' . $e->getMessage()
+            ];
         }
     }
 }
