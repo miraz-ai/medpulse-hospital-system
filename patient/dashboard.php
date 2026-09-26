@@ -140,8 +140,13 @@ if ($hour >= 5 && $hour < 12) {
   
   <!-- External Custom CSS -->
   <link rel="stylesheet" href="../assets/css/patient_dashboard.css">
+  <link rel="stylesheet" href="../assets/css/opd_queue_widget.css">
 
   <style>
+    /* ═══════════════════════════════════════════════════════
+       OPD QUEUE WIDGET — Three-State Design System
+       State A: Vacant  |  State B: Idle  |  State C: Live
+    ═══════════════════════════════════════════════════════ */
     .opd-queue-card {
       background: #ffffff;
       border: 1px solid #e2e8f0;
@@ -152,7 +157,7 @@ if ($hour >= 5 && $hour < 12) {
     }
     .opd-queue-header {
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       justify-content: space-between;
       margin-bottom: 1.25rem;
       flex-wrap: wrap;
@@ -195,19 +200,70 @@ if ($hour >= 5 && $hour < 12) {
       border-radius: 8px;
       background: #f0f9ff;
       transition: all 0.2s;
+      white-space: nowrap;
     }
-    .btn-new-opd-link:hover {
-      background: #e0f2fe;
+    .btn-new-opd-link:hover { background: #e0f2fe; }
+
+    /* ── State A: Vacant ─────────────────────────────────── */
+    .opd-vacant-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      gap: 1rem;
+      padding: 2.5rem 1.5rem;
+      border: 1.5px dashed #cbd5e1;
+      border-radius: 14px;
+      background: #f8fafc;
     }
-    .opd-doctor-info {
+    .opd-vacant-icon {
+      width: 56px;
+      height: 56px;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #e0f2fe, #f0fdf4);
+      border: 1px solid #bae6fd;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .opd-vacant-title {
+      font-size: 1rem;
+      font-weight: 800;
+      color: var(--text-heading);
+      margin: 0 0 4px;
+    }
+    .opd-vacant-sub {
+      font-size: 0.83rem;
+      color: var(--text-muted);
+      margin: 0;
+    }
+    .btn-book-opd {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 0.6rem 1.25rem;
+      background: linear-gradient(135deg, var(--brand-primary), var(--brand-teal));
+      color: #ffffff;
+      font-size: 0.86rem;
+      font-weight: 700;
+      border-radius: 10px;
+      text-decoration: none;
+      transition: opacity 0.2s, transform 0.2s;
+      margin-top: 0.25rem;
+    }
+    .btn-book-opd:hover { opacity: 0.9; transform: translateY(-1px); }
+
+    /* ── Shared: Doctor Banner ───────────────────────────── */
+    .opd-doctor-banner {
       display: flex;
       align-items: center;
       gap: 14px;
-      padding: 0.9rem 1.1rem;
+      padding: 0.9rem 1.15rem;
       background: #f8fafc;
       border: 1px solid #e2e8f0;
       border-radius: 12px;
-      margin-bottom: 1.25rem;
+      margin-bottom: 1.1rem;
     }
     .opd-doctor-avatar {
       width: 44px;
@@ -229,104 +285,205 @@ if ($hour >= 5 && $hour < 12) {
     .opd-doctor-meta {
       font-size: 0.82rem;
       color: var(--text-muted);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px 8px;
+      align-items: center;
     }
+    .opd-doctor-meta .meta-sep { color: #cbd5e1; }
+    .opd-doctor-meta strong { color: var(--brand-primary); font-weight: 700; }
+
+    /* ── Shared: 3-Card Metric Grid ─────────────────────── */
     .opd-metrics-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
       gap: 1rem;
     }
-    @media (max-width: 768px) {
-      .opd-metrics-grid { grid-template-columns: 1fr; }
-    }
+    @media (max-width: 768px) { .opd-metrics-grid { grid-template-columns: 1fr; } }
     .opd-metric-box {
-      padding: 1.15rem;
+      padding: 1.15rem 1.2rem;
       border-radius: 12px;
       border: 1px solid #e2e8f0;
       background: #ffffff;
       display: flex;
       flex-direction: column;
-      justify-content: center;
-    }
-    .metric-my-token {
-      background: linear-gradient(135deg, rgba(2, 132, 199, 0.05), rgba(13, 148, 136, 0.05));
-      border-color: #bae6fd;
-    }
-    .metric-serving {
-      background: linear-gradient(135deg, rgba(245, 158, 11, 0.06), rgba(217, 119, 6, 0.04));
-      border-color: #fde68a;
-    }
-    .metric-ahead {
-      background: #f8fafc;
     }
     .opd-metric-label {
-      font-size: 0.76rem;
-      font-weight: 700;
+      font-size: 0.72rem;
+      font-weight: 800;
       text-transform: uppercase;
-      letter-spacing: 0.04em;
+      letter-spacing: 0.06em;
       color: var(--text-muted);
-      margin-bottom: 6px;
+      margin-bottom: 8px;
     }
     .opd-metric-val {
-      font-size: 1.75rem;
+      font-size: 1.85rem;
       font-weight: 800;
       color: var(--text-heading);
       line-height: 1.1;
       margin-bottom: 4px;
     }
-    .metric-my-token .opd-metric-val {
-      color: var(--brand-primary);
-    }
-    .metric-serving .opd-metric-val {
-      color: #b45309;
-    }
     .opd-metric-sub {
       font-size: 0.74rem;
       color: var(--text-muted);
+      margin-top: auto;
     }
-    .opd-live-pill {
+
+    /* ── State B: Chamber Idle metric styling ────────────── */
+    .metric-my-token {
+      background: linear-gradient(135deg, rgba(2,132,199,0.05), rgba(13,148,136,0.04));
+      border-color: #bae6fd;
+    }
+    .metric-my-token .opd-metric-val { color: var(--brand-primary); }
+    .metric-serving-idle {
+      background: #f8fafc;
+      border-color: #e2e8f0;
+    }
+    .metric-serving-idle .opd-metric-val {
+      font-size: 1.1rem;
+      color: #64748b;
+      font-weight: 700;
+    }
+    .metric-position-idle {
+      background: #f8fafc;
+      border-color: #e2e8f0;
+    }
+
+    /* ── State C: Chamber Live metric overrides ──────────── */
+    .opd-queue-card.state-live { border-color: #99f6e4; box-shadow: 0 4px 20px rgba(13,148,136,0.1); }
+    .metric-serving-live {
+      background: linear-gradient(135deg, rgba(13,148,136,0.07), rgba(16,185,129,0.05));
+      border-color: #6ee7b7;
+    }
+    .metric-serving-live .opd-metric-val { color: #0d9488; }
+    .metric-position-live {
+      background: linear-gradient(135deg, rgba(245,158,11,0.05), rgba(217,119,6,0.03));
+      border-color: #fde68a;
+    }
+
+    /* Live pulse dot variants */
+    .pulse-dot {
+      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+      animation: pulseRing 2s ease-out infinite;
+    }
+    .pulse-dot-teal  { background: #10b981; box-shadow: 0 0 0 3px rgba(16,185,129,0.35); }
+    .pulse-dot-blue  { background: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.3); }
+    @keyframes pulseRing {
+      0%   { box-shadow: 0 0 0 0 rgba(16,185,129,0.5); }
+      70%  { box-shadow: 0 0 0 7px rgba(16,185,129,0); }
+      100% { box-shadow: 0 0 0 0 rgba(16,185,129,0); }
+    }
+
+    /* Status pills */
+    .opd-status-pill {
       display: inline-flex;
       align-items: center;
-      gap: 8px;
-      padding: 6px 12px;
+      gap: 6px;
+      padding: 4px 10px;
       border-radius: 20px;
+      font-size: 0.75rem;
       font-weight: 700;
-      font-size: 0.82rem;
-      margin-bottom: 6px;
+      letter-spacing: 0.02em;
+      margin-bottom: 8px;
       width: fit-content;
     }
-    .pill-waiting {
-      background: #eff6ff;
-      color: #1d4ed8;
-      border: 1px solid #bfdbfe;
+    .pill-idle    { background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; }
+    .pill-live    { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
+    .pill-my-turn { background: #f0fdf4; color: #15803d; border: 1px solid #86efac;
+                    animation: turnGlow 1.8s ease-in-out infinite; }
+    @keyframes turnGlow {
+      0%,100% { box-shadow: 0 0 0 0 rgba(16,185,129,0.35); }
+      50%      { box-shadow: 0 0 0 6px rgba(16,185,129,0); }
     }
-    .pill-turn-now {
+
+    /* Symptom badge on token card */
+    .opd-symptom-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      margin-top: 8px;
+      padding: 3px 8px;
+      background: rgba(2,132,199,0.07);
+      border: 1px solid #bae6fd;
+      border-radius: 6px;
+      font-size: 0.72rem;
+      color: #0369a1;
+      font-weight: 600;
+      max-width: 100%;
+    }
+    /* Smart Proximity & Turn Alert ("Proceed to Door") Banner */
+    .opd-proximity-alert {
+      background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+      border: 1.5px solid #f59e0b;
+      border-left: 5px solid #d97706;
+      border-radius: 12px;
+      padding: 0.95rem 1.25rem;
+      margin-bottom: 1.2rem;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 4px 14px rgba(245, 158, 11, 0.18);
+      animation: proximityGlow 2.5s ease-in-out infinite;
+    }
+    .opd-proximity-icon {
+      font-size: 1.35rem;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+    .opd-proximity-text {
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: #92400e;
+      line-height: 1.4;
+    }
+    @keyframes proximityGlow {
+      0%, 100% { box-shadow: 0 4px 14px rgba(245, 158, 11, 0.15); }
+      50%      { box-shadow: 0 4px 20px rgba(245, 158, 11, 0.35); border-color: #fbbf24; }
+    }
+
+    /* Dynamic Schedule Badge (Delta propagation) */
+    .opd-schedule-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+    .schedule-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+    }
+    .badge-ahead {
       background: #ecfdf5;
       color: #047857;
       border: 1px solid #a7f3d0;
-      animation: turnPulse 1.8s infinite;
     }
-    .pulse-dot-blue {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: #2563eb;
-      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3);
+    .badge-ahead .schedule-dot { background: #10b981; }
+    .badge-delayed {
+      background: #fffbeb;
+      color: #b45309;
+      border: 1px solid #fde68a;
     }
-    .pulse-dot-green {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: #10b981;
-      box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.4);
+    .badge-delayed .schedule-dot { background: #f59e0b; }
+    .badge-on_schedule {
+      background: #f0f9ff;
+      color: #0284c7;
+      border: 1px solid #bae6fd;
     }
-    @keyframes turnPulse {
-      0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
-      50% { box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+    .badge-on_schedule .schedule-dot { background: #0284c7; }
+
+    /* Active Countdown Timer */
+    .queue-countdown-timer {
+      font-weight: 700;
+      color: #0284c7;
+      font-variant-numeric: tabular-nums;
     }
-    .opd-wait-badge {
-      color: #475569;
-      font-weight: 600;
-    }
+
+    /* Future appointment card */
     .opd-future-card {
       display: flex;
       align-items: center;
@@ -337,49 +494,13 @@ if ($hour >= 5 && $hour < 12) {
       border-radius: 12px;
     }
     .opd-future-icon {
-      width: 44px;
-      height: 44px;
-      background: #22c55e;
-      color: #fff;
+      width: 44px; height: 44px;
+      background: #22c55e; color: #fff;
       border-radius: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
     }
-    .opd-future-title {
-      font-size: 0.96rem;
-      font-weight: 800;
-      color: #15803d;
-      margin-bottom: 3px;
-    }
-    .opd-future-sub {
-      font-size: 0.82rem;
-      color: #334155;
-      margin: 0;
-    }
-    .opd-empty-card {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-      flex-wrap: wrap;
-      padding: 1.15rem 1.35rem;
-      background: #f8fafc;
-      border: 1px dashed #cbd5e1;
-      border-radius: 12px;
-    }
-    .opd-empty-text h4 {
-      margin: 0 0 4px;
-      font-size: 0.95rem;
-      font-weight: 800;
-      color: var(--text-heading);
-    }
-    .opd-empty-text p {
-      margin: 0;
-      font-size: 0.82rem;
-      color: var(--text-muted);
-    }
+    .opd-future-title { font-size: 0.96rem; font-weight: 800; color: #15803d; margin-bottom: 3px; }
+    .opd-future-sub   { font-size: 0.82rem; color: #334155; margin: 0; }
 
     /* Premium Hospital Matrix Card & Hover Interaction */
     .hosp-matrix-card-link {
@@ -512,111 +633,251 @@ if ($hour >= 5 && $hour < 12) {
       </div>
     <?php endif; ?>
 
-    <!-- Live OPD Queue Tracker Widget -->
-    <div class="opd-queue-card" id="opdQueueWidget">
-      <div class="opd-queue-header">
-        <div class="opd-header-left">
-          <div class="opd-badge-chip">
-            <div class="radar-pulse-dot"></div>
-            <span>OPD CHAMBER QUEUE TRACKER</span>
-          </div>
-          <h2 class="opd-title">Live Outpatient Queue Progression</h2>
-          <p class="opd-subtitle">Real-time chamber synchronization &bull; Dynamic serial countdown</p>
+    <!-- Live OPD Queue Tracker Widget (Migrated from Live OPD Chamber Queue Widget.html) -->
+    <?php
+        $opdHasAppt          = !empty($activeOpdQueue);
+        $opdIsToday          = $opdHasAppt && !empty($activeOpdQueue['is_today']);
+        $opdSessionStatus    = strtolower($activeOpdQueue['session_status'] ?? 'idle');
+        $opdIsLive           = $opdIsToday && ($opdSessionStatus === 'live' || !empty($activeOpdQueue['is_chamber_live']));
+        $opdIsMyTurn         = $opdIsToday && !empty($activeOpdQueue['is_my_turn']);
+
+        $myToken             = (int)($activeOpdQueue['token_number'] ?? 0);
+        $currentServing      = (int)($activeOpdQueue['current_serving'] ?? 0);
+        $avgConsultationMins = (int)(($activeOpdQueue['avg_mins'] ?? 0) ?: 10);
+        $accumulatedDelta    = (int)($activeOpdQueue['accumulated_delta_minutes'] ?? 0);
+
+        // Calculate patients ahead strictly: max(0, $appointment['token_number'] - $doctor['current_serving_token'] - 1)
+        $patientsAhead       = max(0, $myToken - $currentServing - 1);
+
+        // Calculate initial wait seconds strictly: (patients_ahead * avg_consultation_time * 60) + (accumulated_delta_minutes * 60)
+        $initialWaitSecs     = ($opdIsMyTurn || ($myToken > 0 && $myToken === $currentServing))
+                               ? 0
+                               : max(0, ($patientsAhead * $avgConsultationMins * 60) + ($accumulatedDelta * 60));
+
+        $totalGaugeSecs      = max(60, ($patientsAhead * $avgConsultationMins * 60));
+        $circ                = 2 * M_PI * 52; // ~326.726
+        $initialOffset       = ($initialWaitSecs > 0 && $totalGaugeSecs > 0)
+                               ? max(0, min($circ, $circ - ($initialWaitSecs / $totalGaugeSecs) * $circ))
+                               : 0;
+
+        // Proximity alert: strictly when session is 'live' and patients_ahead <= 1 and not already my turn
+        $showProximityAlert  = $opdIsLive && ($patientsAhead <= 1) && !$opdIsMyTurn;
+
+        // Doctor details & initials
+        $docRawName  = $activeOpdQueue['doctor_name'] ?? 'Attending Specialist';
+        $docClean    = preg_replace('/^(Dr\.|Doctor|Prof\.|MD)\s+/i', '', trim($docRawName));
+        $nameParts   = preg_split('/\s+/', $docClean);
+        $docInitials = '';
+        if (count($nameParts) >= 2) {
+            $docInitials = strtoupper(mb_substr($nameParts[0], 0, 1) . mb_substr($nameParts[1], 0, 1));
+        } else {
+            $docInitials = strtoupper(mb_substr($docClean, 0, 2));
+        }
+        if (empty($docInitials)) $docInitials = 'DR';
+
+        $docSpecialty = $activeOpdQueue['specialty'] ?? 'Clinical Specialist';
+        $docHospital  = $activeOpdQueue['hospital_name'] ?? 'MedPulse Central Hospital';
+        $docRoom      = $activeOpdQueue['room_number'] ?? 'Chamber 101';
+        $cleanRoomNo  = preg_replace('/^(Room|Chamber)[-\s]*/i', '', trim($docRoom ?: '101'));
+        $formattedRoom = 'Room-' . $cleanRoomNo;
+        $timeSlot     = $activeOpdQueue['time_slot'] ?? 'Morning';
+
+        // Schedule Status
+        if ($opdIsLive) {
+            if ($accumulatedDelta < 0) {
+                $sessionStatusClass = 'on';
+                $sessionStatusDot = 'var(--emerald)';
+                $sessionStatusText = 'Chamber running ' . abs($accumulatedDelta) . ' mins ahead of schedule';
+            } elseif ($accumulatedDelta > 0) {
+                $sessionStatusClass = 'delayed';
+                $sessionStatusDot = 'var(--amber)';
+                $sessionStatusText = 'Delayed by ~' . $accumulatedDelta . ' mins';
+            } else {
+                $sessionStatusClass = 'on';
+                $sessionStatusDot = 'var(--emerald)';
+                $sessionStatusText = 'On schedule';
+            }
+        } else {
+            $sessionStatusClass = 'delayed';
+            $sessionStatusDot = 'var(--slate-500)';
+            $sessionStatusText = 'Session Not Started';
+        }
+
+        // Intake Symptoms Badge
+        $symptomsBadge = trim($activeOpdQueue['symptoms'] ?? '');
+        if (empty($symptomsBadge) || stripos($symptomsBadge, 'OPD Consultation') !== false) {
+            $symptomsBadge = trim($activeOpdQueue['reason_for_visit'] ?? '');
+        }
+
+        // Ahead text & ETA Window
+        if ($opdIsMyTurn) {
+            $aheadText = 'Being called in now';
+            $estWindowText = 'Please proceed to the chamber door.';
+        } elseif ($patientsAhead === 0 && $opdIsLive) {
+            $aheadText = 'Next patient in line';
+            $estWindowText = 'Please proceed outside ' . htmlspecialchars($formattedRoom);
+        } else {
+            $aheadText = $patientsAhead . ($patientsAhead === 1 ? ' patient ahead of you' : ' patients ahead of you');
+            if (!empty($activeOpdQueue['live_expected_start_formatted'])) {
+                $estWindowText = 'Estimated window: ' . $activeOpdQueue['live_expected_start_formatted'] . (!empty($activeOpdQueue['live_expected_end_formatted']) ? ' – ' . $activeOpdQueue['live_expected_end_formatted'] : '');
+            } elseif (!empty($activeOpdQueue['estimated_start_time'])) {
+                $estWindowText = 'Estimated window: ' . date('g:i A', strtotime($activeOpdQueue['estimated_start_time'])) . ' – ' . date('g:i A', strtotime($activeOpdQueue['estimated_end_time']));
+            } else {
+                $estWindowText = 'Estimated window: Scheduled';
+            }
+        }
+    ?>
+    <div class="hero-shell" id="opdHeroShell"
+         data-wait-secs="<?= (int)$initialWaitSecs ?>"
+         data-total-duration="<?= (int)$totalGaugeSecs ?>"
+         data-session-live="<?= $opdIsLive ? '1' : '0' ?>"
+         data-my-turn="<?= $opdIsMyTurn ? '1' : '0' ?>"
+         data-room="<?= htmlspecialchars($formattedRoom) ?>"
+         data-token="<?= (int)$myToken ?>"
+         data-serving="<?= (int)$currentServing ?>"
+         data-avg-mins="<?= (int)$avgConsultationMins ?>"
+         data-delta="<?= (int)$accumulatedDelta ?>">
+      <div class="hero-inner">
+
+        <!-- Header Pill & Badge -->
+        <div class="badge-row">
+          <span class="status-badge"><span class="dot pulse"></span>OPD CHAMBER QUEUE TRACKER</span>
         </div>
-        <div class="opd-header-right">
-          <a href="book_appointment.php" class="btn-new-opd-link">
-            <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-            Book Another Consultation
-          </a>
-        </div>
-      </div>
 
-      <?php if (!empty($activeOpdQueue)): ?>
-        <?php if ($activeOpdQueue['is_today']): ?>
-          <!-- Active Today's Queue Tracker -->
-          <div class="opd-tracker-body">
-            <div class="opd-doctor-info">
-              <div class="opd-doctor-avatar">
-                <svg class="ui-ico" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><polyline points="16 11 18 13 22 9"></polyline></svg>
-              </div>
-              <div>
-                <h3 class="opd-doctor-name"><?= htmlspecialchars($activeOpdQueue['doctor_name']) ?></h3>
-                <div class="opd-doctor-meta">
-                  <span><?= htmlspecialchars($activeOpdQueue['specialty']) ?></span> &bull; 
-                  <strong style="color: var(--brand-primary);"><?= htmlspecialchars($activeOpdQueue['hospital_name']) ?></strong> &bull;
-                  <span>Chamber: <?= htmlspecialchars($activeOpdQueue['room_number']) ?></span>
-                </div>
-              </div>
-            </div>
-
-            <div class="opd-metrics-grid">
-              <!-- Your Token -->
-              <div class="opd-metric-box metric-my-token">
-                <span class="opd-metric-label">Your Serial Number</span>
-                <div class="opd-metric-val" id="myTokenDisplay">#<?= $activeOpdQueue['token_number'] ?></div>
-                <span class="opd-metric-sub"><?= htmlspecialchars($activeOpdQueue['time_slot']) ?> Shift (Today)</span>
-              </div>
-
-              <!-- Currently Serving -->
-              <div class="opd-metric-box metric-serving">
-                <span class="opd-metric-label">Currently Serving</span>
-                <div class="opd-metric-val" id="currentServingDisplay">
-                  <?= $activeOpdQueue['current_serving'] > 0 ? ('#' . $activeOpdQueue['current_serving']) : 'Chamber Idle' ?>
-                </div>
-                <span class="opd-metric-sub">Attending Physician Chamber</span>
-              </div>
-
-              <!-- Live Indicator Pill & Estimated Wait -->
-              <div class="opd-metric-box metric-ahead">
-                <span class="opd-metric-label">Queue Position</span>
-                <div id="queuePillContainer">
-                  <?php if ($activeOpdQueue['is_my_turn']): ?>
-                    <div class="opd-live-pill pill-turn-now">
-                      <div class="pulse-dot-green"></div>
-                      <span>YOUR TURN &ndash; ENTER CHAMBER</span>
-                    </div>
-                  <?php else: ?>
-                    <div class="opd-live-pill pill-waiting">
-                      <div class="pulse-dot-blue"></div>
-                      <span id="peopleAheadText"><?= $activeOpdQueue['people_ahead'] ?> Patients Ahead</span>
-                      <span class="opd-wait-badge" id="waitBadgeText">(~<?= $activeOpdQueue['estimated_wait_mins'] ?> mins wait)</span>
-                    </div>
-                  <?php endif; ?>
-                </div>
-                <span class="opd-metric-sub" id="trackerFooterNotice">Estimated at ~8 mins per patient</span>
-              </div>
-            </div>
+        <!-- Header Top -->
+        <div class="header-top">
+          <div>
+            <h1>Live Outpatient Queue Progression</h1>
+            <p class="sub">Track your token, see who's inside the chamber, and know exactly when it's your turn.</p>
           </div>
+          <?php if ($opdIsToday): ?>
+            <a href="specialists.php" class="btn-primary" style="text-decoration:none;">
+              + Book Another Consultation
+            </a>
+          <?php endif; ?>
+        </div>
+
+        <?php if (!$opdIsToday): ?>
+          <!-- ── State A: Vacant (No active appointment today) ── -->
+          <div class="divider"></div>
+          <div class="empty-state">
+            <div class="empty-icon">📅</div>
+            <div class="empty-title">No OPD appointments scheduled for today.</div>
+            <div class="empty-sub">
+              <?php if ($opdHasAppt && !empty($activeOpdQueue['formatted_date'])): ?>
+                You have a consultation scheduled on <strong><?= htmlspecialchars($activeOpdQueue['formatted_date']) ?></strong> with <?= htmlspecialchars($docRawName) ?>. The live queue tracker will activate on the day of your appointment.
+              <?php else: ?>
+                Book a consultation with a specialist across the MedPulse network &mdash; sequential tokens guaranteed.
+              <?php endif; ?>
+            </div>
+            <a href="specialists.php" class="btn-primary" style="margin-top:6px; text-decoration:none;">
+              + Book Specialist Consultation
+            </a>
+          </div>
+
         <?php else: ?>
-          <!-- Future Scheduled Appointment -->
-          <div class="opd-future-card">
-            <div class="opd-future-icon">
-              <svg class="ui-ico" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
-            </div>
-            <div class="opd-future-content">
-              <div class="opd-future-title">
-                Scheduled for <?= htmlspecialchars($activeOpdQueue['formatted_date']) ?> | Serial: #<?= $activeOpdQueue['token_number'] ?> (Queue goes live on appointment day)
+          <!-- ── State B / C: Today's Active Appointment (Idle or Live) ── -->
+          <div class="divider" id="divider1"></div>
+
+          <!-- Doctor Info Strip -->
+          <div class="doc-banner" id="docBanner">
+            <div class="doc-left">
+              <div class="doc-avatar"><?= $docInitials ?></div>
+              <div>
+                <p class="doc-name"><?= htmlspecialchars($docRawName) ?></p>
+                <p class="doc-meta"><?= htmlspecialchars($docSpecialty) ?> &bull; <?= htmlspecialchars($docHospital) ?> &bull; <?= htmlspecialchars($formattedRoom) ?></p>
               </div>
-              <p class="opd-future-sub">
-                Attending Specialist: <strong><?= htmlspecialchars($activeOpdQueue['doctor_name']) ?></strong> &bull; <?= htmlspecialchars($activeOpdQueue['hospital_name']) ?> (<?= htmlspecialchars($activeOpdQueue['time_slot']) ?> Shift)
-              </p>
+            </div>
+            <div class="session-status <?= $sessionStatusClass ?>" id="opdSessionStatus">
+              <span class="dot" id="opdSessionStatusDot" style="background:<?= $sessionStatusDot ?>"></span>
+              <span id="opdSessionStatusText"><?= $sessionStatusText ?></span>
             </div>
           </div>
-        <?php endif; ?>
-      <?php else: ?>
-        <!-- No Active Appointment Prompt -->
-        <div class="opd-empty-card">
-          <div class="opd-empty-text">
-            <h4>No Active OPD Appointment</h4>
-            <p>Consult with leading specialists across MedPulse network hospitals with guaranteed sequential tokens and automated chamber wait tracking.</p>
+
+          <div class="divider" id="divider2"></div>
+
+          <!-- 3-Card Lower Row Grid -->
+          <div class="grid" id="cardGrid">
+
+            <!-- Card 1: Your Serial Number -->
+            <div class="card">
+              <span class="card-label">YOUR SERIAL NUMBER</span>
+              <div class="token-big" id="opdMyTokenDisplay">#<?= str_pad((string)$myToken, 2, '0', STR_PAD_LEFT) ?></div>
+              <span class="shift-info"><?= htmlspecialchars($timeSlot) ?> Shift &bull; Today</span>
+              <?php if (!empty($symptomsBadge)): ?>
+                <span class="pill" title="<?= htmlspecialchars($symptomsBadge) ?>">🩺 Intake: <?= htmlspecialchars(mb_substr($symptomsBadge, 0, 36)) ?><?= mb_strlen($symptomsBadge) > 36 ? '…' : '' ?></span>
+              <?php else: ?>
+                <span class="pill">🩺 Intake: General OPD Consultation</span>
+              <?php endif; ?>
+            </div>
+
+            <!-- Card 2: Currently Serving -->
+            <div class="card card2 <?= $opdIsLive ? 'live' : 'idle' ?>" id="opdCard2">
+              <span class="card-label">CURRENTLY SERVING</span>
+              <div id="opdCard2Body">
+                <?php if ($opdIsLive): ?>
+                  <div class="live-tag"><span class="pulse-mini"></span>LIVE NOW</div>
+                  <div class="serving-name"><span class="live-dot"></span>Token #<?= str_pad((string)$currentServing, 2, '0', STR_PAD_LEFT) ?></div>
+                  <div class="ecg-wrap">
+                    <div class="ecg-track">
+                      <svg viewBox="0 0 200 26" preserveAspectRatio="none"><polyline points="0,13 28,13 34,4 40,24 46,13 76,13 82,5 88,21 94,13 200,13" fill="none" stroke="#6ee7b7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                      <svg viewBox="0 0 200 26" preserveAspectRatio="none"><polyline points="0,13 28,13 34,4 40,24 46,13 76,13 82,5 88,21 94,13 200,13" fill="none" stroke="#6ee7b7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </div>
+                  </div>
+                  <span class="shift-info"><?= $opdIsMyTurn ? 'YOUR TURN &mdash; Step inside chamber!' : 'Now inside the chamber' ?></span>
+                <?php else: ?>
+                  <div class="hourglass">⏳</div>
+                  <span class="idle-flag">Chamber Idle</span>
+                  <span class="idle-tag"><span class="dot"></span>Awaiting check-in</span>
+                  <span class="shift-info">Doctor has not started consultation yet.</span>
+                <?php endif; ?>
+              </div>
+            </div>
+
+            <!-- Card 3: Queue Position & Decreasing Radial Timer -->
+            <div class="card">
+              <span class="card-label">QUEUE POSITION</span>
+              <div class="gauge-wrap <?= ($opdIsMyTurn || ($opdIsLive && $patientsAhead === 0 && $initialWaitSecs <= 0)) ? 'ready' : '' ?>" id="opdGaugeWrap">
+                <div class="gauge-center">
+                  <svg class="gauge-svg" width="132" height="132" viewBox="0 0 132 132">
+                    <defs>
+                      <linearGradient id="gaugeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="#22d3ee"/>
+                        <stop offset="100%" stop-color="#10b981"/>
+                      </linearGradient>
+                      <linearGradient id="gaugeGradReady" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="#f59e0b"/>
+                        <stop offset="100%" stop-color="#10b981"/>
+                      </linearGradient>
+                    </defs>
+                    <circle class="gauge-track" cx="66" cy="66" r="52"/>
+                    <circle class="gauge-progress" id="opdGaugeProg" cx="66" cy="66" r="52" stroke-dasharray="326.73" stroke-dashoffset="<?= number_format($initialOffset, 1) ?>"/>
+                  </svg>
+                  <div class="gauge-time <?= ($opdIsMyTurn || ($opdIsLive && $patientsAhead === 0 && $initialWaitSecs <= 0)) ? 'ready' : '' ?>" id="opdGaugeTime">
+                    <?php if ($opdIsMyTurn || ($opdIsLive && $patientsAhead === 0 && $initialWaitSecs <= 0)): ?>
+                      Turn ready<br>Step inside!
+                    <?php else: ?>
+                      <span class="minus">-</span><?= sprintf('%02d', floor($initialWaitSecs / 60)) ?><span class="colon">:</span><?= sprintf('%02d', $initialWaitSecs % 60) ?>
+                    <?php endif; ?>
+                  </div>
+                </div>
+                <span class="ahead-pill" id="opdAheadEl"><?= $aheadText ?></span>
+                <span class="est-window" id="opdEstWindow"><?= $estWindowText ?></span>
+              </div>
+            </div>
+
+          </div><!-- /.grid -->
+
+          <!-- Smart Proximity Alert Strip -->
+          <div class="alert-strip <?= $showProximityAlert ? 'show' : '' ?>" id="opdAlertStrip">
+            ⚠️ You are next in line! Please proceed outside <?= htmlspecialchars($formattedRoom) ?>
           </div>
-          <a href="book_appointment.php" class="btn-action-gradient" style="text-decoration: none;">
-            <svg class="ui-ico ui-ico-sm" style="stroke: white;" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-            Schedule Specialist Visit
-          </a>
-        </div>
-      <?php endif; ?>
-    </div>
+
+        <?php endif; ?>
+
+      </div><!-- /.hero-inner -->
+    </div><!-- /.hero-shell -->
+
 
     <!-- Multi-Hospital Network Live Bed Matrix & Pre-Reservation Section -->
     <div class="bed-availability-panel" id="networkBedMatrixSection" style="margin-bottom: 2.25rem;">
@@ -981,53 +1242,231 @@ if ($hour >= 5 && $hour < 12) {
       }
     });
 
-    // Real-Time Patient OPD Queue Tracker Polling Engine
-    (function initLiveQueueTracker() {
-      const widget = document.getElementById('opdQueueWidget');
-      if (!widget) return;
+    // Real-Time Live OPD Chamber Queue Widget Controller & Radial Countdown Engine
+    (function initLiveOpdQueueWidget() {
+      const heroShell = document.getElementById('opdHeroShell');
+      if (!heroShell) return;
 
-      const currentServingEl = document.getElementById('currentServingDisplay');
-      const queuePillContainer = document.getElementById('queuePillContainer');
+      const card2         = document.getElementById('opdCard2');
+      const card2Body     = document.getElementById('opdCard2Body');
+      const gaugeWrap     = document.getElementById('opdGaugeWrap');
+      const gaugeProg     = document.getElementById('opdGaugeProg');
+      const gaugeTime     = document.getElementById('opdGaugeTime');
+      const aheadEl       = document.getElementById('opdAheadEl');
+      const estWindow     = document.getElementById('opdEstWindow');
+      const alertStrip    = document.getElementById('opdAlertStrip');
+      const sessionStatus = document.getElementById('opdSessionStatus');
+      const sessionDot    = document.getElementById('opdSessionStatusDot');
+      const sessionText   = document.getElementById('opdSessionStatusText');
+      const myTokenEl     = document.getElementById('opdMyTokenDisplay');
 
-      async function pollQueueStatus() {
+      // SVG Radius = 52 -> Circumference = 2 * PI * 52 ≈ 326.726
+      const CIRC = 2 * Math.PI * 52;
+
+      // Extract initial server-rendered data attributes
+      let initialWaitSecs = parseInt(heroShell.getAttribute('data-wait-secs'), 10);
+      if (isNaN(initialWaitSecs)) initialWaitSecs = 0;
+      let totalDurationSecs = parseInt(heroShell.getAttribute('data-total-duration'), 10) || Math.max(60, initialWaitSecs);
+
+      let remainingSecs = initialWaitSecs;
+      let isChamberLive = heroShell.getAttribute('data-session-live') === '1';
+      let isMyTurn = heroShell.getAttribute('data-my-turn') === '1';
+      let docRoom = heroShell.getAttribute('data-room') || 'Room-101';
+      let timerInterval = null;
+
+      function fmtClock(sec) {
+        const m = Math.floor(sec / 60);
+        const s = sec % 60;
+        return {
+          m: String(m).padStart(2, '0'),
+          s: String(s).padStart(2, '0')
+        };
+      }
+
+      const ecgSvg = '<svg viewBox="0 0 200 26" preserveAspectRatio="none"><polyline points="0,13 28,13 34,4 40,24 46,13 76,13 82,5 88,21 94,13 200,13" fill="none" stroke="#6ee7b7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+      function renderIdleCard2() {
+        if (!card2 || !card2Body) return;
+        card2.className = 'card card2 idle';
+        card2Body.innerHTML = `
+          <div class="hourglass">⏳</div>
+          <span class="idle-flag">Chamber Idle</span>
+          <span class="idle-tag"><span class="dot"></span>Awaiting check-in</span>
+          <span class="shift-info">Doctor has not started consultation yet.</span>
+        `;
+      }
+
+      function renderLiveCard2(currentServing, myTurn) {
+        if (!card2 || !card2Body) return;
+        card2.className = 'card card2 live';
+        const tokenFormatted = String(currentServing).padStart(2, '0');
+        const subInfo = myTurn ? 'YOUR TURN &mdash; Step inside chamber!' : 'Now inside the chamber';
+        card2Body.innerHTML = `
+          <div class="live-tag"><span class="pulse-mini"></span>LIVE NOW</div>
+          <div class="serving-name"><span class="live-dot"></span>Token #${tokenFormatted}</div>
+          <div class="ecg-wrap">
+            <div class="ecg-track">
+              ${ecgSvg}${ecgSvg}
+            </div>
+          </div>
+          <span class="shift-info">${subInfo}</span>
+        `;
+      }
+
+      function updateRadialDisplay() {
+        if (!gaugeWrap || !gaugeProg || !gaugeTime) return;
+
+        if (isMyTurn || (isChamberLive && remainingSecs <= 0)) {
+          gaugeWrap.classList.add('ready');
+          gaugeTime.classList.add('ready');
+          gaugeTime.innerHTML = 'Turn ready<br>Step inside!';
+          gaugeProg.style.strokeDashoffset = '0';
+          return;
+        }
+
+        gaugeWrap.classList.remove('ready');
+        gaugeTime.classList.remove('ready');
+
+        const parts = fmtClock(Math.max(0, remainingSecs));
+        gaugeTime.innerHTML = `<span class="minus">-</span>${parts.m}<span class="colon">:</span>${parts.s}`;
+
+        // Un-fill radial ring as time decreases:
+        // offset increases from 0 (full) to CIRC (empty)
+        const offset = Math.min(CIRC, Math.max(0, CIRC - (remainingSecs / totalDurationSecs) * CIRC));
+        gaugeProg.style.strokeDashoffset = offset.toFixed(1);
+      }
+
+      function startCountdown() {
+        clearInterval(timerInterval);
+        if (!isChamberLive || isMyTurn || remainingSecs <= 0) {
+          updateRadialDisplay();
+          return;
+        }
+
+        updateRadialDisplay();
+        timerInterval = setInterval(() => {
+          if (remainingSecs > 0) {
+            remainingSecs--;
+            updateRadialDisplay();
+          } else {
+            clearInterval(timerInterval);
+            updateRadialDisplay();
+          }
+        }, 1000);
+      }
+
+      // Initialize countdown on page load
+      startCountdown();
+
+      // Poll background API every 15 seconds for real-time live synchronization
+      async function pollLiveQueue() {
         try {
           const res = await fetch('../backend/api/opd_queue.php?action=patient_live_status', {
             headers: { 'Accept': 'application/json' }
           });
           if (!res.ok) return;
           const json = await res.json();
-          if (json.status === 'success' && json.data && json.data.is_today) {
-            const d = json.data;
-            if (currentServingEl) {
-              currentServingEl.textContent = (d.current_serving > 0) ? ('#' + d.current_serving) : 'Chamber Idle';
-            }
+          if (json.status !== 'success' || !json.data) return;
 
-            if (queuePillContainer) {
-              if (d.is_my_turn) {
-                queuePillContainer.innerHTML = `
-                  <div class="opd-live-pill pill-turn-now">
-                    <div class="pulse-dot-green"></div>
-                    <span>YOUR TURN &ndash; ENTER CHAMBER</span>
-                  </div>
-                `;
+          const d = json.data;
+          if (!d.is_today) return;
+
+          const myToken        = parseInt(d.token_number, 10) || 0;
+          const currentServing = parseInt(d.current_serving, 10) || 0;
+          const avgMins        = parseInt(d.avg_mins, 10) || 10;
+          const delta          = parseInt(d.accumulated_delta_minutes, 10) || 0;
+          isChamberLive        = Boolean(d.is_chamber_live || d.session_status === 'live');
+          isMyTurn             = Boolean(d.is_my_turn || (myToken > 0 && currentServing === myToken));
+
+          if (d.room_number) {
+            const m = String(d.room_number).replace(/^(Room|Chamber)[-\s]*/i, '');
+            docRoom = m ? `Room-${m}` : d.room_number;
+          }
+
+          // Strict patients ahead math: max(0, token_number - current_serving_token - 1)
+          const patientsAhead = Math.max(0, myToken - currentServing - 1);
+
+          // Strict initial wait seconds math: (patients_ahead * avg_consultation_time * 60) + (accumulated_delta_minutes * 60)
+          const recalculatedWaitSecs = (isMyTurn || (myToken > 0 && currentServing >= myToken))
+            ? 0
+            : Math.max(0, (patientsAhead * avgMins * 60) + (delta * 60));
+
+          totalDurationSecs = Math.max(60, (patientsAhead * avgMins * 60));
+          remainingSecs = recalculatedWaitSecs;
+
+          // 1. Doctor Banner Status
+          if (sessionStatus && sessionDot && sessionText) {
+            if (isChamberLive) {
+              if (delta < 0) {
+                sessionStatus.className = 'session-status on';
+                sessionDot.style.background = 'var(--emerald)';
+                sessionText.textContent = `Chamber running ${Math.abs(delta)} mins ahead of schedule`;
+              } else if (delta > 0) {
+                sessionStatus.className = 'session-status delayed';
+                sessionDot.style.background = 'var(--amber)';
+                sessionText.textContent = `Delayed by ~${delta} mins`;
               } else {
-                queuePillContainer.innerHTML = `
-                  <div class="opd-live-pill pill-waiting">
-                    <div class="pulse-dot-blue"></div>
-                    <span id="peopleAheadText">${d.people_ahead} Patients Ahead</span>
-                    <span class="opd-wait-badge" id="waitBadgeText">(~${d.estimated_wait_mins} mins wait)</span>
-                  </div>
-                `;
+                sessionStatus.className = 'session-status on';
+                sessionDot.style.background = 'var(--emerald)';
+                sessionText.textContent = 'On schedule';
               }
+            } else {
+              sessionStatus.className = 'session-status delayed';
+              sessionDot.style.background = 'var(--slate-500)';
+              sessionText.textContent = 'Session Not Started';
             }
           }
-        } catch (e) {
-          // Graceful fallback: retry on next cycle
+
+          // 2. Card 2: Currently Serving
+          if (!isChamberLive) {
+            renderIdleCard2();
+          } else {
+            renderLiveCard2(currentServing, isMyTurn);
+          }
+
+          // 3. Card 3: Ahead Pill & Window
+          if (aheadEl) {
+            if (isMyTurn) {
+              aheadEl.textContent = 'Being called in now';
+            } else if (patientsAhead === 0 && isChamberLive) {
+              aheadEl.textContent = 'Next patient in line';
+            } else {
+              aheadEl.textContent = `${patientsAhead} ${patientsAhead === 1 ? 'patient ahead of you' : 'patients ahead of you'}`;
+            }
+          }
+
+          if (estWindow) {
+            if (isMyTurn) {
+              estWindow.textContent = 'Please proceed to the chamber door.';
+            } else if (patientsAhead === 0 && isChamberLive) {
+              estWindow.textContent = `Please proceed outside ${docRoom}`;
+            } else if (d.live_expected_start_formatted) {
+              const endStr = d.live_expected_end_formatted ? ` – ${d.live_expected_end_formatted}` : '';
+              estWindow.textContent = `Estimated window: ${d.live_expected_start_formatted}${endStr}`;
+            }
+          }
+
+          // 4. Proximity Alert Strip
+          // Strictly when session is 'live' and patients_ahead <= 1 and not already my turn
+          if (alertStrip) {
+            const showProxAlert = isChamberLive && (patientsAhead <= 1) && !isMyTurn;
+            alertStrip.textContent = `⚠️ You are next in line! Please proceed outside ${docRoom}`;
+            if (showProxAlert) {
+              alertStrip.classList.add('show');
+            } else {
+              alertStrip.classList.remove('show');
+            }
+          }
+
+          // 5. Restart or update countdown tick
+          startCountdown();
+
+        } catch (err) {
+          // Graceful network error handling
         }
       }
 
-      // Poll every 5 seconds for live queue synchronization
-      setInterval(pollQueueStatus, 5000);
+      setInterval(pollLiveQueue, 15000);
     })();
 
     // Interactive Bed Pre-Reservation (45-Minute Hold) Countdown Timer

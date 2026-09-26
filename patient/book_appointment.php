@@ -22,7 +22,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $doctorId = (int)($_POST['doctor_id'] ?? 0);
     $appointmentDate = trim($_POST['appointment_date'] ?? date('Y-m-d'));
     $timeSlot = trim($_POST['time_slot'] ?? 'Morning');
-    $reason = trim($_POST['reason_for_visit'] ?? '');
+    $reason   = trim($_POST['reason_for_visit'] ?? '');
+    $symptoms = trim($_POST['symptoms']          ?? '');
 
     if ($doctorId <= 0) {
         if ($isAjax) {
@@ -32,7 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $errorMsg = 'Please select an attending medical doctor.';
     } else {
-        $result = AppointmentController::bookAppointment($pdo, $patientId, $doctorId, $appointmentDate, $timeSlot, $reason);
+        $result = AppointmentController::bookAppointment($pdo, $patientId, $doctorId, $appointmentDate, $timeSlot, $reason, $symptoms);
 
         if ($isAjax) {
             header('Content-Type: application/json; charset=utf-8');
@@ -305,8 +306,28 @@ $patientInfo = $stmtP->fetch(PDO::FETCH_ASSOC);
         </div>
 
         <div class="form-group">
-          <label for="visitReason">Clinical Concern / Symptoms (Optional)</label>
-          <textarea id="visitReason" name="reason_for_visit" rows="3" placeholder="Briefly describe your symptoms or reason for consulting the specialist..."></textarea>
+          <label for="visitReason">Clinical Concern / Reason for Visit (Optional)</label>
+          <textarea id="visitReason" name="reason_for_visit" rows="2" placeholder="Briefly describe your reason for consulting the specialist..."></textarea>
+        </div>
+
+        <div class="form-group">
+          <label for="symptomsField"
+                 style="display:flex; align-items:center; gap:6px;">
+            <svg viewBox="0 0 24 24" style="width:15px;height:15px;stroke:#0d9488;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+            Primary Symptoms / Chief Complaint
+            <span style="font-size:0.78rem;font-weight:500;color:var(--text-muted);">(Optional)</span>
+          </label>
+          <textarea
+            id="symptomsField"
+            name="symptoms"
+            rows="3"
+            maxlength="1000"
+            placeholder="e.g., High fever for 3 days, severe cough, chest tightness"
+            style="resize:vertical;"
+          ></textarea>
+          <div style="text-align:right;font-size:0.72rem;color:var(--text-muted);margin-top:4px;">
+            <span id="symptomsCount">0</span>/1000 characters
+          </div>
         </div>
 
         <button type="submit" class="btn-submit-booking" id="btnConfirmBooking">
@@ -317,5 +338,18 @@ $patientInfo = $stmtP->fetch(PDO::FETCH_ASSOC);
     </div>
   </div>
 
+<script>
+  (function () {
+    var ta  = document.getElementById('symptomsField');
+    var cnt = document.getElementById('symptomsCount');
+    if (ta && cnt) {
+      ta.addEventListener('input', function () {
+        var len = ta.value.length;
+        cnt.textContent = len;
+        cnt.style.color = len > 900 ? '#dc2626' : '';
+      });
+    }
+  })();
+</script>
 </body>
 </html>
