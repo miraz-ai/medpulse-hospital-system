@@ -17,6 +17,12 @@ $isAjax = (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTT
        || (isset($_SERVER['HTTP_ACCEPT']) && str_contains($_SERVER['HTTP_ACCEPT'], 'application/json'))
        || (isset($_POST['ajax']) && $_POST['ajax'] === '1');
 
+// ── 0. Route GET requests to new Discovery Grid ───────────────────────────────
+if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+    header("Location: specialists.php" . (!empty($_SERVER['QUERY_STRING']) ? '?' . $_SERVER['QUERY_STRING'] : ''));
+    exit();
+}
+
 // ── 1. Handle Appointment Booking Form Submission ─────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $doctorId = (int)($_POST['doctor_id'] ?? 0);
@@ -60,12 +66,15 @@ try {
         SELECT u.user_id, u.full_name, dp.specialty, dp.designation, dp.qualifications,
                dp.consultation_fee, dp.room_number, dp.available_days,
                h.hospital_id, h.name AS hospital_name, h.city AS hospital_city
-        FROM users u
-        JOIN doctor_profiles dp ON u.user_id = dp.user_id
-        LEFT JOIN hospitals h ON dp.hospital_id = h.hospital_id
+        FROM doctors d
+        INNER JOIN users u ON (d.user_id = u.user_id OR d.id = u.user_id)
+        INNER JOIN doctor_profiles dp ON u.user_id = dp.user_id
+        LEFT JOIN hospitals h ON COALESCE(d.hospital_id, dp.hospital_id) = h.hospital_id
         WHERE u.role = 'Doctor' 
           AND u.status = 'active'
+          AND d.status IN ('active', 'approved')
           AND dp.approval_status = 'approved'
+          AND u.password_hash IS NOT NULL AND u.password_hash != ''
         ORDER BY h.hospital_id ASC, u.full_name ASC
     ");
     $docQuery->execute();

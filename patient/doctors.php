@@ -1,8 +1,9 @@
 <?php
 /**
  * MedPulse Enterprise HMS — Doctors Directory (Canonical Route)
- * Forwards to book_appointment.php
+ * Forwards to specialists.php
  */
 declare(strict_types=1);
 
-require_once __DIR__ . '/book_appointment.php';
+header("Location: specialists.php" . (!empty($_SERVER['QUERY_STRING']) ? '?' . $_SERVER['QUERY_STRING'] : ''));
+exit();

@@ -519,10 +519,14 @@ class AppointmentController {
                        h.name AS hospital_name, h.city AS hospital_city
                 FROM appointments a
                 JOIN users u ON a.doctor_id = u.user_id
+                INNER JOIN doctors d ON (a.doctor_id = d.id OR a.doctor_id = d.user_id)
                 LEFT JOIN doctor_profiles dp ON u.user_id = dp.user_id
                 LEFT JOIN hospitals h ON a.hospital_id = h.id
                 WHERE a.patient_id = :patient_id 
                   AND a.status IN ('booked', 'checked_in', 'in_consultation')
+                  AND u.status = 'active'
+                  AND u.role = 'Doctor'
+                  AND d.status IN ('active', 'approved')
                   AND a.appointment_date >= CURRENT_DATE
                 ORDER BY 
                     CASE WHEN a.status = 'in_consultation' THEN 0 

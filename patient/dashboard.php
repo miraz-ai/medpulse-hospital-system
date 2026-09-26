@@ -75,7 +75,12 @@ try {
                 SELECT u.full_name 
                 FROM appointments a 
                 JOIN users u ON a.doctor_id = u.user_id 
-                WHERE a.patient_id = :id AND a.status IN ('booked', 'checked_in', 'in_consultation') 
+                INNER JOIN doctors d ON (a.doctor_id = d.id OR a.doctor_id = d.user_id)
+                WHERE a.patient_id = :id 
+                  AND a.status IN ('booked', 'checked_in', 'in_consultation') 
+                  AND u.status = 'active'
+                  AND u.role = 'Doctor'
+                  AND d.status IN ('active', 'approved')
                 ORDER BY a.appointment_date ASC, a.token_number ASC 
                 LIMIT 1
             ");
@@ -88,9 +93,31 @@ try {
 
     $assignedDoctor = !empty($assignedDoctor) ? $assignedDoctor : 'Unassigned';
 
-    // Live OPD Queue Status Lookup
+    // Live OPD Queue Status Lookup strictly from valid database doctors
     require_once __DIR__ . '/../controllers/AppointmentController.php';
-    $activeOpdQueue = AppointmentController::getPatientLiveQueue($pdo, (int)$patient['user_id']);
+
+    // Strict Database Verification: Query the patient's active appointment joined with doctors table
+    $docVerifyStmt = $pdo->prepare("
+        SELECT a.*, 
+               d.name, d.specialty, d.hospital_name, d.chamber_room_no, 
+               d.current_serving_token, d.session_status, d.avg_consultation_time 
+        FROM appointments a 
+        INNER JOIN doctors d ON (a.doctor_id = d.id OR a.doctor_id = d.user_id) 
+        WHERE a.patient_id = ? 
+          AND a.appointment_date = CURDATE() 
+          AND (a.status IN ('scheduled', 'serving', 'booked', 'checked_in', 'in_consultation')
+               OR a.queue_status IN ('scheduled', 'serving'))
+          AND d.status IN ('active', 'approved')
+        LIMIT 1
+    ");
+    $docVerifyStmt->execute([(int)$patient['user_id']]);
+    $verifiedActiveDoctor = $docVerifyStmt->fetch(PDO::FETCH_ASSOC);
+
+    if ($verifiedActiveDoctor) {
+        $activeOpdQueue = AppointmentController::getPatientLiveQueue($pdo, (int)$patient['user_id']);
+    } else {
+        $activeOpdQueue = null;
+    }
 
     // Multi-Hospital Network Live Bed Matrix & Patient Bed Pre-Reservation (45-Minute Hold) Engine
     require_once __DIR__ . '/../controllers/BedReservationController.php';
@@ -143,6 +170,44 @@ if ($hour >= 5 && $hour < 12) {
   <link rel="stylesheet" href="../assets/css/opd_queue_widget.css">
 
   <style>
+    /* ═══════════════════════════════════════════════════════
+       Circular Gauge Typography & Single-Line Countdown Layout
+       Ensures text never wraps or breaks vertically into "09" / ":" / "51"
+    ═══════════════════════════════════════════════════════ */
+    .hero-shell .gauge-center {
+      position: relative;
+      width: 132px;
+      height: 132px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .hero-shell .gauge-time {
+      position: absolute;
+      inset: 0;
+      display: flex !important;
+      flex-direction: row !important;
+      align-items: center !important;
+      justify-content: center !important;
+      white-space: nowrap !important;
+      font-size: 1.5rem !important; /* 24px */
+      font-weight: 700 !important;
+      font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace !important;
+      color: var(--slate-900);
+      letter-spacing: -0.02em;
+      text-align: center;
+      line-height: 1;
+      margin: 0;
+      padding: 0;
+    }
+    .hero-shell .gauge-time.ready {
+      font-size: 0.88rem !important;
+      font-weight: 800 !important;
+      line-height: 1.25 !important;
+      white-space: normal !important;
+      flex-direction: column !important;
+    }
+
     /* ═══════════════════════════════════════════════════════
        OPD QUEUE WIDGET — Three-State Design System
        State A: Vacant  |  State B: Idle  |  State C: Live
@@ -584,7 +649,7 @@ if ($hour >= 5 && $hour < 12) {
           <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
           Virtual Room
         </button>
-        <a href="book_appointment.php" class="btn-action-gradient" style="text-decoration: none;">
+        <a href="specialists.php" class="btn-action-gradient" style="text-decoration: none;">
           <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24" style="stroke: white;"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
           New OPD Booking
         </a>
@@ -635,6 +700,13 @@ if ($hour >= 5 && $hour < 12) {
 
     <!-- Live OPD Queue Tracker Widget (Migrated from Live OPD Chamber Queue Widget.html) -->
     <?php
+        $total_wait_seconds     = 0;
+        $patients_waiting_ahead = 0;
+        $initialWaitSecs        = 0;
+        $totalGaugeSecs         = 60;
+        $initialOffset          = 0;
+        $patientsAhead          = 0;
+
         $opdHasAppt          = !empty($activeOpdQueue);
         $opdIsToday          = $opdHasAppt && !empty($activeOpdQueue['is_today']);
         $opdSessionStatus    = strtolower($activeOpdQueue['session_status'] ?? 'idle');
@@ -646,25 +718,60 @@ if ($hour >= 5 && $hour < 12) {
         $avgConsultationMins = (int)(($activeOpdQueue['avg_mins'] ?? 0) ?: 10);
         $accumulatedDelta    = (int)($activeOpdQueue['accumulated_delta_minutes'] ?? 0);
 
-        // Calculate patients ahead strictly: max(0, $appointment['token_number'] - $doctor['current_serving_token'] - 1)
-        $patientsAhead       = max(0, $myToken - $currentServing - 1);
+        // ── Real-Time Elapsed Time Calculation (PHP to JS) ───────────────────
+        $activeDoctorId = (int)($activeOpdQueue['doctor_id'] ?? 0);
+        $current_serving_appointment = null;
+        if ($activeDoctorId > 0 && $opdIsToday) {
+            $servStmt = $pdo->prepare("
+                SELECT id, token_number, actual_start_time, created_at, status, queue_status
+                FROM appointments
+                WHERE doctor_id = :doctor_id
+                  AND appointment_date = CURRENT_DATE
+                  AND (status = 'in_consultation' OR queue_status = 'serving')
+                ORDER BY id DESC
+                LIMIT 1
+            ");
+            $servStmt->execute([':doctor_id' => $activeDoctorId]);
+            $current_serving_appointment = $servStmt->fetch(PDO::FETCH_ASSOC);
+        }
 
-        // Calculate initial wait seconds strictly: (patients_ahead * avg_consultation_time * 60) + (accumulated_delta_minutes * 60)
-        $initialWaitSecs     = ($opdIsMyTurn || ($myToken > 0 && $myToken === $currentServing))
-                               ? 0
-                               : max(0, ($patientsAhead * $avgConsultationMins * 60) + ($accumulatedDelta * 60));
+        $doctor = ['avg_consultation_time' => $avgConsultationMins];
+        $actual_start = $current_serving_appointment['actual_start_time'] 
+                        ?? $current_serving_appointment['updated_at'] 
+                        ?? null;
+        $elapsed_seconds = $actual_start ? max(0, time() - strtotime($actual_start)) : 0;
+        $benchmark_seconds = ($doctor['avg_consultation_time'] ?? 10) * 60;
+        $active_remaining = $current_serving_appointment ? max(0, $benchmark_seconds - $elapsed_seconds) : 0;
 
-        $totalGaugeSecs      = max(60, ($patientsAhead * $avgConsultationMins * 60));
-        $circ                = 2 * M_PI * 52; // ~326.726
-        $initialOffset       = ($initialWaitSecs > 0 && $totalGaugeSecs > 0)
-                               ? max(0, min($circ, $circ - ($initialWaitSecs / $totalGaugeSecs) * $circ))
-                               : 0;
+        $patients_waiting_ahead = ($currentServing > 0)
+            ? max(0, $myToken - $currentServing - 1)
+            : max(0, $myToken - 1);
+
+        $total_wait_seconds = ($patients_waiting_ahead * $benchmark_seconds) + $active_remaining;
+
+        if ($opdIsMyTurn || ($myToken > 0 && $currentServing === $myToken)) {
+            $total_wait_seconds = 0;
+            $patients_waiting_ahead = 0;
+        }
+
+        $patientsAhead   = $patients_waiting_ahead;
+        $initialWaitSecs = $total_wait_seconds;
+        $totalGaugeSecs  = max(60, ($patients_waiting_ahead + ($current_serving_appointment ? 1 : 0)) * $benchmark_seconds, $total_wait_seconds);
+        $circ            = 2 * M_PI * 52; // ~326.726
+        $initialOffset   = ($total_wait_seconds > 0 && $totalGaugeSecs > 0)
+                           ? max(0, min($circ, $circ - ($total_wait_seconds / $totalGaugeSecs) * $circ))
+                           : 0;
 
         // Proximity alert: strictly when session is 'live' and patients_ahead <= 1 and not already my turn
         $showProximityAlert  = $opdIsLive && ($patientsAhead <= 1) && !$opdIsMyTurn;
 
-        // Doctor details & initials
-        $docRawName  = $activeOpdQueue['doctor_name'] ?? 'Attending Specialist';
+        // Doctor details & initials strictly from database
+        $docRawName  = trim($activeOpdQueue['doctor_name'] ?? '');
+        if (empty($docRawName)) {
+            $opdHasAppt = false;
+            $opdIsToday = false;
+        }
+
         $docClean    = preg_replace('/^(Dr\.|Doctor|Prof\.|MD)\s+/i', '', trim($docRawName));
         $nameParts   = preg_split('/\s+/', $docClean);
         $docInitials = '';
@@ -675,11 +782,11 @@ if ($hour >= 5 && $hour < 12) {
         }
         if (empty($docInitials)) $docInitials = 'DR';
 
-        $docSpecialty = $activeOpdQueue['specialty'] ?? 'Clinical Specialist';
-        $docHospital  = $activeOpdQueue['hospital_name'] ?? 'MedPulse Central Hospital';
-        $docRoom      = $activeOpdQueue['room_number'] ?? 'Chamber 101';
-        $cleanRoomNo  = preg_replace('/^(Room|Chamber)[-\s]*/i', '', trim($docRoom ?: '101'));
-        $formattedRoom = 'Room-' . $cleanRoomNo;
+        $docSpecialty = trim($activeOpdQueue['specialty'] ?? '');
+        $docHospital  = trim($activeOpdQueue['hospital_name'] ?? '');
+        $docRoom      = trim($activeOpdQueue['room_number'] ?? '');
+        $cleanRoomNo  = preg_replace('/^(Room|Chamber)[-\s]*/i', '', $docRoom);
+        $formattedRoom = !empty($cleanRoomNo) ? ('Room-' . $cleanRoomNo) : '';
         $timeSlot     = $activeOpdQueue['time_slot'] ?? 'Morning';
 
         // Schedule Status
@@ -736,6 +843,7 @@ if ($hour >= 5 && $hour < 12) {
          data-token="<?= (int)$myToken ?>"
          data-serving="<?= (int)$currentServing ?>"
          data-avg-mins="<?= (int)$avgConsultationMins ?>"
+         data-ahead="<?= (int)$patientsAhead ?>"
          data-delta="<?= (int)$accumulatedDelta ?>">
       <div class="hero-inner">
 
@@ -851,13 +959,13 @@ if ($hour >= 5 && $hour < 12) {
                       </linearGradient>
                     </defs>
                     <circle class="gauge-track" cx="66" cy="66" r="52"/>
-                    <circle class="gauge-progress" id="opdGaugeProg" cx="66" cy="66" r="52" stroke-dasharray="326.73" stroke-dashoffset="<?= number_format($initialOffset, 1) ?>"/>
+                    <circle class="gauge-progress" id="opdGaugeProg" cx="66" cy="66" r="52" stroke-dasharray="326.73 326.73" stroke-dashoffset="<?= number_format($initialOffset, 1) ?>" style="transition: stroke-dashoffset 1s linear;"/>
                   </svg>
                   <div class="gauge-time <?= ($opdIsMyTurn || ($opdIsLive && $patientsAhead === 0 && $initialWaitSecs <= 0)) ? 'ready' : '' ?>" id="opdGaugeTime">
                     <?php if ($opdIsMyTurn || ($opdIsLive && $patientsAhead === 0 && $initialWaitSecs <= 0)): ?>
                       Turn ready<br>Step inside!
                     <?php else: ?>
-                      <span class="minus">-</span><?= sprintf('%02d', floor($initialWaitSecs / 60)) ?><span class="colon">:</span><?= sprintf('%02d', $initialWaitSecs % 60) ?>
+                      <?= '-' . sprintf('%02d:%02d', floor($initialWaitSecs / 60), $initialWaitSecs % 60) ?>
                     <?php endif; ?>
                   </div>
                 </div>
@@ -1242,6 +1350,9 @@ if ($hour >= 5 && $hour < 12) {
       }
     });
 
+    // Server-Side Synchronized Remaining Wait Seconds
+    const initialRemainingSeconds = <?= (int)$total_wait_seconds ?>;
+
     // Real-Time Live OPD Chamber Queue Widget Controller & Radial Countdown Engine
     (function initLiveOpdQueueWidget() {
       const heroShell = document.getElementById('opdHeroShell');
@@ -1250,8 +1361,8 @@ if ($hour >= 5 && $hour < 12) {
       const card2         = document.getElementById('opdCard2');
       const card2Body     = document.getElementById('opdCard2Body');
       const gaugeWrap     = document.getElementById('opdGaugeWrap');
-      const gaugeProg     = document.getElementById('opdGaugeProg');
-      const gaugeTime     = document.getElementById('opdGaugeTime');
+      const circle        = document.getElementById('opdGaugeProg');
+      const timerTextEl   = document.getElementById('opdGaugeTime');
       const aheadEl       = document.getElementById('opdAheadEl');
       const estWindow     = document.getElementById('opdEstWindow');
       const alertStrip    = document.getElementById('opdAlertStrip');
@@ -1260,28 +1371,39 @@ if ($hour >= 5 && $hour < 12) {
       const sessionText   = document.getElementById('opdSessionStatusText');
       const myTokenEl     = document.getElementById('opdMyTokenDisplay');
 
-      // SVG Radius = 52 -> Circumference = 2 * PI * 52 ≈ 326.726
-      const CIRC = 2 * Math.PI * 52;
+      if (!circle || !timerTextEl) return;
 
-      // Extract initial server-rendered data attributes
-      let initialWaitSecs = parseInt(heroShell.getAttribute('data-wait-secs'), 10);
-      if (isNaN(initialWaitSecs)) initialWaitSecs = 0;
-      let totalDurationSecs = parseInt(heroShell.getAttribute('data-total-duration'), 10) || Math.max(60, initialWaitSecs);
+      // ── 2. Synchronize the SVG Circular Progress Ring ─────────────────────────
+      // Identify the progress ring <circle> element and measure its circumference:
+      const radius = circle.r.baseVal.value || 52;
+      const circumference = 2 * Math.PI * radius;
+      circle.style.strokeDasharray = `${circumference} ${circumference}`;
+      circle.style.transition = 'stroke-dashoffset 1s linear';
 
-      let remainingSecs = initialWaitSecs;
-      let isChamberLive = heroShell.getAttribute('data-session-live') === '1';
-      let isMyTurn = heroShell.getAttribute('data-my-turn') === '1';
-      let docRoom = heroShell.getAttribute('data-room') || 'Room-101';
-      let timerInterval = null;
-
-      function fmtClock(sec) {
-        const m = Math.floor(sec / 60);
-        const s = sec % 60;
-        return {
-          m: String(m).padStart(2, '0'),
-          s: String(s).padStart(2, '0')
-        };
+      // ── 1. Dynamic Countdown Clock Engine (Vanilla JS) ────────────────────────
+      const myToken              = parseInt(heroShell.getAttribute('data-token'), 10) || 0;
+      let currentServing         = parseInt(heroShell.getAttribute('data-serving'), 10) || 0;
+      const avgConsultationMins  = parseInt(heroShell.getAttribute('data-avg-mins'), 10) || 10;
+      let initialPatientsAhead   = parseInt(heroShell.getAttribute('data-ahead'), 10);
+      if (isNaN(initialPatientsAhead)) {
+        initialPatientsAhead = Math.max(0, myToken - currentServing - 1);
       }
+
+      // ── 2. Real-Time Elapsed Time Calculation (PHP to JS) ───────────────────
+      // Initialize countdown engine using initialRemainingSeconds so refreshing
+      // the page immediately continues from the exact remaining time rather than resetting to a flat 10:00.
+      const initialRemaining = (typeof initialRemainingSeconds !== 'undefined')
+        ? parseInt(initialRemainingSeconds, 10)
+        : (parseInt(heroShell.getAttribute('data-wait-secs'), 10) || 0);
+
+      const parsedTotalDuration = parseInt(heroShell.getAttribute('data-total-duration'), 10) || 0;
+      let totalWaitSeconds = Math.max(initialRemaining, parsedTotalDuration, 60);
+      let remainingSeconds = Math.max(0, initialRemaining);
+
+      let isChamberLive = heroShell.getAttribute('data-session-live') === '1';
+      let isMyTurn      = heroShell.getAttribute('data-my-turn') === '1' || (myToken > 0 && currentServing === myToken);
+      let docRoom       = heroShell.getAttribute('data-room') || 'Room-101';
+      let timerInterval = null;
 
       const ecgSvg = '<svg viewBox="0 0 200 26" preserveAspectRatio="none"><polyline points="0,13 28,13 34,4 40,24 46,13 76,13 82,5 88,21 94,13 200,13" fill="none" stroke="#6ee7b7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
@@ -1296,10 +1418,10 @@ if ($hour >= 5 && $hour < 12) {
         `;
       }
 
-      function renderLiveCard2(currentServing, myTurn) {
+      function renderLiveCard2(servingToken, myTurn) {
         if (!card2 || !card2Body) return;
         card2.className = 'card card2 live';
-        const tokenFormatted = String(currentServing).padStart(2, '0');
+        const tokenFormatted = String(servingToken).padStart(2, '0');
         const subInfo = myTurn ? 'YOUR TURN &mdash; Step inside chamber!' : 'Now inside the chamber';
         card2Body.innerHTML = `
           <div class="live-tag"><span class="pulse-mini"></span>LIVE NOW</div>
@@ -1313,49 +1435,77 @@ if ($hour >= 5 && $hour < 12) {
         `;
       }
 
-      function updateRadialDisplay() {
-        if (!gaugeWrap || !gaugeProg || !gaugeTime) return;
-
-        if (isMyTurn || (isChamberLive && remainingSecs <= 0)) {
-          gaugeWrap.classList.add('ready');
-          gaugeTime.classList.add('ready');
-          gaugeTime.innerHTML = 'Turn ready<br>Step inside!';
-          gaugeProg.style.strokeDashoffset = '0';
-          return;
+      // ── 3. Turn Ready Transition ──────────────────────────────────────────────
+      // When remainingSeconds <= 0 or when polling detects patient_token === current_serving_token:
+      // * Clear the interval.
+      // * Fill the ring solid green/emerald.
+      // * Replace -00:00 with the glowing "Turn Ready / Step Inside!" badge.
+      function setTurnReady() {
+        if (timerInterval) {
+          clearInterval(timerInterval);
+          timerInterval = null;
         }
-
-        gaugeWrap.classList.remove('ready');
-        gaugeTime.classList.remove('ready');
-
-        const parts = fmtClock(Math.max(0, remainingSecs));
-        gaugeTime.innerHTML = `<span class="minus">-</span>${parts.m}<span class="colon">:</span>${parts.s}`;
-
-        // Un-fill radial ring as time decreases:
-        // offset increases from 0 (full) to CIRC (empty)
-        const offset = Math.min(CIRC, Math.max(0, CIRC - (remainingSecs / totalDurationSecs) * CIRC));
-        gaugeProg.style.strokeDashoffset = offset.toFixed(1);
+        if (gaugeWrap) gaugeWrap.classList.add('ready');
+        if (timerTextEl) {
+          timerTextEl.classList.add('ready');
+          timerTextEl.innerHTML = 'Turn Ready<br>Step Inside!';
+        }
+        if (circle) {
+          circle.style.strokeDashoffset = '0';
+          circle.style.stroke = '#10b981'; // solid emerald fill
+        }
+        if (aheadEl) aheadEl.textContent = 'Being called in now';
+        if (estWindow) estWindow.textContent = 'Please proceed to the chamber door.';
+        if (alertStrip) {
+          alertStrip.textContent = `⚠️ You are being called into ${docRoom}! Please step inside.`;
+          alertStrip.classList.add('show');
+        }
       }
 
-      function startCountdown() {
-        clearInterval(timerInterval);
-        if (!isChamberLive || isMyTurn || remainingSecs <= 0) {
-          updateRadialDisplay();
+      // ── 1 & 2. Format Countdown and Deplete Ring ──────────────────────────────
+      function renderCountdownTick() {
+        if (isMyTurn || (myToken > 0 && currentServing === myToken) || remainingSeconds <= 0) {
+          setTurnReady();
           return;
         }
 
-        updateRadialDisplay();
+        // Render the counter as a single contiguous string: "-MM:SS" (e.g. "-09:51")
+        const mins = Math.floor(remainingSeconds / 60).toString().padStart(2, '0');
+        const secs = (remainingSeconds % 60).toString().padStart(2, '0');
+        timerTextEl.textContent = `-${mins}:${secs}`;
+
+        // Continuously recalculate and apply the SVG strokeDashoffset dynamically against total circumference
+        const progressRatio = totalWaitSeconds > 0 ? Math.max(0, remainingSeconds / totalWaitSeconds) : 0;
+        const offset = circumference - (progressRatio * circumference);
+        circle.style.strokeDashoffset = offset.toFixed(1);
+      }
+
+      // ── Run Countdown Interval ────────────────────────────────────────────────
+      // If the doctor session is active/idle and patients are ahead:
+      // Run an interval every 1000ms:
+      // remainingSeconds--;
+      function startCountdown() {
+        if (timerInterval) clearInterval(timerInterval);
+
+        if (isMyTurn || (myToken > 0 && currentServing === myToken) || remainingSeconds <= 0) {
+          setTurnReady();
+          return;
+        }
+
+        // Initial render immediately
+        renderCountdownTick();
+
         timerInterval = setInterval(() => {
-          if (remainingSecs > 0) {
-            remainingSecs--;
-            updateRadialDisplay();
+          if (remainingSeconds > 0) {
+            remainingSeconds--;
+            renderCountdownTick();
           } else {
-            clearInterval(timerInterval);
-            updateRadialDisplay();
+            setTurnReady();
           }
         }, 1000);
       }
 
-      // Initialize countdown on page load
+      // Start Countdown Engine on load
       startCountdown();
 
       // Poll background API every 15 seconds for real-time live synchronization
@@ -1371,12 +1521,12 @@ if ($hour >= 5 && $hour < 12) {
           const d = json.data;
           if (!d.is_today) return;
 
-          const myToken        = parseInt(d.token_number, 10) || 0;
-          const currentServing = parseInt(d.current_serving, 10) || 0;
-          const avgMins        = parseInt(d.avg_mins, 10) || 10;
-          const delta          = parseInt(d.accumulated_delta_minutes, 10) || 0;
-          isChamberLive        = Boolean(d.is_chamber_live || d.session_status === 'live');
-          isMyTurn             = Boolean(d.is_my_turn || (myToken > 0 && currentServing === myToken));
+          const polledMyToken        = parseInt(d.token_number, 10) || myToken;
+          currentServing             = parseInt(d.current_serving, 10) || 0;
+          const avgMins              = parseInt(d.avg_mins, 10) || avgConsultationMins;
+          const delta                = parseInt(d.accumulated_delta_minutes, 10) || 0;
+          isChamberLive              = Boolean(d.is_chamber_live || d.session_status === 'live');
+          isMyTurn                   = Boolean(d.is_my_turn || (polledMyToken > 0 && currentServing === polledMyToken));
 
           if (d.room_number) {
             const m = String(d.room_number).replace(/^(Room|Chamber)[-\s]*/i, '');
@@ -1384,15 +1534,7 @@ if ($hour >= 5 && $hour < 12) {
           }
 
           // Strict patients ahead math: max(0, token_number - current_serving_token - 1)
-          const patientsAhead = Math.max(0, myToken - currentServing - 1);
-
-          // Strict initial wait seconds math: (patients_ahead * avg_consultation_time * 60) + (accumulated_delta_minutes * 60)
-          const recalculatedWaitSecs = (isMyTurn || (myToken > 0 && currentServing >= myToken))
-            ? 0
-            : Math.max(0, (patientsAhead * avgMins * 60) + (delta * 60));
-
-          totalDurationSecs = Math.max(60, (patientsAhead * avgMins * 60));
-          remainingSecs = recalculatedWaitSecs;
+          const patientsAhead = Math.max(0, polledMyToken - currentServing - 1);
 
           // 1. Doctor Banner Status
           if (sessionStatus && sessionDot && sessionText) {
@@ -1447,7 +1589,6 @@ if ($hour >= 5 && $hour < 12) {
           }
 
           // 4. Proximity Alert Strip
-          // Strictly when session is 'live' and patients_ahead <= 1 and not already my turn
           if (alertStrip) {
             const showProxAlert = isChamberLive && (patientsAhead <= 1) && !isMyTurn;
             alertStrip.textContent = `⚠️ You are next in line! Please proceed outside ${docRoom}`;
@@ -1458,9 +1599,18 @@ if ($hour >= 5 && $hour < 12) {
             }
           }
 
-          // 5. Restart or update countdown tick
-          startCountdown();
+          // 5. Turn Ready Transition or Smooth Seconds Re-Sync
+          if (isMyTurn || (polledMyToken > 0 && currentServing >= polledMyToken)) {
+            setTurnReady();
+            return;
+          }
 
+          const serverWaitSecs = Math.max(0, (patientsAhead * avgMins * 60) + (delta * 60));
+          if (serverWaitSecs > 0 && Math.abs(remainingSeconds - serverWaitSecs) > 20) {
+            totalWaitSeconds = Math.max(60, patientsAhead * avgMins * 60);
+            remainingSeconds = serverWaitSecs;
+            renderCountdownTick();
+          }
         } catch (err) {
           // Graceful network error handling
         }

@@ -499,7 +499,7 @@ $shiftSchedule = trim($doctor['shift_schedule'] ?? $doctor['shift_timings'] ?? '
 
             <div class="form-group-field">
               <label for="fieldRoom">Room</label>
-              <input type="text" name="room_number" id="fieldRoom" class="form-control-input" value="<?= htmlspecialchars($roomNumber, ENT_QUOTES, 'UTF-8') ?>" placeholder="e.g. Room-401" required>
+              <input type="text" name="room_number" id="fieldRoom" class="form-control-input" value="<?= htmlspecialchars($roomNumber, ENT_QUOTES, 'UTF-8') ?>" placeholder="e.g. Room-241" required>
             </div>
 
             <div class="form-group-field">
