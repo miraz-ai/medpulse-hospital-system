@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sign In · MedPulse Hospital &amp; Specialty Care</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="auth-page">
+
+  <!-- ============ LEFT: BRAND PANEL ============ -->
+  <aside class="brand-panel">
+
+    <img class="brand-bg-photo" src="medpulse.png" alt="Doctors consulting inside a MedPulse facility">
+    <div class="brand-overlay" aria-hidden="true"></div>
+
+    <div class="brand-panel__inner">
+
+      <div class="brand-logo-chip">
+        <img class="brand-logo" src="logo.png" alt="MedPulse — Hospital &amp; Specialty Care">
+      </div>
+
+      <div class="brand-copy">
+        <!-- <h1>Care that keeps pace with you.</h1> -->
+        <!-- <p>One secure account for appointments, medical records and your care team — wherever your treatment takes you.</p> -->
+      </div>
+
+      <ul class="trust-list">
+        <li>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3l7 3v6c0 5-3.4 8.6-7 10-3.6-1.4-7-5-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>
+          Encrypted, HIPAA-ready patient data
+        </li>
+        <li>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.2 2"/></svg>
+          Care teams available around the clock
+        </li>
+        <li>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 21v-6a4 4 0 014-4h8a4 4 0 014 4v6"/><circle cx="12" cy="7" r="4"/></svg>
+          For patients, doctors and hospital staff
+        </li>
+      </ul>
+
+    </div>
+  </aside>
+
+  <!-- ============ RIGHT: AUTH FORMS ============ -->
+  <main class="form-panel">
+    <div class="form-card">
+
+      <img class="form-card__mobile-logo" src="logo.png" alt="MedPulse — Hospital &amp; Specialty Care">
+
+      <div class="auth-switch" id="authSwitch" role="tablist">
+        <button type="button" class="auth-switch__btn is-active" id="tabSignIn" role="tab" aria-selected="true" aria-controls="panelSignIn">Sign In</button>
+        <button type="button" class="auth-switch__btn" id="tabRegister" role="tab" aria-selected="false" aria-controls="panelRegister">Create Account</button>
+        <span class="auth-switch__thumb" id="authThumb" aria-hidden="true"></span>
+      </div>
+
+      <!-- ---------------- SIGN IN ---------------- -->
+      <section class="auth-panel is-active" id="panelSignIn" role="tabpanel" aria-labelledby="tabSignIn">
+
+        <p class="eyebrow">Welcome Back</p>
+        <h2 class="auth-heading">Sign in to MedPulse</h2>
+        <p class="auth-subtext">Access your account to continue</p>
+
+        <!-- Backend integration point: point this form's action/fetch at your auth API -->
+        <form class="auth-form" id="signInForm" autocomplete="on" novalidate>
+
+          <div class="form-field">
+            <label for="signInId">Email or Username</label>
+            <input type="text" id="signInId" name="identifier" placeholder="Enter your email or username" autocomplete="username" required>
+          </div>
+
+          <div class="form-field">
+            <label for="signInPw">Password</label>
+            <div class="password-field">
+              <input type="password" id="signInPw" name="password" placeholder="Enter your password" autocomplete="current-password" required>
+              <button type="button" class="password-toggle" data-target="signInPw">Show</button>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <label class="checkbox">
+              <input type="checkbox" name="rememberMe">
+              <span>Remember me</span>
+            </label>
+            <a href="#" class="text-link">Forgot Password?</a>
+          </div>
+
+          <button type="submit" class="btn-primary">Sign In</button>
+
+          <div class="divider"><span>OR</span></div>
+
+          <p class="helper-text">Need help? <a href="#" class="text-link">Contact Hospital Support</a></p>
+          <p class="helper-text">New here? <a href="#" class="text-link" id="goToRegister">Create an account</a></p>
+        </form>
+      </section>
+
+      <!-- ---------------- CREATE ACCOUNT ---------------- -->
+      <section class="auth-panel" id="panelRegister" role="tabpanel" aria-labelledby="tabRegister" hidden>
+
+        <p class="eyebrow">Join MedPulse</p>
+        <h2 class="auth-heading">Create your account</h2>
+        <p class="auth-subtext">Register as a patient or clinical personnel</p>
+
+        <!-- Backend integration point: point this form's action/fetch at your registration API -->
+        <form class="auth-form" id="registerForm" autocomplete="on" novalidate>
+
+          <div class="role-tabs" role="radiogroup" aria-label="Account type">
+            <input type="radio" name="role" id="rolePatient" value="patient" checked>
+            <label for="rolePatient">Patient</label>
+
+            <input type="radio" name="role" id="roleDoctor" value="doctor">
+            <label for="roleDoctor">Doctor</label>
+
+            <input type="radio" name="role" id="roleStaff" value="staff">
+            <label for="roleStaff">Staff</label>
+          </div>
+
+          <!-- Fields required only for clinical staff -->
+          <div class="doctor-fields" id="doctorFields" hidden>
+            <div class="form-field">
+              <label for="regFacility">Hospital / Facility</label>
+              <select id="regFacility" name="facility">
+                <option value="">Select the hospital you're registering for</option>
+                <option>MedPulse Central</option>
+                <option>MedPulse North Wing</option>
+                <option>MedPulse Specialty Center</option>
+              </select>
+            </div>
+            <div class="form-field">
+              <label for="regSpecialty">Specialty</label>
+              <input type="text" id="regSpecialty" name="specialty" placeholder="General Surgery &amp; Critical Care">
+            </div>
+            <div class="form-field">
+              <label for="regLicense">Medical Council Reg. No.</label>
+              <input type="text" id="regLicense" name="licenseNumber" placeholder="A-72819">
+            </div>
+          </div>
+
+          <div class="form-field">
+            <label for="regName">Full Legal Name</label>
+            <input type="text" id="regName" name="fullName" placeholder="Jane Doe" autocomplete="name" required>
+          </div>
+
+          <div class="form-field">
+            <label for="regEmail">Email Address</label>
+            <input type="email" id="regEmail" name="email" placeholder="you@hospital.com" autocomplete="email" required>
+          </div>
+
+          <div class="form-field">
+            <label for="regPhone">Phone</label>
+            <input type="tel" id="regPhone" name="phone" placeholder="01712345678" autocomplete="tel" required>
+          </div>
+
+          <div class="form-grid">
+            <div class="form-field">
+              <label for="regDob">Date of Birth</label>
+              <input type="date" id="regDob" name="dob" autocomplete="bday">
+            </div>
+            <div class="form-field">
+              <label for="regBloodGroup">Blood Group</label>
+              <select id="regBloodGroup" name="bloodGroup">
+                <option value="">Select</option>
+                <option>A+</option><option>A-</option>
+                <option>B+</option><option>B-</option>
+                <option>O+</option><option>O-</option>
+                <option>AB+</option><option>AB-</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-field">
+            <label for="regPw">Create Password</label>
+            <div class="password-field">
+              <input type="password" id="regPw" name="password" placeholder="Min. 8 characters" autocomplete="new-password" minlength="8" required>
+              <button type="button" class="password-toggle" data-target="regPw">Show</button>
+            </div>
+          </div>
+
+          <button type="submit" class="btn-primary">Create Account</button>
+
+          <p class="helper-text">Already registered? <a href="#" class="text-link" id="goToSignIn">Back to sign in</a></p>
+        </form>
+      </section>
+
+      <p class="form-footer">© 2026 MedPulse Hospital &amp; Specialty Care. All rights reserved.</p>
+    </div>
+  </main>
+
+</div>
+
+<script>
+  // Tiny UI-only interactions — no backend logic here.
+  const tabSignIn   = document.getElementById('tabSignIn');
+  const tabRegister = document.getElementById('tabRegister');
+  const panelSignIn   = document.getElementById('panelSignIn');
+  const panelRegister = document.getElementById('panelRegister');
+  const thumb = document.getElementById('authThumb');
+
+  function showPanel(which){
+    const toRegister = which === 'register';
+    tabSignIn.classList.toggle('is-active', !toRegister);
+    tabRegister.classList.toggle('is-active', toRegister);
+    tabSignIn.setAttribute('aria-selected', String(!toRegister));
+    tabRegister.setAttribute('aria-selected', String(toRegister));
+    panelSignIn.hidden = toRegister;
+    panelRegister.hidden = !toRegister;
+    panelSignIn.classList.toggle('is-active', !toRegister);
+    panelRegister.classList.toggle('is-active', toRegister);
+    thumb.classList.toggle('is-right', toRegister);
+  }
+
+  tabSignIn.addEventListener('click', () => showPanel('signin'));
+  tabRegister.addEventListener('click', () => showPanel('register'));
+  document.getElementById('goToRegister').addEventListener('click', (e) => { e.preventDefault(); showPanel('register'); });
+  document.getElementById('goToSignIn').addEventListener('click', (e) => { e.preventDefault(); showPanel('signin'); });
+
+  // Show/hide clinical-only fields based on selected role
+  const doctorFields = document.getElementById('doctorFields');
+  document.querySelectorAll('input[name="role"]').forEach(radio => {
+    radio.addEventListener('change', () => {
+      doctorFields.hidden = radio.value !== 'doctor' ? true : false;
+    });
+  });
+
+  // Password show/hide
+  document.querySelectorAll('.password-toggle').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const input = document.getElementById(btn.dataset.target);
+      const isHidden = input.type === 'password';
+      input.type = isHidden ? 'text' : 'password';
+      btn.textContent = isHidden ? 'Hide' : 'Show';
+    });
+  });
+</script>
+</body>
+</html>

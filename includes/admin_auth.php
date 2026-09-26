@@ -49,15 +49,23 @@ try {
         $_SESSION['hospital_id'] = (int)($currentAdmin['hospital_id'] ?? 1);
     }
 
+    require_once __DIR__ . '/../config/tenant_scope.php';
+    TenantScope::detectTampering($pdo);
+    $sessionHospitalId = (int)$_SESSION['hospital_id'];
+
 } catch (PDOException $e) {
     error_log('Admin Auth DB error: ' . $e->getMessage());
     die('A secure database communication failure occurred. Please contact system engineering.');
 }
 
-// 6. Time-based greeting
-$currentHour = (int)date('H');
-$greeting = match(true) {
-    $currentHour < 12 => 'Good Morning',
-    $currentHour < 17 => 'Good Afternoon',
-    default           => 'Good Evening',
-};
+// 6. Dynamic Time-based greeting (Asia/Dhaka)
+date_default_timezone_set('Asia/Dhaka');
+$hour = (int)date('H');
+if ($hour >= 5 && $hour < 12) {
+    $greeting = 'Good Morning';
+} elseif ($hour >= 12 && $hour < 17) {
+    $greeting = 'Good Afternoon';
+} else {
+    $greeting = 'Good Evening';
+}
+

@@ -25,6 +25,9 @@ if (session_status() === PHP_SESSION_NONE) {
 
 header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/../config/db.php';
+require_once __DIR__ . '/../config/tenant_scope.php';
+
+TenantScope::detectTampering($pdo);
 
 // 1. Method Guard
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -115,12 +118,31 @@ if ($action === 'allocate_patient' || $action === 'allocate_bed') {
             exit;
         }
 
-        // 2. Business-Rule Validation: Check if bed is already occupied
-        $bedRow = $pdo->prepare("SELECT bed_number, status FROM hospital_beds WHERE bed_id = :id LIMIT 1");
+        // 2. Business-Rule Validation: Check if bed is already occupied & verify tenant scoping
+        $bedRow = $pdo->prepare("SELECT bed_number, status, hospital_id FROM hospital_beds WHERE bed_id = :id LIMIT 1");
         $bedRow->execute([':id' => $bedId]);
         $bed = $bedRow->fetch(PDO::FETCH_ASSOC);
 
-        if (!$bed || $bed['status'] !== 'Available') {
+        if (!$bed) {
+            $b2 = $pdo->prepare("SELECT bed_number, status, hospital_id FROM beds WHERE bed_id = :id OR id = :id2 LIMIT 1");
+            $b2->execute([':id' => $bedId, ':id2' => $bedId]);
+            $bed = $b2->fetch(PDO::FETCH_ASSOC);
+        }
+
+        if (!TenantScope::isSuperAdmin()) {
+            $sessHosp = (int)($_SESSION['hospital_id'] ?? 1);
+            if ($bed && (int)($bed['hospital_id'] ?? 0) !== $sessHosp) {
+                http_response_code(403);
+                echo json_encode([
+                    'success' => false,
+                    'status'  => 'error',
+                    'message' => '403 Forbidden: Cannot allocate bed belonging to another hospital facility.'
+                ]);
+                exit;
+            }
+        }
+
+        if (!$bed || !in_array(strtolower($bed['status']), ['available'])) {
             http_response_code(409);
             echo json_encode([
                 'success' => false,
@@ -222,8 +244,8 @@ if ($action === 'allocate_patient' || $action === 'allocate_bed') {
 }
 
 try {
-    // 5. Target User Lookup
-    $stmt = $pdo->prepare("SELECT user_id, full_name, email, role, status FROM users WHERE user_id = :id LIMIT 1");
+    // 5. Target User Lookup & Branch Tenant Isolation
+    $stmt = $pdo->prepare("SELECT user_id, full_name, email, role, status, hospital_id FROM users WHERE user_id = :id LIMIT 1");
     $stmt->execute([':id' => $userId]);
     $targetUser = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -231,6 +253,30 @@ try {
         http_response_code(404);
         echo json_encode(['status' => 'error', 'message' => 'Target personnel account not found.']);
         exit;
+    }
+
+    // Branch Tenant Isolation Guard for non-super admins
+    if (!TenantScope::isSuperAdmin()) {
+        $sessHosp = (int)($_SESSION['hospital_id'] ?? 1);
+        $targetHosp = (int)($targetUser['hospital_id'] ?? 0);
+
+        if ($targetUser['role'] === 'Doctor') {
+            $dhStmt = $pdo->prepare("SELECT hospital_id FROM doctors WHERE user_id = :uid LIMIT 1");
+            $dhStmt->execute([':uid' => $userId]);
+            $dHospFound = $dhStmt->fetchColumn();
+            if ($dHospFound !== false && $dHospFound !== null) {
+                $targetHosp = (int)$dHospFound;
+            }
+        }
+
+        if ($targetHosp > 0 && $targetHosp !== $sessHosp) {
+            http_response_code(403);
+            echo json_encode([
+                'status'  => 'error',
+                'message' => '403 Forbidden: Tenant isolation breach. You cannot review or modify personnel from another hospital branch.'
+            ]);
+            exit;
+        }
     }
 
     // Protect Admin accounts from any modification
@@ -274,6 +320,18 @@ try {
 
     // Handle Doctor Credential Approval State & Audit Trail
     if ($targetUser['role'] === 'Doctor') {
+        $doctorTableStatus = match ($action) {
+            'approve', 'activate' => 'active',
+            'reject'              => 'rejected',
+            default               => 'pending'
+        };
+        $updDocTbl = $pdo->prepare("UPDATE doctors SET status = :dstatus WHERE user_id = :id OR doctor_id = :id2");
+        $updDocTbl->execute([
+            ':dstatus' => $doctorTableStatus,
+            ':id'      => $userId,
+            ':id2'     => $userId
+        ]);
+
         $adminId = (int)($_SESSION['user_id'] ?? 0);
         $clientIp = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
 

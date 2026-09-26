@@ -59,6 +59,15 @@ $currentRoute = basename($_SERVER['PHP_SELF'] ?? '');
         <span class="net-badge-chip">NET</span>
       </a>
     </li>
+    <li class="nav-item <?= ($currentRoute === 'facilities.php') ? 'active' : '' ?>">
+      <a href="facilities.php">
+        <div class="nav-item-inner">
+          <svg class="ui-ico" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg>
+          Facility Ops &amp; Diversion
+        </div>
+        <span class="net-badge-chip" style="background: rgba(239, 68, 68, 0.2); color: #ef4444; border-color: rgba(239, 68, 68, 0.4);">ER</span>
+      </a>
+    </li>
     <li class="nav-item <?= ($currentRoute === 'bed_monitor.php') ? 'active' : '' ?>">
       <a href="bed_monitor.php">
         <div class="nav-item-inner">

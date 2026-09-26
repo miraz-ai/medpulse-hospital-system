@@ -301,7 +301,7 @@ try {
                       </strong>
                     </div>
                     <div style="display: flex; gap: 6px; align-items: center; margin-top: 4px;">
-                      <span class="patient-id-chip"><?= htmlspecialchars(!empty($p['patient_uid']) ? $p['patient_uid'] : ('PAT-' . str_pad((string)$pid, 4, '0', STR_PAD_LEFT)), ENT_QUOTES, 'UTF-8') ?></span>
+                      <span class="patient-id-chip"><?= htmlspecialchars(!empty($p['patient_uid']) ? $p['patient_uid'] : ('MP-' . date('Y') . '-' . str_pad((string)$pid, 5, '0', STR_PAD_LEFT)), ENT_QUOTES, 'UTF-8') ?></span>
                       <span style="font-size: 0.74rem; color: var(--ipc-slate-400);">
                         <?= htmlspecialchars($p['gender'] ?? 'Male', ENT_QUOTES, 'UTF-8') ?><?= !empty($p['age']) ? ', ' . (int)$p['age'] . 'y' : '' ?>
                       </span>
@@ -564,7 +564,7 @@ try {
               <option value="">-- Choose Patient for Admission --</option>
               <?php foreach ($eligiblePatients as $ep): ?>
                 <?php
-                  $epUid = !empty($ep['patient_uid']) ? $ep['patient_uid'] : ('PAT-' . str_pad((string)$ep['user_id'], 4, '0', STR_PAD_LEFT));
+                  $epUid = !empty($ep['patient_uid']) ? $ep['patient_uid'] : ('MP-' . date('Y') . '-' . str_pad((string)$ep['user_id'], 5, '0', STR_PAD_LEFT));
                   $epAgeStr = !empty($ep['age']) ? ((int)$ep['age'] . 'y') : 'Age N/A';
                 ?>
                 <option value="<?= (int)$ep['user_id'] ?>">

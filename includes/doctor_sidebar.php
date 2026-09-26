@@ -22,7 +22,7 @@ if (isset($pdo) && isset($_SESSION['user_id'])) {
         $sidebarInpatientCount = (int)$inpatStmt->fetchColumn();
 
         // Today's scheduled or in-consultation appointments
-        $appStmt = $pdo->prepare("SELECT COUNT(*) FROM appointments WHERE doctor_id = ? AND appointment_date = CURDATE() AND status IN ('Scheduled', 'In-Consultation')");
+        $appStmt = $pdo->prepare("SELECT COUNT(*) FROM appointments WHERE doctor_id = ? AND appointment_date = CURDATE() AND status IN ('Scheduled', 'In-Consultation', 'booked', 'checked_in', 'in_consultation')");
         $appStmt->execute([$docUid]);
         $sidebarConsultCount = (int)$appStmt->fetchColumn();
 
@@ -70,6 +70,15 @@ if (isset($pdo) && isset($_SESSION['user_id'])) {
         </div>
       </a>
     </li>
+    <li class="nav-item <?= ($currentRoute === 'chamber.php') ? 'active' : '' ?>">
+      <a href="chamber.php">
+        <div class="nav-item-inner">
+          <svg class="ui-ico" viewBox="0 0 24 24"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/></svg>
+          OPD Chamber Queue
+        </div>
+        <span class="live-chip-sm" style="background: rgba(16, 185, 129, 0.15); color: #059669; border-color: rgba(16, 185, 129, 0.3);">LIVE</span>
+      </a>
+    </li>
     <li class="nav-item <?= ($currentRoute === 'my_inpatients.php') ? 'active' : '' ?>">
       <a href="my_inpatients.php">
         <div class="nav-item-inner">
@@ -79,6 +88,15 @@ if (isset($pdo) && isset($_SESSION['user_id'])) {
         <?php if ($sidebarInpatientCount > 0): ?>
           <span class="live-chip-sm"><?= (int)$sidebarInpatientCount ?> ROUNDS</span>
         <?php endif; ?>
+      </a>
+    </li>
+    <li class="nav-item <?= ($currentRoute === 'patients.php') ? 'active' : '' ?>">
+      <a href="patients.php">
+        <div class="nav-item-inner">
+          <svg class="ui-ico" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+          Patient Registry
+        </div>
+        <span class="live-chip-sm" style="background-color: #0284c7; color: #ffffff !important; font-weight: 700; font-size: 10px; padding: 2px 6px; border-radius: 4px;">OPD/IPD</span>
       </a>
     </li>
     <li class="nav-item <?= ($currentRoute === 'appointments.php') ? 'active' : '' ?>">

@@ -107,6 +107,24 @@ if (!isset($pendingCount) && isset($pdo)) {
         <span class="live-chip-sm">LIVE</span>
       </a>
     </li>
+    <li class="nav-item <?= ($currentRoute === 'beds.php') ? 'active' : '' ?>">
+      <a href="beds.php">
+        <div class="nav-item-inner">
+          <svg class="ui-ico" viewBox="0 0 24 24"><path d="M2 4v16"></path><path d="M2 8h18a2 2 0 0 1 2 2v10"></path><polyline points="10 12 14 12 14 16"></polyline></svg>
+          Branch Bed &amp; Admissions
+        </div>
+        <span class="live-chip-sm" style="background-color: #059669; color: #ffffff !important; font-weight: 700; font-size: 10px; padding: 2px 6px; border-radius: 4px;">ADMIT</span>
+      </a>
+    </li>
+    <li class="nav-item <?= ($currentRoute === 'appointments.php') ? 'active' : '' ?>">
+      <a href="appointments.php">
+        <div class="nav-item-inner">
+          <svg class="ui-ico" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+          OPD Appointments Queue
+        </div>
+        <span class="live-chip-sm" style="background-color: #0284c7; color: #ffffff !important; font-weight: 700; font-size: 10px; padding: 2px 6px; border-radius: 4px;">OPD</span>
+      </a>
+    </li>
     <li class="nav-item <?= ($currentRoute === 'resource_inventory.php') ? 'active' : '' ?>">
       <a href="resource_inventory.php">
         <div class="nav-item-inner">

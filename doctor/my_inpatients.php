@@ -28,8 +28,9 @@ $cleanName = cleanDoctorBaseName($doctor['full_name'] ?? 'Doctor');
 $displayName = formatDoctorTitle($cleanName, $doctor['designation'] ?? null, $doctor['military_rank'] ?? null);
 $specialty = htmlspecialchars($doctor['specialty'] ?? 'General Surgery & Critical Care', ENT_QUOTES, 'UTF-8');
 
-// Fetch Active Inpatients
+// Fetch Active Inpatients scoped to session hospital
 try {
+    $sessionHospitalId = (int)($_SESSION['hospital_id'] ?? 1);
     $inpatStmt = $pdo->prepare("
         SELECT ba.allocation_id, ba.admitted_at, ba.status,
                u.user_id AS patient_id, u.full_name AS patient_name, u.email, u.phone, u.gender,
@@ -41,10 +42,12 @@ try {
         JOIN users u ON ba.patient_id = u.user_id
         LEFT JOIN patients pat ON u.user_id = pat.user_id
         JOIN hospital_beds hb ON ba.bed_id = hb.bed_id
-        WHERE ba.attending_doctor_id = ? AND ba.status = 'Active'
+        WHERE ba.attending_doctor_id = :doc_id 
+          AND ba.status = 'Active'
+          AND hb.hospital_id = :hid
         ORDER BY ba.admitted_at DESC
     ");
-    $inpatStmt->execute([$doctorUserId]);
+    $inpatStmt->execute([':doc_id' => $doctorUserId, ':hid' => $sessionHospitalId]);
     $activeInpatients = $inpatStmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (PDOException $e) {
     $activeInpatients = [];
@@ -58,11 +61,13 @@ try {
         FROM bed_allocations ba
         JOIN users u ON ba.patient_id = u.user_id
         JOIN hospital_beds hb ON ba.bed_id = hb.bed_id
-        WHERE ba.attending_doctor_id = ? AND ba.status != 'Active'
+        WHERE ba.attending_doctor_id = :doc_id 
+          AND ba.status != 'Active'
+          AND hb.hospital_id = :hid
         ORDER BY ba.allocation_id DESC
         LIMIT 10
     ");
-    $historyStmt->execute([$doctorUserId]);
+    $historyStmt->execute([':doc_id' => $doctorUserId, ':hid' => $sessionHospitalId]);
     $pastInpatients = $historyStmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (PDOException $e) {
     $pastInpatients = [];
@@ -159,7 +164,7 @@ try {
                           <?= htmlspecialchars($inpat['patient_name'], ENT_QUOTES, 'UTF-8') ?>
                         </strong>
                         <div style="font-size: 0.72rem; color: var(--text-muted);">
-                          UHID: <?= htmlspecialchars(!empty($inpat['patient_uid']) ? $inpat['patient_uid'] : ('MP-P-' . str_pad((string)$inpat['patient_id'], 4, '0', STR_PAD_LEFT)), ENT_QUOTES, 'UTF-8') ?> &bull; <?= htmlspecialchars($inpat['phone'] ?? 'N/A', ENT_QUOTES, 'UTF-8') ?>
+                          UHID: <?= htmlspecialchars(!empty($inpat['patient_uid']) ? $inpat['patient_uid'] : ('MP-' . date('Y') . '-' . str_pad((string)$inpat['patient_id'], 5, '0', STR_PAD_LEFT)), ENT_QUOTES, 'UTF-8') ?> &bull; <?= htmlspecialchars($inpat['phone'] ?? 'N/A', ENT_QUOTES, 'UTF-8') ?>
                         </div>
                       </div>
                     </div>

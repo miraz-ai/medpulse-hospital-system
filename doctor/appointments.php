@@ -28,18 +28,22 @@ $cleanName = cleanDoctorBaseName($doctor['full_name'] ?? 'Doctor');
 $displayName = formatDoctorTitle($cleanName, $doctor['designation'] ?? null, $doctor['military_rank'] ?? null);
 $specialty = htmlspecialchars($doctor['specialty'] ?? 'General Surgery & Critical Care', ENT_QUOTES, 'UTF-8');
 
-// Fetch All Appointments for this Doctor
+// Fetch All Appointments for this Doctor scoped to current hospital facility
 try {
+    $sessionHospitalId = (int)($_SESSION['hospital_id'] ?? 1);
     $appStmt = $pdo->prepare("
-        SELECT a.appointment_id, a.appointment_date, a.appointment_time, a.serial_number,
+        SELECT a.id, a.appointment_id, a.appointment_date, a.appointment_time, 
+               COALESCE(a.token_number, a.serial_number) AS serial_number,
                a.reason_for_visit, a.status, a.created_at,
-               u.user_id AS patient_id, u.full_name AS patient_name, u.email, u.phone, u.gender, u.blood_group
+               u.user_id AS patient_id, u.full_name AS patient_name, u.email, u.phone, u.gender, u.blood_group,
+               p.patient_uid
         FROM appointments a
         JOIN users u ON a.patient_id = u.user_id
-        WHERE a.doctor_id = ?
-        ORDER BY a.appointment_date DESC, a.appointment_time ASC
+        LEFT JOIN patients p ON (p.user_id = u.user_id OR p.id = a.patient_id)
+        WHERE a.doctor_id = :doc_id AND a.hospital_id = :hosp_id
+        ORDER BY a.appointment_date DESC, a.token_number ASC
     ");
-    $appStmt->execute([$doctorUserId]);
+    $appStmt->execute([':doc_id' => $doctorUserId, ':hosp_id' => $sessionHospitalId]);
     $allAppointments = $appStmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (PDOException $e) {
     $allAppointments = [];

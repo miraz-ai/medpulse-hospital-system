@@ -8,6 +8,17 @@ if (empty($_SESSION['user_id']) || strtolower($_SESSION['role'] ?? '') !== 'staf
     medpulseDestroySession('../login.php');
 }
 
+// Dynamic Time-Based Greeting (Asia/Dhaka)
+date_default_timezone_set('Asia/Dhaka');
+$hour = (int)date('H');
+if ($hour >= 5 && $hour < 12) {
+    $greeting = 'Good Morning';
+} elseif ($hour >= 12 && $hour < 17) {
+    $greeting = 'Good Afternoon';
+} else {
+    $greeting = 'Good Evening';
+}
+
 $staffName = htmlspecialchars($_SESSION['full_name'] ?? 'Staff', ENT_QUOTES, 'UTF-8');
 ?>
 <!DOCTYPE html>
@@ -24,7 +35,7 @@ $staffName = htmlspecialchars($_SESSION['full_name'] ?? 'Staff', ENT_QUOTES, 'UT
   <div class="admin-layout" style="padding: 2.5rem; text-align: center; max-width: 800px; margin: 4rem auto; background: #ffffff; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08);">
     <div style="font-size: 3rem; color: #0284c7; margin-bottom: 1rem;"><i class="fa-solid fa-hospital-user"></i></div>
     <h1 style="font-size: 1.8rem; margin-bottom: 0.5rem; color: #1e293b;">Staff Operations Workspace</h1>
-    <p style="color: #64748b; margin-bottom: 1.5rem;">Welcome, <?= $staffName ?>. Staff operations module is actively scheduled for deployment.</p>
+    <p style="color: #64748b; margin-bottom: 1.5rem; font-size: 1.05rem;"><strong><?= htmlspecialchars($greeting, ENT_QUOTES, 'UTF-8') ?>, <?= $staffName ?>!</strong> Staff operations module is actively scheduled for deployment.</p>
     <a href="../logout.php" class="btn btn-primary" style="display: inline-block; padding: 0.75rem 1.5rem; background: #0284c7; color: #fff; border-radius: 8px; text-decoration: none; font-weight: 500;">
       <i class="fa-solid fa-right-from-bracket"></i> Sign Out
     </a>

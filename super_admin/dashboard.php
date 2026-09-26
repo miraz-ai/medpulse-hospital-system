@@ -6,8 +6,89 @@
 
 require_once __DIR__ . '/../includes/super_admin_auth.php';
 require_once __DIR__ . '/../backend/Services/EmergencyProtocolService.php';
+require_once __DIR__ . '/../controllers/NetworkManagementController.php';
 
 use MedPulse\Services\EmergencyProtocolService;
+use MedPulse\Controllers\NetworkManagementController;
+
+// Strict super_admin access enforcement
+if (empty($_SESSION['role']) || strtolower($_SESSION['role']) !== 'super_admin') {
+    http_response_code(403);
+    medpulseDestroySession('../login.php?error=unauthorized');
+    exit;
+}
+
+// ── Handle Super Admin POST Actions (Diversion Toggle & Credential Overrides) ──
+$feedback = null;
+$feedbackType = 'success';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $action = trim($_POST['action'] ?? '');
+    $postedCsrf = $_POST['csrf_token'] ?? '';
+
+    if (empty($_SESSION['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $postedCsrf)) {
+        http_response_code(403);
+        die('403 Forbidden: Invalid CSRF token.');
+    }
+
+    $isAjax = (!empty($_SERVER['HTTP_ACCEPT']) && str_contains($_SERVER['HTTP_ACCEPT'], 'application/json'))
+           || (!empty($_POST['ajax']));
+
+    // Emergency Ambulance Diversion Toggle
+    if ($action === 'toggle_diversion') {
+        $hospitalId = filter_var($_POST['hospital_id'] ?? null, FILTER_VALIDATE_INT);
+        $newStatus  = trim($_POST['new_status'] ?? 'Operational');
+        $actorId    = (int)($_SESSION['user_id'] ?? 0);
+
+        if ($hospitalId) {
+            $res = NetworkManagementController::toggleEmergencyDiversion($pdo, $hospitalId, $newStatus, $actorId);
+            if ($isAjax) {
+                header('Content-Type: application/json');
+                echo json_encode($res);
+                exit;
+            }
+            $feedback = $res['message'];
+            $feedbackType = $res['success'] ? 'success' : 'error';
+        }
+    }
+
+    // Direct Credential Override / Revoke
+    if ($action === 'override_staff') {
+        $targetUserId = filter_var($_POST['target_user_id'] ?? null, FILTER_VALIDATE_INT);
+        $newStatus    = trim($_POST['new_status'] ?? '');
+        $actorId      = (int)($_SESSION['user_id'] ?? 0);
+
+        if ($targetUserId && $newStatus) {
+            $res = NetworkManagementController::overrideStaffStatus($pdo, $targetUserId, $newStatus, $actorId);
+            if ($isAjax) {
+                header('Content-Type: application/json');
+                echo json_encode($res);
+                exit;
+            }
+            $feedback = $res['message'];
+            $feedbackType = $res['success'] ? 'success' : 'error';
+        }
+    }
+}
+
+// Requirement 1: Load Network Aggregate KPIs
+$networkKpis = NetworkManagementController::getNetworkKPIs($pdo);
+
+// Requirement 2: Load Facility Capacity Matrix
+$facilityCapacityMatrix = NetworkManagementController::getFacilityCapacityMatrix($pdo);
+
+// Requirement 3: Global Staff Directory Filter & Load
+$staffHospFilter = filter_var($_GET['staff_hospital_id'] ?? null, FILTER_VALIDATE_INT);
+$staffRoleFilter = trim($_GET['staff_role'] ?? 'all');
+$staffStatusFilter = trim($_GET['staff_status'] ?? 'all');
+$staffSearchTerm = trim($_GET['staff_search'] ?? '');
+$globalStaffDirectory = NetworkManagementController::getGlobalStaffDirectory(
+    $pdo,
+    $staffHospFilter,
+    $staffRoleFilter,
+    $staffStatusFilter,
+    $staffSearchTerm
+);
 
 $emergencyService    = new EmergencyProtocolService($pdo);
 $activeProtocols     = $emergencyService->getActiveProtocols();
@@ -1649,6 +1730,78 @@ if (!function_exists('getHospitalCrest')) {
       width: 0%;
       transition: width 0.1s linear;
     }
+
+    /* Cross-Branch Emergency Diversion & Credential Overrides */
+    .sa-btn-action-divert {
+      background: #fee2e2;
+      color: #b91c1c;
+      border: 1px solid #f87171;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 0.74rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.2s ease;
+      white-space: nowrap;
+    }
+    .sa-btn-action-divert:hover {
+      background: #dc2626;
+      color: #ffffff;
+      border-color: #b91c1c;
+    }
+    .sa-btn-action-restore {
+      background: #dcfce7;
+      color: #15803d;
+      border: 1px solid #4ade80;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 0.74rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.2s ease;
+      white-space: nowrap;
+    }
+    .sa-btn-action-restore:hover {
+      background: #16a34a;
+      color: #ffffff;
+      border-color: #15803d;
+    }
+    .badge-divert-pulse {
+      background: #fee2e2;
+      color: #dc2626;
+      border: 1px solid #f87171;
+      padding: 3px 9px;
+      border-radius: 20px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      animation: pulseAlert 1.5s infinite;
+    }
+    @keyframes pulseAlert {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.82; transform: scale(0.98); }
+    }
+    .sa-kpi-progress {
+      margin-top: 8px;
+      width: 100%;
+      height: 6px;
+      background: rgba(0, 0, 0, 0.06);
+      border-radius: 9999px;
+      overflow: hidden;
+    }
+    .sa-kpi-progress-fill {
+      height: 100%;
+      border-radius: 9999px;
+      transition: width 0.4s ease;
+    }
   </style>
 </head>
 <body>
@@ -1657,6 +1810,23 @@ if (!function_exists('getHospitalCrest')) {
 
   <!-- Central Primary Workspace -->
   <main class="viewport-full">
+
+    <?php
+    if (empty($greeting)) {
+        date_default_timezone_set('Asia/Dhaka');
+        $hour = (int)date('H');
+        if ($hour >= 5 && $hour < 12) {
+            $greeting = 'Good Morning';
+        } elseif ($hour >= 12 && $hour < 17) {
+            $greeting = 'Good Afternoon';
+        } else {
+            $greeting = 'Good Evening';
+        }
+    }
+    if (empty($adminName)) {
+        $adminName = $_SESSION['full_name'] ?? 'Super Administrator';
+    }
+    ?>
 
     <!-- Welcome Banner -->
     <div class="welcome-banner">
@@ -1877,6 +2047,17 @@ if (!function_exists('getHospitalCrest')) {
     </div>
     <?php endif; ?>
 
+    <!-- ── Feedback Flash Banner (If Action Performed) ── -->
+    <?php if (!empty($feedback)): ?>
+    <div style="margin: 0 0 20px; padding: 14px 18px; border-radius: var(--radius-md); font-weight: 600; font-size: 0.9rem; display: flex; align-items: center; justify-content: space-between; <?= $feedbackType === 'success' ? 'background: #dcfce7; color: #15803d; border: 1px solid #86efac;' : 'background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5;' ?>">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="font-size: 1.1rem;"><?= $feedbackType === 'success' ? '✅' : '⚠️' ?></span>
+        <span><?= htmlspecialchars($feedback, ENT_QUOTES, 'UTF-8') ?></span>
+      </div>
+      <button type="button" onclick="this.parentElement.remove()" style="background:none; border:none; font-size:1.2rem; cursor:pointer; color:inherit; line-height:1;">&times;</button>
+    </div>
+    <?php endif; ?>
+
     <!-- ═══════════════════════════════════════════════════════
          TOP BAR — Hospital Switcher / Filter
     ════════════════════════════════════════════════════════ -->
@@ -1888,106 +2069,108 @@ if (!function_exists('getHospitalCrest')) {
             MedPulse Network
           </div>
           <span style="font-size:0.82rem; color:var(--text-muted);">
-            <?= $totalNetworkHospitals ?> Hospitals Connected
+            <?= $networkKpis['total_facilities'] ?> Connected Facilities Across Bangladesh
           </span>
         </div>
 
         <div class="sa-switcher-group">
-          <label class="sa-switcher-label" for="hospitalFilter">Filter by Hospital:</label>
+          <label class="sa-switcher-label" for="hospitalFilter">Filter View:</label>
           <select class="sa-hospital-select" id="hospitalFilter" name="hospital_id" onchange="this.form.submit()">
-            <option value="0" <?= $filterHospitalId === 0 ? 'selected' : '' ?>>All Hospitals</option>
+            <option value="0" <?= $filterHospitalId === 0 ? 'selected' : '' ?>>All Network Facilities (Aggregated)</option>
             <?php foreach ($allHospitals as $h): ?>
               <option value="<?= (int)$h['hospital_id'] ?>" <?= $filterHospitalId === (int)$h['hospital_id'] ? 'selected' : '' ?>>
                 <?= htmlspecialchars($h['name'], ENT_QUOTES, 'UTF-8') ?>
               </option>
             <?php endforeach; ?>
           </select>
-          <div class="net-status-badge <?= $occupancyPct >= 85 ? 'status-high' : ($occupancyPct >= 60 ? 'status-moderate' : 'status-normal') ?>">
+          <div class="net-status-badge <?= $networkKpis['occupancy_rate'] >= 85 ? 'status-high' : ($networkKpis['occupancy_rate'] >= 60 ? 'status-moderate' : 'status-normal') ?>">
             <span class="net-status-dot"></span>
-            <?= $networkStatus ?>
+            <?= $networkKpis['occupancy_rate'] >= 85 ? 'High Network Load' : ($networkKpis['occupancy_rate'] >= 60 ? 'Moderate Inflow' : 'Optimal Capacity') ?>
           </div>
         </div>
       </div>
     </form>
 
     <!-- ═══════════════════════════════════════════════════════
-         4 KPI METRIC CARDS
+         REQUIREMENT 1: 4 CROSS-BRANCH SUMMARY KPI METRIC TILES
     ════════════════════════════════════════════════════════ -->
     <div class="stat-cards-grid">
-      <!-- Card 1: Total Network Hospitals -->
-      <a href="hospital_directory.php" class="stat-card-executive stat-card-interactive sa-purple kpi-hosp" title="View Hospital Directory">
+      <!-- Card 1: Total Network Bed Capacity vs. Real-Time Occupancy Rate -->
+      <a href="facilities.php" class="stat-card-executive stat-card-interactive kpi-beds" title="Open Network Capacity Matrix">
         <div class="stat-card-head">
-          <span>Network Hospitals</span>
-          <div class="kpi-head-action">
-            <svg class="ui-ico" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><line x1="9" y1="22" x2="9" y2="12"></line><line x1="15" y1="22" x2="15" y2="12"></line><line x1="9" y1="7" x2="15" y2="7"></line></svg>
-            <svg class="kpi-arrow-ico" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"></polyline></svg>
-          </div>
-        </div>
-        <div class="stat-card-number"><?= number_format($totalNetworkHospitals) ?></div>
-        <div class="badge-purple">
-          <svg style="width:11px;height:11px;stroke:currentColor;fill:none;stroke-width:2;" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
-          Fully Connected
-        </div>
-      </a>
-
-      <!-- Card 2: Total Network Beds -->
-      <a href="bed_monitor.php?status=All<?= $filterHospitalId > 0 ? '&hospital_id=' . $filterHospitalId : '' ?>" class="stat-card-executive stat-card-interactive kpi-beds" title="Open Central Bed Monitor">
-        <div class="stat-card-head">
-          <span>Total Network Beds</span>
+          <span>Network Bed Capacity</span>
           <div class="kpi-head-action">
             <svg class="ui-ico" style="stroke: var(--brand-primary);" viewBox="0 0 24 24"><path d="M2 4v16"></path><path d="M2 8h18a2 2 0 0 1 2 2v10"></path><path d="M2 17h20"></path></svg>
             <svg class="kpi-arrow-ico" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"></polyline></svg>
           </div>
         </div>
-        <div class="stat-card-number" id="kpiTotalBeds"><?= number_format($totalNetworkBeds) ?></div>
-        <div class="stat-card-badge badge-blue">
-          <?= $filterHospitalId > 0 ? '1 Hospital' : 'All Hospitals' ?>
+        <div class="stat-card-number" id="kpiTotalBeds"><?= number_format($networkKpis['network_beds']) ?></div>
+        <div style="font-size:0.75rem; color:var(--text-muted); margin-top:3px; display:flex; justify-content:space-between; align-items:center;">
+          <span><strong><?= number_format($networkKpis['occupied_beds']) ?></strong> Occupied</span>
+          <span style="color:var(--status-green); font-weight:700;"><strong><?= number_format($networkKpis['available_beds']) ?></strong> Available</span>
+        </div>
+        <div class="sa-kpi-progress">
+          <div class="sa-kpi-progress-fill" style="width: <?= min(100, $networkKpis['occupancy_rate']) ?>%; background: <?= $networkKpis['occupancy_rate'] >= 85 ? 'var(--status-red, #ef4444)' : ($networkKpis['occupancy_rate'] >= 60 ? 'var(--status-amber, #f59e0b)' : 'var(--status-green, #10b981)') ?>;"></div>
+        </div>
+        <div class="stat-card-badge <?= $networkKpis['occupancy_rate'] >= 85 ? 'badge-red' : ($networkKpis['occupancy_rate'] >= 60 ? 'badge-amber' : 'badge-green') ?>" style="margin-top:6px;">
+          <?= $networkKpis['occupancy_rate'] ?>% Occupancy Rate
         </div>
       </a>
 
-      <!-- Card 3: Available Live Beds -->
-      <a href="bed_monitor.php?status=Available<?= $filterHospitalId > 0 ? '&hospital_id=' . $filterHospitalId : '' ?>" class="stat-card-executive stat-card-interactive kpi-avail" title="Filter Available Live Beds">
+      <!-- Card 2: Total Appointments Scheduled Across All Facilities for Today -->
+      <a href="facilities.php" class="stat-card-executive stat-card-interactive sa-purple kpi-hosp" title="View Today's OPD Traffic">
         <div class="stat-card-head">
-          <span>Available Live Beds</span>
+          <span>Today's OPD Traffic</span>
           <div class="kpi-head-action">
-            <svg class="ui-ico" style="stroke: var(--status-green);" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
+            <svg class="ui-ico" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
             <svg class="kpi-arrow-ico" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"></polyline></svg>
           </div>
         </div>
-        <div class="stat-card-number" id="kpiAvailBeds"><?= number_format($availableLiveBeds) ?></div>
+        <div class="stat-card-number"><?= number_format($networkKpis['today_appointments']) ?></div>
+        <div class="stat-card-badge badge-blue">
+          Scheduled Across All Facilities
+        </div>
+        <div style="font-size:0.74rem; color:var(--text-muted); margin-top:6px;">
+          Sequential tokens active today
+        </div>
+      </a>
+
+      <!-- Card 3: Active In-Consultation Queue Count -->
+      <a href="facilities.php" class="stat-card-executive stat-card-interactive kpi-avail" title="View Live Chamber Activity">
+        <div class="stat-card-head">
+          <span>In-Consultation Queue</span>
+          <div class="kpi-head-action">
+            <svg class="ui-ico" style="stroke: var(--brand-teal);" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+            <svg class="kpi-arrow-ico" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"></polyline></svg>
+          </div>
+        </div>
+        <div class="stat-card-number" style="color: var(--brand-teal);"><?= number_format($networkKpis['active_in_consultation']) ?></div>
         <div class="stat-card-badge badge-green">
           <svg style="width:11px;height:11px;stroke:currentColor;fill:none;stroke-width:2;" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
-          Ready for Admission
+          Active in Chambers
+        </div>
+        <div style="font-size:0.74rem; color:var(--text-muted); margin-top:6px;">
+          Live doctor consult sessions
         </div>
       </a>
 
-      <!-- Card 4: Critical / Occupied -->
-      <a href="bed_monitor.php?status=Occupied<?= $filterHospitalId > 0 ? '&hospital_id=' . $filterHospitalId : '' ?>" class="stat-card-executive stat-card-interactive kpi-occ" title="Filter Occupied / Critical Beds">
+      <!-- Card 4: Pending Doctor & Staff Registrations Awaiting Verification across all branches -->
+      <a href="#globalStaffSection" class="stat-card-executive stat-card-interactive kpi-occ" title="Review Pending Staff Credentials">
         <div class="stat-card-head">
-          <span>Occupied / Critical</span>
+          <span>Pending Registrations</span>
           <div class="kpi-head-action">
-            <svg class="ui-ico" style="stroke: var(--status-amber);" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+            <svg class="ui-ico" style="stroke: var(--status-amber);" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><line x1="19" y1="8" x2="19" y2="14"></line><line x1="22" y1="11" x2="16" y2="11"></line></svg>
             <svg class="kpi-arrow-ico" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"></polyline></svg>
           </div>
         </div>
-        <div class="stat-card-number" id="kpiOccBeds"><?= number_format($criticalOccupiedBeds) ?></div>
-        <div class="stat-card-badge <?= $occBadgeClass ?>" id="kpiOccBadge">
-          <?= $occupancyPct ?>% Network Occupancy
+        <div class="stat-card-number" style="color: <?= $networkKpis['pending_registrations'] > 0 ? 'var(--status-amber)' : 'var(--text-heading)' ?>;">
+          <?= number_format($networkKpis['pending_registrations']) ?>
         </div>
-      </a>
-
-      <!-- Card 5: Sanitizing Beds (Read-Only Housekeeping Telemetry) -->
-      <a href="bed_monitor.php?status=Sanitizing<?= $filterHospitalId > 0 ? '&hospital_id=' . $filterHospitalId : '' ?>" class="stat-card-executive stat-card-interactive" style="border-left: 3px solid #0284c7;" title="View Sanitizing beds (Branch Housekeeping pipeline)">
-        <div class="stat-card-head">
-          <span>Sanitizing Units</span>
-          <div class="kpi-head-action">
-            <span style="font-size: 16px;">🧴</span>
-            <svg class="kpi-arrow-ico" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"></polyline></svg>
-          </div>
+        <div class="stat-card-badge <?= $networkKpis['pending_registrations'] > 0 ? 'badge-amber' : 'badge-green' ?>">
+          <?= $networkKpis['pending_registrations'] > 0 ? 'Verification Required' : 'All Clear' ?>
         </div>
-        <div class="stat-card-number" style="color: #0284c7;"><?= number_format($sanitizingBeds) ?></div>
-        <div class="stat-card-badge" style="background:#e0f2fe;color:#0369a1;">
-          Read-Only Branch Telemetry
+        <div style="font-size:0.74rem; color:var(--text-muted); margin-top:6px;">
+          Across all network branches
         </div>
       </a>
     </div>
@@ -2170,20 +2353,25 @@ if (!function_exists('getHospitalCrest')) {
     </div>
 
     <!-- ═══════════════════════════════════════════════════════
-         MULTI-HOSPITAL LIVE STATUS TABLE
+         REQUIREMENT 2: FACILITY CAPACITY MATRIX & EMERGENCY DIVERSION CONTROL
     ════════════════════════════════════════════════════════ -->
-    <div class="sa-table-section">
+    <div class="sa-table-section" id="networkMatrixSection">
       <div class="sa-section-header">
         <div class="sa-section-title">
           <svg class="ui-ico" style="stroke: var(--sa-accent); width:22px; height:22px;" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
           <div>
-            <h3>Multi-Hospital Live Status</h3>
-            <p>Real-time bed availability and occupancy across all network facilities</p>
+            <h3>Network Facility Capacity Matrix &amp; Emergency Diversion</h3>
+            <p>Live census across all 6 partner hospitals with super admin emergency ambulance routing controls</p>
           </div>
         </div>
-        <div class="sa-live-badge">
-          <span class="sa-live-dot"></span>
-          Live Data
+        <div style="display:flex; align-items:center; gap:10px;">
+          <a href="facilities.php" style="font-size:0.78rem; font-weight:700; color:var(--brand-primary); text-decoration:none; padding:5px 12px; border:1px solid rgba(13,148,136,0.3); border-radius:6px; background:#f0fdfa;">
+            Dedicated Console →
+          </a>
+          <div class="sa-live-badge">
+            <span class="sa-live-dot"></span>
+            Live Network Matrix
+          </div>
         </div>
       </div>
 
@@ -2191,37 +2379,37 @@ if (!function_exists('getHospitalCrest')) {
         <table class="sa-data-table" id="hospitalStatusTable">
           <thead>
             <tr>
-              <th>Hospital</th>
-              <th>City</th>
+              <th>Facility &amp; Admin Contact</th>
+              <th>Location</th>
               <th>Total Beds</th>
               <th>Available</th>
-              <th>ICU Vacancy</th>
+              <th>ICU / Critical</th>
               <th>Occupancy</th>
-              <th>Status</th>
-              <th style="text-align:right;">Actions</th>
+              <th>Emergency Status</th>
+              <th style="text-align:right;">Diversion &amp; Census</th>
             </tr>
           </thead>
           <tbody>
-            <?php if (empty($hospitalRows)): ?>
+            <?php if (empty($facilityCapacityMatrix)): ?>
             <tr>
               <td colspan="8" style="text-align:center; padding:40px; color:var(--text-muted);">
-                No hospital data found. Please check your database connection.
+                No facility records detected in database.
               </td>
             </tr>
             <?php else: ?>
-            <?php foreach ($hospitalRows as $row):
-              $tot     = (int)($row['total_beds'] ?? 0);
-              $avail   = (int)($row['available_beds'] ?? 0);
-              $occ     = (int)($row['occupied_beds'] ?? 0);
-              $icuVac  = (int)($row['icu_vacant'] ?? 0);
-              $icuTot  = (int)($row['icu_total'] ?? 0);
-              $occPct  = $tot > 0 ? round(($occ / $tot) * 100) : 0;
-              $fillCls = $occPct >= 85 ? 'fill-red' : ($occPct >= 60 ? 'fill-amber' : 'fill-green');
-              $stCls   = $occPct >= 85 ? 'status-high' : ($occPct >= 60 ? 'status-moderate' : 'status-normal');
-              $stLabel = $occPct >= 85 ? 'High Load' : ($occPct >= 60 ? 'Moderate' : 'Normal');
-              $hospId  = (int)($row['hospital_id'] ?? 0);
+            <?php foreach ($facilityCapacityMatrix as $row):
+              $tot       = (int)($row['total_beds'] ?? 0);
+              $avail     = (int)($row['available_beds'] ?? 0);
+              $occ       = (int)($row['occupied_beds'] ?? 0);
+              $icuVac    = (int)($row['icu_vacant'] ?? 0);
+              $icuTot    = (int)($row['icu_total'] ?? 0);
+              $occPct    = $tot > 0 ? round(($occ / $tot) * 100) : 0;
+              $fillCls   = $occPct >= 85 ? 'fill-red' : ($occPct >= 60 ? 'fill-amber' : 'fill-green');
+              $hospId    = (int)($row['hospital_id'] ?? 0);
+              $rawEmerg  = (string)($row['emergency_status'] ?? 'Operational');
+              $isDivert  = str_contains(strtolower($rawEmerg), 'divert') || str_contains(strtolower($rawEmerg), 'overwhelm') || str_contains(strtolower($rawEmerg), 'critical');
             ?>
-            <tr class="sa-clickable-row" onclick="window.location.href='bed_monitor.php?hospital_id=<?= $hospId ?>'" title="Drill down to <?= htmlspecialchars($row['name'], ENT_QUOTES, 'UTF-8') ?> bed monitor">
+            <tr class="sa-clickable-row" onclick="window.location.href='bed_monitor.php?hospital_id=<?= $hospId ?>'" title="Inspect <?= htmlspecialchars($row['name'], ENT_QUOTES, 'UTF-8') ?>">
               <td>
                 <div class="hosp-name-cell">
                   <?= getHospitalCrest($hospId, $row['name']) ?>
@@ -2229,18 +2417,22 @@ if (!function_exists('getHospitalCrest')) {
                     <div style="font-weight:700; color:var(--text-heading); font-size:0.88rem;">
                       <?= htmlspecialchars($row['name'], ENT_QUOTES, 'UTF-8') ?>
                     </div>
-                    <?php if (!empty($row['contact_number'])): ?>
-                    <div style="font-size:0.72rem; color:var(--text-muted);">
-                      <?= htmlspecialchars($row['contact_number'], ENT_QUOTES, 'UTF-8') ?>
+                    <div style="font-size:0.73rem; color:var(--text-muted); margin-top:2px;">
+                      Admin: <strong><?= htmlspecialchars($row['admin_name'] ?: 'Branch Admin', ENT_QUOTES, 'UTF-8') ?></strong>
+                      &bull; <?= htmlspecialchars($row['admin_phone'] ?: $row['contact_number'] ?: 'N/A', ENT_QUOTES, 'UTF-8') ?>
                     </div>
-                    <?php endif; ?>
                   </div>
                 </div>
               </td>
               <td>
-                <span style="font-size:0.82rem; color:var(--text-body);">
-                  <?= htmlspecialchars($row['city'], ENT_QUOTES, 'UTF-8') ?>
+                <span style="font-size:0.82rem; color:var(--text-body); font-weight:600;">
+                  <?= htmlspecialchars($row['city'] ?? '', ENT_QUOTES, 'UTF-8') ?>
                 </span>
+                <?php if (!empty($row['address'])): ?>
+                  <div style="font-size:0.71rem; color:var(--text-muted); max-width:180px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                    <?= htmlspecialchars($row['address'], ENT_QUOTES, 'UTF-8') ?>
+                  </div>
+                <?php endif; ?>
               </td>
               <td>
                 <strong style="color:var(--text-heading); font-size:0.92rem;"><?= number_format($tot) ?></strong>
@@ -2252,12 +2444,12 @@ if (!function_exists('getHospitalCrest')) {
               <td>
                 <?php if ($icuTot > 0): ?>
                   <span style="font-weight:700; color:var(--brand-primary);"><?= $icuVac ?></span>
-                  <span style="color:var(--text-muted); font-size:0.75rem;"> / <?= $icuTot ?></span>
+                  <span style="color:var(--text-muted); font-size:0.75rem;"> / <?= $icuTot ?> vac</span>
                   <?php if ($icuVac === 0): ?>
-                    <span class="net-status-badge status-high" style="padding:2px 7px; font-size:0.66rem; margin-left:4px;">FULL</span>
+                    <span class="net-status-badge status-high" style="padding:2px 6px; font-size:0.65rem; margin-left:3px;">FULL</span>
                   <?php endif; ?>
                 <?php else: ?>
-                  <span style="color:var(--text-muted); font-size:0.78rem;">N/A</span>
+                  <span style="color:var(--text-muted); font-size:0.78rem;">0 / 0</span>
                 <?php endif; ?>
               </td>
               <td>
@@ -2269,15 +2461,212 @@ if (!function_exists('getHospitalCrest')) {
                 </div>
               </td>
               <td>
-                <div class="net-status-badge <?= $stCls ?>">
-                  <span class="net-status-dot"></span>
-                  <?= $stLabel ?>
+                <?php if ($isDivert): ?>
+                  <div class="badge-divert-pulse" title="High Trauma Surge — Emergency Ambulances Diverted">
+                    <span>🚨</span>
+                    <span>Ambulance Divert / Overwhelmed</span>
+                  </div>
+                <?php else: ?>
+                  <div class="net-status-badge status-normal" style="background:#ecfdf5; color:#059669; border:1px solid #a7f3d0;">
+                    <span class="net-status-dot" style="background:#059669;"></span>
+                    <span>Operational</span>
+                  </div>
+                <?php endif; ?>
+              </td>
+              <td style="text-align:right; white-space:nowrap;" onclick="event.stopPropagation();">
+                <div style="display:flex; align-items:center; justify-content:flex-end; gap:6px;">
+                  <!-- Emergency Diversion Toggle Form -->
+                  <form method="POST" action="dashboard.php" style="margin:0; display:inline;" onsubmit="return confirm('<?= $isDivert ? "Restore {$row['name']} to Operational status?" : "Trigger AMBULANCE DIVERSION for {$row['name']}?\\n\\nPatient dashboard will display:\\nWarning: High Trauma Surge - Walk-in & Critical Diversion in Effect" ?>');">
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '', ENT_QUOTES, 'UTF-8') ?>">
+                    <input type="hidden" name="action" value="toggle_diversion">
+                    <input type="hidden" name="hospital_id" value="<?= $hospId ?>">
+
+                    <?php if ($isDivert): ?>
+                      <input type="hidden" name="new_status" value="Operational">
+                      <button type="submit" class="sa-btn-action-restore" title="Restore facility to Operational">
+                        🟢 Restore Operational
+                      </button>
+                    <?php else: ?>
+                      <input type="hidden" name="new_status" value="Ambulance Divert / Overwhelmed">
+                      <button type="submit" class="sa-btn-action-divert" title="Divert ER ambulances and display high surge warning">
+                        🚨 Divert Ambulance
+                      </button>
+                    <?php endif; ?>
+                  </form>
+
+                  <a href="bed_monitor.php?hospital_id=<?= $hospId ?>" class="sa-btn-drilldown" title="Drill down to <?= htmlspecialchars($row['name'], ENT_QUOTES, 'UTF-8') ?> Bed Monitor">
+                    Drill Down →
+                  </a>
                 </div>
               </td>
+            </tr>
+            <?php endforeach; ?>
+            <?php endif; ?>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════
+         REQUIREMENT 3: GLOBAL FACILITY STAFF & DOCTOR DIRECTORY
+    ════════════════════════════════════════════════════════ -->
+    <div class="sa-table-section" id="globalStaffSection" style="margin-top:24px;">
+      <div class="sa-section-header">
+        <div class="sa-section-title">
+          <svg class="ui-ico" style="stroke: var(--sa-accent); width:22px; height:22px;" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+          <div>
+            <h3>Global Facility Staff &amp; Doctor Directory</h3>
+            <p>Enterprise cross-branch clinical credential governance, approvals, and super admin overrides</p>
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:0.78rem; font-weight:700; color:var(--sa-accent); background:var(--sa-accent-soft); padding:4px 10px; border-radius:20px;">
+            <?= count($globalStaffDirectory) ?> Staff Displayed
+          </span>
+          <a href="facilities.php#staffSection" style="font-size:0.78rem; font-weight:700; color:var(--brand-primary); text-decoration:none; padding:5px 12px; border:1px solid rgba(13,148,136,0.3); border-radius:6px; background:#f0fdfa;">
+            Manage All Staff →
+          </a>
+        </div>
+      </div>
+
+      <!-- Filter Controls Form -->
+      <form method="GET" action="dashboard.php#globalStaffSection" style="padding:14px 20px; background:var(--surface-sunken, #f8fafc); border-bottom:1px solid var(--surface-border); display:flex; flex-wrap:wrap; gap:12px; align-items:center;">
+        <?php if ($filterHospitalId > 0): ?>
+          <input type="hidden" name="hospital_id" value="<?= $filterHospitalId ?>">
+        <?php endif; ?>
+        
+        <div>
+          <label style="font-size:0.72rem; font-weight:700; color:var(--text-muted); display:block; margin-bottom:4px;">Filter by Facility</label>
+          <select name="staff_hospital_id" style="padding:6px 10px; border-radius:6px; border:1px solid var(--surface-border); font-size:0.8rem; background:var(--surface);">
+            <option value="">All 6 Facilities</option>
+            <?php foreach ($allHospitals as $h): ?>
+              <option value="<?= (int)$h['hospital_id'] ?>" <?= ($staffHospFilter === (int)$h['hospital_id']) ? 'selected' : '' ?>>
+                <?= htmlspecialchars($h['name'], ENT_QUOTES, 'UTF-8') ?>
+              </option>
+            <?php endforeach; ?>
+          </select>
+        </div>
+
+        <div>
+          <label style="font-size:0.72rem; font-weight:700; color:var(--text-muted); display:block; margin-bottom:4px;">Role</label>
+          <select name="staff_role" style="padding:6px 10px; border-radius:6px; border:1px solid var(--surface-border); font-size:0.8rem; background:var(--surface);">
+            <option value="all" <?= $staffRoleFilter === 'all' ? 'selected' : '' ?>>All Roles</option>
+            <option value="doctor" <?= $staffRoleFilter === 'doctor' ? 'selected' : '' ?>>Doctor</option>
+            <option value="staff" <?= $staffRoleFilter === 'staff' ? 'selected' : '' ?>>Staff / Nurse</option>
+            <option value="receptionist" <?= $staffRoleFilter === 'receptionist' ? 'selected' : '' ?>>Receptionist</option>
+            <option value="admin" <?= $staffRoleFilter === 'admin' ? 'selected' : '' ?>>Branch Admin</option>
+          </select>
+        </div>
+
+        <div>
+          <label style="font-size:0.72rem; font-weight:700; color:var(--text-muted); display:block; margin-bottom:4px;">Status</label>
+          <select name="staff_status" style="padding:6px 10px; border-radius:6px; border:1px solid var(--surface-border); font-size:0.8rem; background:var(--surface);">
+            <option value="all" <?= $staffStatusFilter === 'all' ? 'selected' : '' ?>>All Statuses</option>
+            <option value="active" <?= $staffStatusFilter === 'active' ? 'selected' : '' ?>>Active / Approved</option>
+            <option value="pending" <?= $staffStatusFilter === 'pending' ? 'selected' : '' ?>>Pending Verification</option>
+            <option value="suspended" <?= $staffStatusFilter === 'suspended' ? 'selected' : '' ?>>Suspended / Revoked</option>
+          </select>
+        </div>
+
+        <div>
+          <label style="font-size:0.72rem; font-weight:700; color:var(--text-muted); display:block; margin-bottom:4px;">Search Staff</label>
+          <input type="text" name="staff_search" value="<?= htmlspecialchars($staffSearchTerm, ENT_QUOTES, 'UTF-8') ?>" placeholder="Name, UID, Dept..." style="padding:6px 10px; border-radius:6px; border:1px solid var(--surface-border); font-size:0.8rem; background:var(--surface); width:180px;">
+        </div>
+
+        <div style="align-self:flex-end;">
+          <button type="submit" style="padding:7px 16px; border-radius:6px; background:var(--sa-accent); color:#fff; border:none; font-weight:700; font-size:0.8rem; cursor:pointer;">
+            Filter Directory
+          </button>
+          <a href="dashboard.php#globalStaffSection" style="margin-left:8px; font-size:0.78rem; color:var(--text-muted); text-decoration:none;">Reset</a>
+        </div>
+      </form>
+
+      <!-- Staff Directory Table -->
+      <div class="sa-table-wrap">
+        <table class="sa-data-table">
+          <thead>
+            <tr>
+              <th>Personnel &amp; UID</th>
+              <th>Branch Facility</th>
+              <th>Role / Discipline</th>
+              <th>Status</th>
+              <th>Registered</th>
+              <th style="text-align:right;">Credential Authority Overrides</th>
+            </tr>
+          </thead>
+          <tbody>
+            <?php if (empty($globalStaffDirectory)): ?>
+            <tr>
+              <td colspan="6" style="text-align:center; padding:30px; color:var(--text-muted);">
+                No doctor or clinical staff matching the selected criteria found.
+              </td>
+            </tr>
+            <?php else: ?>
+            <?php foreach ($globalStaffDirectory as $st):
+              $stRole = strtolower($st['role']);
+              $stStatus = strtolower($st['status']);
+              $statusBadge = match($stStatus) {
+                'active'    => '<span class="ox-badge ox-normal">Active</span>',
+                'pending'   => '<span class="ox-badge ox-caution">Pending</span>',
+                'suspended' => '<span class="ox-badge ox-critical">Suspended</span>',
+                default     => '<span class="ox-badge">' . htmlspecialchars(ucfirst($stStatus), ENT_QUOTES, 'UTF-8') . '</span>'
+              };
+            ?>
+            <tr>
+              <td>
+                <div style="font-weight:700; color:var(--text-heading); font-size:0.88rem;">
+                  <?= htmlspecialchars($st['name'], ENT_QUOTES, 'UTF-8') ?>
+                </div>
+                <div style="font-size:0.72rem; color:var(--text-muted);">
+                  <?= htmlspecialchars($st['email'], ENT_QUOTES, 'UTF-8') ?>
+                  <?php if (!empty($st['phone'])): ?> &bull; <?= htmlspecialchars($st['phone'], ENT_QUOTES, 'UTF-8') ?><?php endif; ?>
+                </div>
+              </td>
+              <td>
+                <strong style="color:var(--text-heading); font-size:0.84rem;"><?= htmlspecialchars($st['hospital_name'] ?? 'Unassigned', ENT_QUOTES, 'UTF-8') ?></strong>
+                <div style="font-size:0.72rem; color:var(--text-muted);"><?= htmlspecialchars($st['hospital_city'] ?? '', ENT_QUOTES, 'UTF-8') ?></div>
+              </td>
+              <td>
+                <span class="incident-actor-pill" style="font-weight:700; text-transform:uppercase; font-size:0.7rem;">
+                  <?= htmlspecialchars($st['role'], ENT_QUOTES, 'UTF-8') ?>
+                </span>
+                <?php if (!empty($st['specialization'])): ?>
+                  <div style="font-size:0.72rem; color:var(--brand-primary); font-weight:600; margin-top:2px;">
+                    <?= htmlspecialchars($st['specialization'], ENT_QUOTES, 'UTF-8') ?>
+                  </div>
+                <?php endif; ?>
+              </td>
+              <td>
+                <?= $statusBadge ?>
+              </td>
+              <td>
+                <span style="font-size:0.74rem; color:var(--text-muted);">
+                  <?= !empty($st['created_at']) ? date('M d, Y', strtotime($st['created_at'])) : '—' ?>
+                </span>
+              </td>
               <td style="text-align:right; white-space:nowrap;">
-                <a href="bed_monitor.php?hospital_id=<?= $hospId ?>" class="sa-btn-drilldown" onclick="event.stopPropagation();" title="Inspect <?= htmlspecialchars($row['name'], ENT_QUOTES, 'UTF-8') ?> Live Census">
-                  Drill Down <span class="drill-arrow">→</span>
-                </a>
+                <form method="POST" action="dashboard.php#globalStaffSection" style="display:inline-flex; gap:6px; margin:0;" onsubmit="return confirm('Confirm credential modification for <?= htmlspecialchars(addslashes($st['name'])) ?>?');">
+                  <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '', ENT_QUOTES, 'UTF-8') ?>">
+                  <input type="hidden" name="action" value="override_staff">
+                  <input type="hidden" name="target_user_id" value="<?= (int)$st['id'] ?>">
+
+                  <?php if ($stStatus === 'pending'): ?>
+                    <button type="submit" name="new_status" value="active" class="sa-btn-action-restore" title="Approve credential and activate account">
+                      ✅ Approve
+                    </button>
+                    <button type="submit" name="new_status" value="suspended" class="sa-btn-action-divert" title="Reject / Suspend applicant">
+                      🚫 Reject
+                    </button>
+                  <?php elseif ($stStatus === 'active'): ?>
+                    <button type="submit" name="new_status" value="suspended" class="sa-btn-action-divert" title="Revoke clinical privileges / Suspend access">
+                      ⚠️ Suspend
+                    </button>
+                  <?php else: ?>
+                    <button type="submit" name="new_status" value="active" class="sa-btn-action-restore" title="Restore active clinical credentials">
+                      🔄 Re-instate
+                    </button>
+                  <?php endif; ?>
+                </form>
               </td>
             </tr>
             <?php endforeach; ?>

@@ -7,28 +7,59 @@
 require_once __DIR__ . '/../includes/admin_auth.php';
 
 try {
-    // 1. Pending Approvals Queue (Doctors & Staff awaiting administrative review)
-    $pendingStmt = $pdo->prepare("
-        SELECT user_id, full_name, email, phone, gender, role, status, license_id, department, created_at 
-        FROM users 
-        WHERE status = 'pending' AND role IN ('Doctor', 'Staff') 
-        ORDER BY created_at DESC
-    ");
-    $pendingStmt->execute();
-    $pendingUsers = $pendingStmt->fetchAll(PDO::FETCH_ASSOC);
-    $pendingCount = count($pendingUsers);
-
-    // 2. Departmental Hub Counters (Live Relational Queries)
-    $total_doctors = (int)$pdo->query("SELECT COUNT(*) AS total_doctors FROM users WHERE role = 'doctor' AND status = 'active'")->fetchColumn();
-    $total_staff = (int)$pdo->query("SELECT COUNT(*) AS total_staff FROM users WHERE role IN ('nurse', 'pharmacist', 'receptionist', 'staff') AND status = 'active'")->fetchColumn();
-    $total_patients = (int)$pdo->query("SELECT COUNT(*) AS total_patients FROM users WHERE role = 'patient'")->fetchColumn();
-
     // Strict multi-hospital scoping: resolve current branch hospital
     $adminHospitalId = (int)($_SESSION['hospital_id'] ?? 1);
     $hospStmt = $pdo->prepare("SELECT hospital_id, name, code FROM hospitals WHERE hospital_id = ?");
     $hospStmt->execute([$adminHospitalId]);
     $currentHospital = $hospStmt->fetch(PDO::FETCH_ASSOC);
     $branchName = $currentHospital['name'] ?? 'MedPulse Facility';
+
+    // 1. Pending Approvals Queue (Doctors & Staff awaiting administrative review for this branch)
+    // Requirement 4: Branch admins can review newly registered doctors who selected their branch
+    $pendingDoctorsStmt = $pdo->prepare("
+        SELECT d.id, u.user_id, u.full_name, u.email, u.phone, u.gender, 'Doctor' AS role,
+               COALESCE(d.bmdc_reg_no, u.license_id, 'BMDC-PENDING') AS bmdc_reg_no,
+               d.status, d.created_at
+        FROM doctors d
+        JOIN users u ON u.id = d.user_id
+        WHERE d.hospital_id = :session_hospital_id AND d.status = 'pending'
+        ORDER BY d.created_at DESC
+    ");
+    $pendingDoctorsStmt->execute([':session_hospital_id' => $adminHospitalId]);
+    $pendingDoctors = $pendingDoctorsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Pending Staff for this branch
+    $pendingStaffStmt = $pdo->prepare("
+        SELECT u.id, u.user_id, u.full_name, u.email, u.phone, u.gender, u.role,
+               u.license_id AS bmdc_reg_no, u.status, u.created_at
+        FROM users u
+        WHERE u.hospital_id = :session_hospital_id AND u.status = 'pending' AND u.role IN ('Staff', 'Nurse', 'Pharmacist', 'Receptionist')
+        ORDER BY u.created_at DESC
+    ");
+    $pendingStaffStmt->execute([':session_hospital_id' => $adminHospitalId]);
+    $pendingStaff = $pendingStaffStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $pendingUsers = array_merge($pendingDoctors, $pendingStaff);
+    $pendingCount = count($pendingUsers);
+
+    // 2. Departmental Hub Counters (Scoped strictly to branch hospital)
+    $docCountStmt = $pdo->prepare("SELECT COUNT(*) FROM doctors WHERE hospital_id = ? AND status IN ('active', 'approved')");
+    $docCountStmt->execute([$adminHospitalId]);
+    $total_doctors = (int)$docCountStmt->fetchColumn();
+
+    $staffCountStmt = $pdo->prepare("SELECT COUNT(*) FROM users WHERE hospital_id = ? AND role IN ('nurse', 'pharmacist', 'receptionist', 'staff') AND status = 'active'");
+    $staffCountStmt->execute([$adminHospitalId]);
+    $total_staff = (int)$staffCountStmt->fetchColumn();
+
+    $patCountStmt = $pdo->prepare("SELECT COUNT(DISTINCT patient_id) FROM appointments WHERE hospital_id = ?");
+    $patCountStmt->execute([$adminHospitalId]);
+    $total_patients = (int)$patCountStmt->fetchColumn();
+    if ($total_patients === 0) {
+        // Fallback to active patients in branch beds or general patients
+        $patCountStmt2 = $pdo->prepare("SELECT COUNT(*) FROM users WHERE role = 'patient' AND hospital_id = ?");
+        $patCountStmt2->execute([$adminHospitalId]);
+        $total_patients = (int)$patCountStmt2->fetchColumn();
+    }
 
     // Bed Census Telemetry scoped to branch hospital
     $bedStatsStmt = $pdo->prepare("
@@ -523,6 +554,23 @@ try {
   <!-- Central Primary Workspace Container (Starts cleanly past sidebar) -->
   <main class="viewport-full">
 
+    <?php
+    if (empty($greeting)) {
+        date_default_timezone_set('Asia/Dhaka');
+        $hour = (int)date('H');
+        if ($hour >= 5 && $hour < 12) {
+            $greeting = 'Good Morning';
+        } elseif ($hour >= 12 && $hour < 17) {
+            $greeting = 'Good Afternoon';
+        } else {
+            $greeting = 'Good Evening';
+        }
+    }
+    if (empty($adminName)) {
+        $adminName = $_SESSION['full_name'] ?? 'Administrator';
+    }
+    ?>
+
     <!-- Executive Welcome Banner (Fluid flex-wrap, zero text clipping) -->
     <div class="welcome-banner">
       <div class="welcome-text">
@@ -993,7 +1041,7 @@ try {
                 <td><?= htmlspecialchars($user['phone'], ENT_QUOTES, 'UTF-8') ?></td>
                 <td>
                   <span class="license-chip">
-                    <?= htmlspecialchars($user['license_id'] ?? 'VERIFY-PENDING', ENT_QUOTES, 'UTF-8') ?>
+                    <?= htmlspecialchars($user['bmdc_reg_no'] ?? $user['license_id'] ?? 'VERIFY-PENDING', ENT_QUOTES, 'UTF-8') ?>
                   </span>
                 </td>
                 <td style="font-size: 0.78rem; color: var(--text-muted);">
@@ -1003,15 +1051,15 @@ try {
                   <div class="table-actions-flex" style="justify-content: flex-end;">
                     <button class="btn-table-action btn-table-approve" 
                             onclick="executeAdminAction(<?= (int)$user['user_id'] ?>, 'approve', this)"
-                            title="Approve candidate and grant portal access">
+                            title="Approve candidate credentials and grant facility portal access">
                       <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                      Approve
+                      Approve Credentials
                     </button>
                     <button class="btn-table-action btn-table-reject" 
                             onclick="executeAdminAction(<?= (int)$user['user_id'] ?>, 'reject', this)"
                             title="Decline candidate application">
                       <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                      Decline
+                      Reject
                     </button>
                   </div>
                 </td>

@@ -8,6 +8,19 @@ require_once __DIR__ . '/../includes/doctor_auth.php';
 require_once __DIR__ . '/../includes/doctor_helpers.php';
 
 $doctorUserId = (int)$_SESSION['user_id'];
+require_once __DIR__ . '/../controllers/AppointmentController.php';
+
+// ── Handle Chamber Queue Progression (Call Next Patient) ─────────────────────
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'call_next') {
+    $callResult = AppointmentController::callNextPatient($pdo, $doctorUserId);
+    if (!empty($_POST['ajax']) || (isset($_SERVER['HTTP_ACCEPT']) && str_contains($_SERVER['HTTP_ACCEPT'], 'application/json'))) {
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['status' => $callResult['success'] ? 'success' : 'error', 'data' => $callResult]);
+        exit();
+    }
+    header("Location: dashboard.php?called=1#appointmentsSection");
+    exit();
+}
 
 // ── Fetch Authenticated Doctor Profile & Credentials ───────────────────────
 try {
@@ -50,8 +63,16 @@ $consultationFee = number_format((float)($doctor['consultation_fee'] ?? 1200), 2
 $roomNumber = htmlspecialchars($doctor['room_number'] ?? 'Room-302', ENT_QUOTES, 'UTF-8');
 $shiftTimings = htmlspecialchars($doctor['shift_timings'] ?? '09:00 AM - 05:00 PM', ENT_QUOTES, 'UTF-8');
 
+// Dynamic Time-Based Greeting (Asia/Dhaka)
+date_default_timezone_set('Asia/Dhaka');
 $hour = (int)date('H');
-$greeting = $hour < 12 ? 'Good Morning' : ($hour < 17 ? 'Good Afternoon' : 'Good Evening');
+if ($hour >= 5 && $hour < 12) {
+    $greeting = "Good Morning";
+} elseif ($hour >= 12 && $hour < 17) {
+    $greeting = "Good Afternoon";
+} else {
+    $greeting = "Good Evening";
+}
 
 // ── Fetch 4 Vital KPI Metrics ──────────────────────────────────────────────
 try {
@@ -113,22 +134,70 @@ try {
     $activeInpatients = [];
 }
 
-// ── Fetch Upcoming Consultations & Schedule ────────────────────────────────
+// ── Fetch Today's OPD Chamber Queue & Session Patient List ───────────────────
 try {
+    $sessionHospitalId = (int)($_SESSION['hospital_id'] ?? 1);
     $appQueueStmt = $pdo->prepare("
-        SELECT a.appointment_id, a.appointment_date, a.appointment_time, a.serial_number,
-               a.reason_for_visit, a.status,
-               u.user_id AS patient_id, u.full_name AS patient_name, u.gender, u.phone
+        SELECT a.*, p.patient_uid, u.full_name AS patient_name, u.gender, u.phone, d_user.full_name AS doctor_name
         FROM appointments a
-        JOIN users u ON a.patient_id = u.user_id
-        WHERE a.doctor_id = ? AND a.status IN ('Scheduled', 'In-Consultation')
-        ORDER BY a.appointment_date ASC, a.appointment_time ASC
-        LIMIT 8
+        JOIN patients p ON p.id = a.patient_id
+        JOIN users u ON u.id = p.user_id
+        JOIN doctors d ON d.id = a.doctor_id
+        JOIN users d_user ON d_user.id = d.user_id
+        WHERE a.hospital_id = :session_hospital_id
+          AND a.doctor_id = :session_doctor_id
+          AND a.appointment_date = CURRENT_DATE
+        ORDER BY a.token_number ASC
     ");
-    $appQueueStmt->execute([$doctorUserId]);
+    $appQueueStmt->execute([
+        ':session_hospital_id' => $sessionHospitalId,
+        ':session_doctor_id'   => $doctorUserId
+    ]);
     $upcomingAppointments = $appQueueStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Fallback: If no appointments for today, show upcoming active sessions
+    if (empty($upcomingAppointments)) {
+        $fbStmt = $pdo->prepare("
+            SELECT a.*, p.patient_uid, u.full_name AS patient_name, u.gender, u.phone, d_user.full_name AS doctor_name
+            FROM appointments a
+            JOIN patients p ON p.id = a.patient_id
+            JOIN users u ON u.id = p.user_id
+            JOIN doctors d ON d.id = a.doctor_id
+            JOIN users d_user ON d_user.id = d.user_id
+            WHERE a.hospital_id = :session_hospital_id
+              AND a.doctor_id = :session_doctor_id
+              AND a.status IN ('booked', 'checked_in', 'in_consultation')
+            ORDER BY a.appointment_date ASC, a.token_number ASC
+            LIMIT 10
+        ");
+        $fbStmt->execute([
+            ':session_hospital_id' => $sessionHospitalId,
+            ':session_doctor_id'   => $doctorUserId
+        ]);
+        $upcomingAppointments = $fbStmt->fetchAll(PDO::FETCH_ASSOC);
+    }
 } catch (PDOException $e) {
     $upcomingAppointments = [];
+}
+
+// Find currently in consultation and next in line
+$currentPatientInConsultation = null;
+$nextPatientInLine = null;
+$currentServingToken = 0;
+
+foreach ($upcomingAppointments as $app) {
+    if ($app['status'] === 'in_consultation') {
+        $currentPatientInConsultation = $app;
+        $currentServingToken = (int)$app['token_number'];
+        break;
+    }
+}
+
+foreach ($upcomingAppointments as $app) {
+    if (in_array($app['status'], ['booked', 'checked_in'], true)) {
+        $nextPatientInLine = $app;
+        break;
+    }
 }
 
 // ── Fetch Recent Prescriptions ─────────────────────────────────────────────
@@ -426,7 +495,7 @@ try {
                           <?= htmlspecialchars($inpat['patient_name'], ENT_QUOTES, 'UTF-8') ?>
                         </strong>
                         <div style="font-size: 0.74rem; color: var(--text-muted);">
-                          UHID: <?= htmlspecialchars(!empty($inpat['patient_uid']) ? $inpat['patient_uid'] : ('MP-P-' . str_pad((string)$inpat['patient_id'], 4, '0', STR_PAD_LEFT)), ENT_QUOTES, 'UTF-8') ?>
+                          UHID: <?= htmlspecialchars(!empty($inpat['patient_uid']) ? $inpat['patient_uid'] : ('MP-' . date('Y') . '-' . str_pad((string)$inpat['patient_id'], 5, '0', STR_PAD_LEFT)), ENT_QUOTES, 'UTF-8') ?>
                         </div>
                       </div>
                     </div>
@@ -472,28 +541,86 @@ try {
       </div>
     </section>
 
-    <!-- Outpatient Consultations & Queue Section -->
+    <!-- Outpatient Consultations & Chamber Queue Section -->
     <section class="admin-stack-card" id="appointmentsSection" style="margin-top: 1.75rem;">
-      <div class="admin-stack-header">
+      <div class="admin-stack-header" style="flex-wrap: wrap; gap: 1rem; align-items: center; justify-content: space-between;">
         <div class="admin-stack-title-group">
-          <h3>
-            <svg class="ui-ico" style="stroke: var(--brand-primary); width: 22px; height: 22px;" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line><path d="m9 16 2 2 4-4"></path></svg>
-            Consultations &amp; Outpatient Schedule
-          </h3>
-          <p>Scheduled appointments, walk-in consultations, and outpatient clinical queue</p>
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <h3>
+              <svg class="ui-ico" style="stroke: var(--brand-primary); width: 22px; height: 22px;" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line><path d="m9 16 2 2 4-4"></path></svg>
+              OPD Chamber &amp; Outpatient Queue Controller
+            </h3>
+            <span class="live-pill" style="display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 999px; background: rgba(16, 185, 129, 0.12); color: #059669; font-size: 0.72rem; font-weight: 800; border: 1px solid rgba(16, 185, 129, 0.25);">
+              <span style="width: 7px; height: 7px; border-radius: 50%; background: #10b981; box-shadow: 0 0 6px #10b981;"></span> LIVE QUEUE
+            </span>
+          </div>
+          <p>Sequential token management (Strict Cap 25/shift) &amp; real-time patient queue progression</p>
         </div>
-        <a href="appointments.php" class="btn-teal-action" style="padding: 0.45rem 0.85rem; font-size: 0.78rem;">
-          View Full Schedule &rarr;
-        </a>
+        
+        <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+          <a href="chamber.php" class="btn-teal-action" style="padding: 0.52rem 0.95rem; font-size: 0.8rem; text-decoration: none; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600;">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/></svg>
+            Chamber Console
+          </a>
+          <form method="POST" id="callNextForm" style="margin: 0;">
+            <input type="hidden" name="action" value="call_next">
+            <button type="submit" id="btnCallNext" class="btn-action-gradient" style="padding: 0.55rem 1.25rem; font-size: 0.85rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.45rem; box-shadow: 0 4px 14px rgba(14, 165, 233, 0.3); border: none; cursor: pointer; border-radius: 8px;">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+              Call Next Patient
+            </button>
+          </form>
+        </div>
+      </div>
+
+      <!-- Quick Chamber Telemetry Cards -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; padding: 1rem 1.5rem; background: #f8fafc; border-top: 1px solid var(--border-color); border-bottom: 1px solid var(--border-color);">
+        <!-- Currently in Chamber -->
+        <div style="display: flex; align-items: center; gap: 0.85rem; background: #ffffff; padding: 0.85rem 1.1rem; border-radius: 8px; border: 1px solid #e2e8f0;">
+          <div style="width: 44px; height: 44px; border-radius: 8px; background: #ecfdf5; color: #059669; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; font-weight: 800; border: 1px solid #a7f3d0;">
+            <?= $currentServingToken > 0 ? '#' . $currentServingToken : '—' ?>
+          </div>
+          <div style="overflow: hidden;">
+            <div style="font-size: 0.7rem; text-transform: uppercase; font-weight: 800; color: #059669; letter-spacing: 0.5px;">Inside Chamber Now</div>
+            <div style="font-size: 0.92rem; font-weight: 700; color: var(--text-heading); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+              <?= $currentPatientInConsultation ? htmlspecialchars($currentPatientInConsultation['patient_name'], ENT_QUOTES, 'UTF-8') : 'Chamber Ready' ?>
+            </div>
+          </div>
+        </div>
+
+        <!-- Next in Queue -->
+        <div style="display: flex; align-items: center; gap: 0.85rem; background: #ffffff; padding: 0.85rem 1.1rem; border-radius: 8px; border: 1px solid #e2e8f0;">
+          <div style="width: 44px; height: 44px; border-radius: 8px; background: #e0f2fe; color: #0284c7; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; font-weight: 800; border: 1px solid #bae6fd;">
+            <?= $nextPatientInLine ? '#' . (int)$nextPatientInLine['token_number'] : '—' ?>
+          </div>
+          <div style="overflow: hidden;">
+            <div style="font-size: 0.7rem; text-transform: uppercase; font-weight: 800; color: #0284c7; letter-spacing: 0.5px;">Next in Queue</div>
+            <div style="font-size: 0.92rem; font-weight: 700; color: var(--text-heading); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+              <?= $nextPatientInLine ? htmlspecialchars($nextPatientInLine['patient_name'], ENT_QUOTES, 'UTF-8') : 'No Patient Queued' ?>
+            </div>
+          </div>
+        </div>
+
+        <!-- Shift Capacity (Cap 25) -->
+        <div style="display: flex; align-items: center; gap: 0.85rem; background: #ffffff; padding: 0.85rem 1.1rem; border-radius: 8px; border: 1px solid #e2e8f0;">
+          <div style="width: 44px; height: 44px; border-radius: 8px; background: #fef3c7; color: #d97706; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; font-weight: 800; border: 1px solid #fde68a;">
+            <?= count($upcomingAppointments) ?>/25
+          </div>
+          <div>
+            <div style="font-size: 0.7rem; text-transform: uppercase; font-weight: 800; color: #d97706; letter-spacing: 0.5px;">Session Capacity (Cap 25)</div>
+            <div style="font-size: 0.92rem; font-weight: 700; color: var(--text-heading);">
+              <?= max(0, 25 - count($upcomingAppointments)) ?> Booking Slots Open
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="admin-table-wrap">
         <table class="admin-data-table" id="appointmentTable">
           <thead>
             <tr>
-              <th>Serial</th>
+              <th style="width: 90px;">Serial / Token</th>
               <th>Patient Name</th>
-              <th>Appointment Date &amp; Slot</th>
+              <th>Session / Slot</th>
               <th>Clinical Reason</th>
               <th>Contact Phone</th>
               <th>Status</th>
@@ -504,18 +631,20 @@ try {
             <?php if (empty($upcomingAppointments)): ?>
               <tr>
                 <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 2.5rem;">
-                  No upcoming outpatient consultations in your queue.
+                  No outpatient consultations scheduled for today's OPD session.
                 </td>
               </tr>
             <?php else: ?>
               <?php foreach ($upcomingAppointments as $app): 
-                $appTimeFormatted = date('h:i A', strtotime($app['appointment_time']));
+                $appTimeFormatted = !empty($app['appointment_time']) ? date('h:i A', strtotime($app['appointment_time'])) : ($app['time_slot'] ?? 'Regular');
                 $appDateFormatted = date('M j, Y', strtotime($app['appointment_date']));
+                $tokenNum = (int)$app['token_number'];
+                $statusVal = strtolower($app['status'] ?? 'booked');
               ?>
-                <tr>
+                <tr id="token-row-<?= $tokenNum ?>" style="<?= $statusVal === 'in_consultation' ? 'background: rgba(16, 185, 129, 0.05); font-weight: 600;' : '' ?>">
                   <td>
-                    <span class="live-chip-sm" style="background: #e0f2fe; color: #0284c7; border-color: #bae6fd; font-size: 0.75rem;">
-                      #<?= (int)$app['serial_number'] ?>
+                    <span class="live-chip-sm" style="background: <?= $statusVal === 'in_consultation' ? '#ecfdf5; color: #059669; border-color: #a7f3d0;' : '#e0f2fe; color: #0284c7; border-color: #bae6fd;' ?> font-size: 0.85rem; font-weight: 800; padding: 3px 8px;">
+                      #<?= $tokenNum ?>
                     </span>
                   </td>
                   <td>
@@ -528,25 +657,41 @@ try {
                   </td>
                   <td>
                     <strong style="font-size: 0.86rem; color: var(--brand-primary);"><?= $appDateFormatted ?></strong>
-                    <div style="font-size: 0.74rem; color: var(--text-muted);"><?= $appTimeFormatted ?></div>
+                    <div style="font-size: 0.74rem; color: var(--text-muted);"><?= htmlspecialchars($app['time_slot'] ?? 'Morning', ENT_QUOTES, 'UTF-8') ?> (<?= $appTimeFormatted ?>)</div>
                   </td>
-                  <td style="max-width: 260px;">
+                  <td style="max-width: 220px;">
                     <div style="font-size: 0.82rem; color: var(--text-body); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
                       <?= htmlspecialchars($app['reason_for_visit'] ?? 'General Consultation', ENT_QUOTES, 'UTF-8') ?>
                     </div>
                   </td>
                   <td style="font-size: 0.82rem; color: var(--text-muted);"><?= htmlspecialchars($app['phone'] ?? '—', ENT_QUOTES, 'UTF-8') ?></td>
                   <td>
-                    <?php if ($app['status'] === 'In-Consultation'): ?>
-                      <span class="live-chip-sm" style="background: #ecfdf5; color: #059669; border-color: #a7f3d0;">IN CONSULTATION</span>
+                    <?php if ($statusVal === 'in_consultation'): ?>
+                      <span class="live-chip-sm" style="background: #ecfdf5; color: #059669; border-color: #a7f3d0; font-weight: 800;">
+                        <span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#059669; margin-right:4px;"></span>
+                        INSIDE CHAMBER
+                      </span>
+                    <?php elseif (in_array($statusVal, ['booked', 'checked_in'])): ?>
+                      <span class="chip-consult" style="background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe;">Waiting in Queue</span>
+                    <?php elseif ($statusVal === 'completed'): ?>
+                      <span class="chip-disbursed" style="background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1;">Completed</span>
                     <?php else: ?>
-                      <span class="chip-consult">Scheduled</span>
+                      <span class="chip-pending"><?= ucfirst($statusVal) ?></span>
                     <?php endif; ?>
                   </td>
                   <td style="text-align: right;">
-                    <button class="btn-action-gradient" style="padding: 0.38rem 0.75rem; font-size: 0.75rem;" onclick="showToast('Consultation session initialized for <?= htmlspecialchars(addslashes($app['patient_name']), ENT_QUOTES, 'UTF-8') ?>', 'success')">
-                      Attend Patient
-                    </button>
+                    <?php if ($statusVal === 'in_consultation'): ?>
+                      <a href="prescriptions.php?patient_id=<?= (int)$app['patient_id'] ?>&appointment_id=<?= (int)$app['id'] ?>" class="btn-action-gradient" style="padding: 0.38rem 0.85rem; font-size: 0.75rem; text-decoration: none; display: inline-flex; align-items: center; gap: 0.3rem;">
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="9" y1="15" x2="15" y2="15"></line></svg>
+                        Prescribe / Attend
+                      </a>
+                    <?php elseif (in_array($statusVal, ['booked', 'checked_in'])): ?>
+                      <button class="btn-teal-action" style="padding: 0.38rem 0.75rem; font-size: 0.75rem;" onclick="callSpecificToken(<?= $tokenNum ?>)">
+                        Call #<?= $tokenNum ?>
+                      </button>
+                    <?php else: ?>
+                      <span style="font-size: 0.75rem; color: var(--text-muted);">Attended</span>
+                    <?php endif; ?>
                   </td>
                 </tr>
               <?php endforeach; ?>
@@ -680,6 +825,59 @@ try {
         const text = row.textContent.toLowerCase();
         row.style.display = text.includes(q) ? '' : 'none';
       });
+    }
+
+    // OPD Queue Controller: Real-time Call Next Patient Handler
+    document.addEventListener('DOMContentLoaded', function() {
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('called') === '1') {
+        if (typeof showToast === 'function') {
+          showToast('Chamber queue advanced: Next patient called into consultation.', 'success');
+        }
+      }
+
+      const callNextForm = document.getElementById('callNextForm');
+      if (callNextForm) {
+        callNextForm.addEventListener('submit', async function(e) {
+          e.preventDefault();
+          const btn = document.getElementById('btnCallNext');
+          const originalText = btn.innerHTML;
+          btn.disabled = true;
+          btn.innerHTML = `<span style="display:inline-block; animation: spin 1s infinite linear;">↻</span> Calling...`;
+
+          try {
+            const res = await fetch('../backend/api/opd_queue.php?action=call_next', { credentials: 'same-origin' });
+            const json = await res.json();
+            if (json.status === 'success') {
+              if (typeof showToast === 'function') {
+                showToast(json.data.message || 'Next patient called into chamber!', 'success');
+              }
+              setTimeout(() => {
+                window.location.href = 'dashboard.php#appointmentsSection';
+                window.location.reload();
+              }, 600);
+            } else {
+              if (typeof showToast === 'function') {
+                showToast(json.message || 'No more patients waiting in queue.', 'error');
+              } else {
+                alert(json.message || 'No more patients waiting in queue.');
+              }
+              btn.disabled = false;
+              btn.innerHTML = originalText;
+            }
+          } catch (err) {
+            // Network or CORS issue: fallback to standard POST
+            callNextForm.submit();
+          }
+        });
+      }
+    });
+
+    async function callSpecificToken(tokenNum) {
+      const callNextForm = document.getElementById('callNextForm');
+      if (callNextForm) {
+        callNextForm.requestSubmit();
+      }
     }
   </script>
 </body>

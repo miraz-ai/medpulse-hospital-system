@@ -67,6 +67,36 @@ SOURCE 17_network_expansion.sql;
 -- 18. 6-Hospital Network Topology, NIBPS Apex Integration & Emergency Surge Engine
 SOURCE 18_nibps_emergency_surge.sql;
 
+-- 19. Hospital Resources & Oxygen Tracking
+SOURCE 19_hospital_resources.sql;
+
+-- 20. Bed Sanitization Lifecycle
+SOURCE 20_bed_sanitization_lifecycle.sql;
+
+-- 21. Billing Multitenancy & Payments
+SOURCE 21_billing_multitenancy_and_payments.sql;
+
+-- 22. Patient Registration UID, DOB, and Blood Group Schema
+SOURCE 22_patient_registration_uid_schema.sql;
+
+-- 23. Doctors Multi-Hospital Direct Linkage Table
+SOURCE 23_doctors_multi_hospital_linkage.sql;
+
+-- 24. Staff Hospital Affiliation & Collision-Proof Patient UID Constraints
+SOURCE 24_staff_affiliation_and_uid_constraints.sql;
+
+-- 25. OPD Sequential Token Generation & Chamber Queue Schema Alignment
+SOURCE 25_opd_sequential_token_schema.sql;
+
+-- 26. Multi-Hospital Network Live Bed Matrix & 45-Minute Hold Schema
+SOURCE 26_bed_reservations_and_matrix_schema.sql;
+
+-- 27. Branch Tenant Isolation Schema & Doctor Approvals
+SOURCE 27_branch_tenant_isolation_schema.sql;
+
+-- 28. Super Admin Network Overview Dashboard & Audit Log Tracking
+SOURCE 28_super_admin_network_dashboard_schema.sql;
+
 -- Re-enable foreign key constraints
 SET FOREIGN_KEY_CHECKS = 1;
 

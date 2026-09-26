@@ -88,3 +88,25 @@ if (!function_exists('medpulseRenderHistoryGuard')) {
         </script>';
     }
 }
+
+// ── 6. Helper: Dynamic Time-Based Greeting ────────────────────────────────────
+if (!function_exists('medpulseGetTimeGreeting')) {
+    /**
+     * Calculate localized dynamic greeting based on 24-hour hour:
+     * - 05:00 to 11:59 (5 <= $hour < 12)  => "Good Morning"
+     * - 12:00 to 16:59 (12 <= $hour < 17) => "Good Afternoon"
+     * - 17:00 to 04:59 (Remaining hours)  => "Good Evening"
+     */
+    function medpulseGetTimeGreeting(string $timezone = 'Asia/Dhaka'): string {
+        date_default_timezone_set($timezone);
+        $hour = (int)date('H');
+        if ($hour >= 5 && $hour < 12) {
+            return 'Good Morning';
+        } elseif ($hour >= 12 && $hour < 17) {
+            return 'Good Afternoon';
+        } else {
+            return 'Good Evening';
+        }
+    }
+}
+
