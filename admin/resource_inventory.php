@@ -457,6 +457,16 @@ $recentLogs = $logsStmt->fetchAll(PDO::FETCH_ASSOC);
       70% { transform: scale(2.4); opacity: 0; }
       100% { transform: scale(2.4); opacity: 0; }
     }
+    @keyframes ecgBeatWave {
+      0% { transform: scale(1); filter: drop-shadow(0 0 0 rgba(16, 185, 129, 0)); }
+      20% { transform: scale(1.08) translateY(-0.5px); filter: drop-shadow(0 0 3px rgba(16, 185, 129, 0.45)); }
+      45% { transform: scale(0.97); filter: drop-shadow(0 0 1px rgba(16, 185, 129, 0.2)); }
+      70% { transform: scale(1.03); }
+      100% { transform: scale(1); filter: drop-shadow(0 0 0 rgba(16, 185, 129, 0)); }
+    }
+    .ecg-beat-active {
+      animation: ecgBeatWave 0.65s cubic-bezier(0.25, 1, 0.5, 1);
+    }
 
     /* Inbound Dispatch Banners */
     .dispatch-alert-banner {
@@ -741,10 +751,10 @@ $recentLogs = $logsStmt->fetchAll(PDO::FETCH_ASSOC);
               <span style="position:absolute;inset:0;border-radius:50%;background:currentColor;animation:bioPulseRing 1.4s cubic-bezier(0,0,0.2,1) infinite;opacity:0;"></span>
               <span style="position:absolute;inset:1.5px;border-radius:50%;background:currentColor;"></span>
             </span>
-            <svg width="44" height="16" viewBox="0 0 44 16" fill="none" style="stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;">
+            <svg id="telemetryEcgSvg" width="44" height="16" viewBox="0 0 44 16" fill="none" style="stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;transition:transform 0.25s ease, filter 0.25s ease;">
               <polyline points="0,8 8,8 11,3 14,13 17,5 20,11 23,8 44,8"/>
             </svg>
-            <span><?= ($oxPct < 50 || $bONeg < 20) ? '112 BPM &bull; ATTENTION' : '72 BPM &bull; NOMINAL' ?></span>
+            <span style="font-variant-numeric:tabular-nums;"><span id="telemetryBpmVal"><?= ($oxPct < 50 || $bONeg < 20) ? '112' : '72' ?></span> BPM &bull; <?= ($oxPct < 50 || $bONeg < 20) ? 'ATTENTION' : 'NOMINAL' ?></span>
           </div>
 
           <a href="dashboard.php" class="btn-action-secondary" style="text-decoration:none;">
@@ -1333,6 +1343,38 @@ $recentLogs = $logsStmt->fetchAll(PDO::FETCH_ASSOC);
       updateOxygenPreview(pct);
       document.getElementById('lblPressurePsi').textContent = psi.toLocaleString();
     }
+
+    // Heartbeat Telemetry Live Physiological Fluctuation (71 - 76 BPM)
+    (function initTelemetryHeartbeat() {
+      const bpmEl = document.getElementById('telemetryBpmVal');
+      const ecgSvg = document.getElementById('telemetryEcgSvg');
+      if (!bpmEl) return;
+
+      let currentBpm = parseInt(bpmEl.textContent.trim(), 10) || 72;
+      const minBpm = 71;
+      const maxBpm = 76;
+
+      // Only fluctuate if within healthy nominal condition (< 100 BPM)
+      if (currentBpm < 100) {
+        setInterval(() => {
+          // Natural drift: step of -1, 0, or +1
+          const delta = Math.floor(Math.random() * 3) - 1;
+          let nextBpm = currentBpm + delta;
+          if (nextBpm < minBpm) nextBpm = minBpm + 1;
+          if (nextBpm > maxBpm) nextBpm = maxBpm - 1;
+          currentBpm = nextBpm;
+
+          bpmEl.textContent = currentBpm;
+
+          // Pulse ECG wave in sync
+          if (ecgSvg) {
+            ecgSvg.classList.remove('ecg-beat-active');
+            void ecgSvg.offsetWidth;
+            ecgSvg.classList.add('ecg-beat-active');
+          }
+        }, 3200);
+      }
+    })();
   </script>
 </body>
 </html>

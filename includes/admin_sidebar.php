@@ -141,8 +141,8 @@ if (!isset($pendingCount) && isset($pdo)) {
     </li>
   </ul>
 
-  <!-- 2. Finance & Diagnostics -->
-  <div class="nav-label">Finance & Diagnostics</div>
+  <!-- 2. Finance -->
+  <div class="nav-label">Finance</div>
   <ul class="nav-menu">
     <li class="nav-item <?= in_array($currentRoute, ['billing_management.php', 'billing.php', 'invoices.php', 'collect_payment.php']) ? 'active' : '' ?>">
       <a href="billing_management.php">
@@ -152,6 +152,7 @@ if (!isset($pendingCount) && isset($pdo)) {
         </div>
       </a>
     </li>
+    <!-- Disabled / reserved for future expansion:
     <li class="nav-item">
       <a href="javascript:void(0)" onclick="showToast('Diagnostic Laboratory Telemetry active & synchronized.', 'success')">
         <div class="nav-item-inner">
@@ -168,6 +169,7 @@ if (!isset($pendingCount) && isset($pdo)) {
         </div>
       </a>
     </li>
+    -->
   </ul>
 
   <!-- 3. Administration -->
