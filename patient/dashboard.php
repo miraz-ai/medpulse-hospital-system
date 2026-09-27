@@ -134,6 +134,37 @@ try {
     $activeBedHold = BedReservationController::getPatientActiveReservation($pdo, (int)$patient['user_id']);
     $networkBedMatrix = BedReservationController::getNetworkBedMatrix($pdo);
 
+    // Active Inpatient Ward Admission Lookup
+    $activeAdmission = null;
+    try {
+        $admStmt = $pdo->prepare("
+            SELECT a.admission_id, a.admission_number, a.reservation_id, a.hospital_id, a.bed_id,
+                   a.patient_id, a.patient_uid, a.guardian_name, a.guardian_phone,
+                   a.admitting_staff_id, a.attending_doctor_id, a.admission_reason, a.primary_diagnosis,
+                   a.triage_acuity, a.daily_rate, a.deposit_amount, a.payment_method, a.status,
+                   a.admitted_at,
+                   b.bed_number, b.ward_type, b.floor_number,
+                   h.name AS hospital_name, h.location AS hospital_location, h.code AS hospital_code,
+                   doc.full_name AS doctor_name, COALESCE(dp.specialty, doc.department, 'General Medicine') AS doctor_specialty,
+                   stf_u.full_name AS staff_name, COALESCE(stf.role_title, 'Admission Desk Officer') AS staff_role
+            FROM admissions a
+            JOIN hospital_beds b ON a.bed_id = b.bed_id
+            JOIN hospitals h ON a.hospital_id = h.hospital_id
+            LEFT JOIN users doc ON a.attending_doctor_id = doc.user_id
+            LEFT JOIN doctor_profiles dp ON doc.user_id = dp.user_id
+            LEFT JOIN staff stf ON a.admitting_staff_id = stf.staff_id
+            LEFT JOIN users stf_u ON stf.user_id = stf_u.user_id
+            WHERE a.patient_id = :pid
+              AND a.status = 'Admitted'
+            ORDER BY a.admitted_at DESC
+            LIMIT 1
+        ");
+        $admStmt->execute([':pid' => (int)$patient['user_id']]);
+        $activeAdmission = $admStmt->fetch(PDO::FETCH_ASSOC);
+    } catch (Throwable $e) {
+        $activeAdmission = null;
+    }
+
 } catch (PDOException $e) {
     error_log("Database error in patient_dashboard.php: " . $e->getMessage());
     die("A database communication failure occurred. Please contact hospital support.");
@@ -625,6 +656,234 @@ if ($hour >= 5 && $hour < 12) {
       display: inline-block;
       transition: transform 0.2s ease;
     }
+
+    /* ══════════════════════════════════════════════════════════
+       VERIFIED ACTIVE INPATIENT ROOM DETAILS CARD
+       ══════════════════════════════════════════════════════════ */
+    .active-inpatient-room-card {
+      background: #ffffff;
+      border: 1.5px solid #ccfbf1;
+      border-radius: 16px;
+      padding: 1.4rem 1.75rem;
+      box-shadow: 0 10px 30px -8px rgba(13, 148, 136, 0.15);
+      position: relative;
+      overflow: hidden;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .active-inpatient-room-card::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 5px;
+      background: linear-gradient(180deg, #0d9488 0%, #0284c7 100%);
+    }
+
+    .inpatient-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid #f1f5f9;
+      margin-bottom: 1rem;
+    }
+
+    .badge-inpatient-verified {
+      background: rgba(13, 148, 136, 0.1);
+      color: #0f766e;
+      border: 1px solid rgba(13, 148, 136, 0.25);
+      font-size: 0.74rem;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      padding: 4px 10px;
+      border-radius: 6px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .badge-dossier-pill {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.74rem;
+      font-weight: 700;
+      color: #64748b;
+      background: #f1f5f9;
+      padding: 3px 8px;
+      border-radius: 6px;
+    }
+
+    .badge-admitted-live {
+      background: rgba(16, 185, 129, 0.1);
+      color: #047857;
+      border: 1px solid rgba(16, 185, 129, 0.25);
+      border-radius: 9999px;
+      padding: 4px 12px;
+      font-size: 0.78rem;
+      font-weight: 800;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .dot-live-pulse {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #10b981;
+      box-shadow: 0 0 8px #10b981;
+      animation: liveDotPulse 1.6s infinite;
+    }
+
+    @keyframes liveDotPulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+
+    .inpatient-room-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 0.35rem;
+    }
+
+    .inpatient-bed-highlight {
+      font-family: 'JetBrains Mono', monospace;
+      background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%);
+      color: #ffffff;
+      font-weight: 800;
+      font-size: 0.95rem;
+      padding: 3px 10px;
+      border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(13, 148, 136, 0.25);
+    }
+
+    .inpatient-facility-meta {
+      font-size: 0.84rem;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 1.15rem;
+    }
+
+    .inpatient-details-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 0.85rem;
+    }
+
+    .inpatient-detail-box {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 0.75rem 1rem;
+    }
+
+    .detail-label {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      font-weight: 700;
+      color: var(--text-muted);
+      margin-bottom: 3px;
+    }
+
+    .detail-val {
+      font-size: 0.88rem;
+      color: var(--text-heading);
+      font-weight: 700;
+    }
+
+    .badge-acuity-pill {
+      font-size: 0.68rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: #e0f2fe;
+      color: #0369a1;
+      margin-left: 6px;
+    }
+
+    /* Transition Animations */
+    @keyframes holdExitFade {
+      0% { opacity: 1; transform: translateY(0) scale(1); max-height: 250px; }
+      100% { opacity: 0; transform: translateY(-12px) scale(0.97); max-height: 0; margin-bottom: 0; padding-top: 0; padding-bottom: 0; overflow: hidden; }
+    }
+
+    @keyframes roomCardEnter {
+      0% { opacity: 0; transform: translateY(16px) scale(0.98); }
+      100% { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    .card-anim-out {
+      animation: holdExitFade 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    .card-anim-in {
+      animation: roomCardEnter 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    .hold-released-notification {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-left: 4px solid #f59e0b;
+      border-radius: 14px;
+      padding: 1rem 1.25rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      font-size: 0.88rem;
+      color: #475569;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+    }
+
+    /* Floating Toast Notification */
+    .patient-toast {
+      position: fixed;
+      top: 24px;
+      right: 24px;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-left: 4px solid #0d9488;
+      border-radius: 12px;
+      padding: 0.9rem 1.25rem;
+      display: none;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.12);
+      z-index: 2000;
+      max-width: 440px;
+      animation: patientToastSlide 0.25s ease-out;
+    }
+
+    .patient-toast.show {
+      display: flex;
+    }
+
+    .patient-toast.toast-warning {
+      border-left-color: #f59e0b;
+    }
+
+    .patient-toast.toast-info {
+      border-left-color: #0284c7;
+    }
+
+    #patientInpatientStatusContainer:empty {
+      margin-bottom: 0 !important;
+      display: none !important;
+    }
+
+    @keyframes patientToastSlide {
+      from { transform: translateX(20px); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
   </style>
 </head>
 <body>
@@ -656,47 +915,124 @@ if ($hour >= 5 && $hour < 12) {
       </div>
     </div>
 
-    <!-- Active Bed Pre-Reservation Hold Banner -->
-    <?php if (!empty($activeBedHold)): ?>
-      <div class="active-bed-hold-banner" id="activeBedHoldBanner" style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: #ffffff; border-radius: 16px; padding: 1.25rem 1.75rem; margin-bottom: 1.75rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; border: 2px solid #7dd3fc; box-shadow: 0 10px 25px rgba(2, 132, 199, 0.3);">
-        <div style="display: flex; align-items: center; gap: 1rem;">
-          <div style="width: 48px; height: 48px; border-radius: 12px; background: rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center;">
-            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#ffffff" stroke-width="2"><path d="M2 4v16M2 8h18a2 2 0 0 1 2 2v10M2 17h20M6 8v9"/></svg>
-          </div>
-          <div>
-            <div style="display: flex; align-items: center; gap: 6px;">
-              <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#fef08a; animation: pulse 1.5s infinite;"></span>
-              <span style="font-size: 0.72rem; text-transform: uppercase; font-weight: 800; letter-spacing: 0.8px; color: #bae6fd;">TEMPORARY BED PRE-RESERVATION</span>
+    <!-- ── Live Inpatient Admission Status & Real-time Room Details Container ── -->
+    <div id="patientInpatientStatusContainer" style="<?= (!empty($activeAdmission) || !empty($activeBedHold)) ? 'margin-bottom: 1.75rem;' : 'margin-bottom: 0; display: none;' ?>">
+      <?php if (!empty($activeAdmission)): ?>
+        <?php
+          $rawDoc = trim((string)($activeAdmission['doctor_name'] ?? ''));
+          if (!empty($rawDoc)) {
+              $docName = (stripos($rawDoc, 'Dr.') === 0 || stripos($rawDoc, 'Dr ') === 0) ? $rawDoc : ('Dr. ' . $rawDoc);
+          } else {
+              $docName = 'Assigned Ward Specialist';
+          }
+          if (!empty($activeAdmission['doctor_specialty'])) {
+              $docName .= ' (' . $activeAdmission['doctor_specialty'] . ')';
+          }
+          $admFormattedTime = date('M j, Y', strtotime($activeAdmission['admitted_at'])) . ' at ' . date('g:i A', strtotime($activeAdmission['admitted_at']));
+        ?>
+        <!-- Verified Active Ward Inpatient Room Details Card -->
+        <div class="active-inpatient-room-card" id="activeInpatientRoomCard">
+          <div class="inpatient-card-header">
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+              <span class="badge-inpatient-verified">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                VERIFIED INPATIENT ADMISSION
+              </span>
+              <span class="badge-dossier-pill">Dossier #<?= htmlspecialchars($activeAdmission['admission_number']) ?></span>
             </div>
-            <h3 style="margin: 0.2rem 0; font-size: 1.2rem; font-weight: 800; color: #ffffff;">
-              Hold Active: Bed <?= htmlspecialchars($activeBedHold['bed_number']) ?> at <?= htmlspecialchars($activeBedHold['hospital_name']) ?>
-            </h3>
-            <div style="font-size: 0.82rem; color: #e0f2fe;">
-              Ward: <strong><?= htmlspecialchars($activeBedHold['ward_type']) ?></strong> (Floor <?= (int)$activeBedHold['floor_number'] ?>) &bull; 
-              Daily Rate: <strong>&#2547;<?= number_format((float)$activeBedHold['daily_rate'], 2) ?></strong> &bull; 
-              Location: <?= htmlspecialchars($activeBedHold['hospital_location']) ?>
+            <div class="badge-admitted-live">
+              <span class="dot-live-pulse"></span>
+              &bull; Admitted / Under Care
+            </div>
+          </div>
+
+          <div class="inpatient-card-body">
+            <div class="inpatient-main-info">
+              <div class="inpatient-room-title">
+                <span class="inpatient-bed-highlight">Bed #<?= htmlspecialchars($activeAdmission['bed_number']) ?></span>
+                <span style="color: var(--text-heading); font-weight: 800; font-size: 1.25rem;">
+                  <?= htmlspecialchars($activeAdmission['ward_type']) ?> &bull; Floor <?= (int)$activeAdmission['floor_number'] ?>
+                </span>
+              </div>
+              <div class="inpatient-facility-meta">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="#0284c7" stroke-width="2"><path d="M3 21h18M3 7v14M21 7v14M6 7V3h12v4M9 11h2M9 15h2M13 11h2M13 15h2"/></svg>
+                <strong><?= htmlspecialchars($activeAdmission['hospital_name']) ?></strong> &bull; <?= htmlspecialchars($activeAdmission['hospital_location']) ?>
+              </div>
+            </div>
+
+            <div class="inpatient-details-grid">
+              <div class="inpatient-detail-box">
+                <div class="detail-label">Attending Consultant</div>
+                <div class="detail-val" style="color: #0f766e; font-weight: 800;">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#0d9488" stroke-width="2" style="display:inline-block; vertical-align:middle; margin-right:4px;"><path d="M4.8 2.3A.3.3 0 1 0 5 2H4a2 2 0 0 0-2 2v5a6 6 0 0 0 6 6v0a6 6 0 0 0 6-6V4a2 2 0 0 0-2-2h-1a.2.2 0 1 0 .3.3"></path><path d="M8 15v1a6 6 0 0 0 6 6v0a6 6 0 0 0 6-6v-4"></path><circle cx="20" cy="10" r="2"></circle></svg>
+                  <?= htmlspecialchars($docName) ?>
+                </div>
+              </div>
+              <div class="inpatient-detail-box">
+                <div class="detail-label">Admission Timestamp</div>
+                <div class="detail-val">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#64748b" stroke-width="2" style="display:inline-block; vertical-align:middle; margin-right:4px;"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                  <?= $admFormattedTime ?>
+                </div>
+              </div>
+              <div class="inpatient-detail-box">
+                <div class="detail-label">Primary Care Intake</div>
+                <div class="detail-val" style="color: var(--text-heading); font-weight: 700;">
+                  <?= htmlspecialchars($activeAdmission['primary_diagnosis']) ?>
+                  <?php if (!empty($activeAdmission['triage_acuity'])): ?>
+                    <span class="badge-acuity-pill"><?= htmlspecialchars($activeAdmission['triage_acuity']) ?></span>
+                  <?php endif; ?>
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
-        <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
-          <div style="background: rgba(15, 23, 42, 0.35); border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 10px; padding: 0.5rem 1.2rem; text-align: center;">
-            <div style="font-size: 0.65rem; text-transform: uppercase; font-weight: 700; color: #bae6fd;">Expires In</div>
-            <div id="patientDashboardHoldTimer" data-seconds="<?= (int)$activeBedHold['seconds_remaining'] ?>" style="font-size: 1.5rem; font-weight: 800; color: #fef08a; font-variant-numeric: tabular-nums;">
-              <?= $activeBedHold['countdown_formatted'] ?>
+      <?php elseif (!empty($activeBedHold)): ?>
+        <!-- Active Bed Pre-Reservation Hold Banner -->
+        <div class="active-bed-hold-banner" id="activeBedHoldBanner" style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: #ffffff; border-radius: 16px; padding: 1.25rem 1.75rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; border: 2px solid #7dd3fc; box-shadow: 0 10px 25px rgba(2, 132, 199, 0.3);">
+          <div style="display: flex; align-items: center; gap: 1rem;">
+            <div style="width: 48px; height: 48px; border-radius: 12px; background: rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center;">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#ffffff" stroke-width="2"><path d="M2 4v16M2 8h18a2 2 0 0 1 2 2v10M2 17h20M6 8v9"/></svg>
+            </div>
+            <div>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#fef08a; animation: pulse 1.5s infinite;"></span>
+                <span style="font-size: 0.72rem; text-transform: uppercase; font-weight: 800; letter-spacing: 0.8px; color: #bae6fd;">TEMPORARY BED PRE-RESERVATION</span>
+              </div>
+              <h3 style="margin: 0.2rem 0; font-size: 1.2rem; font-weight: 800; color: #ffffff;">
+                Hold Active: Bed <?= htmlspecialchars($activeBedHold['bed_number']) ?> at <?= htmlspecialchars($activeBedHold['hospital_name']) ?>
+              </h3>
+              <div style="font-size: 0.82rem; color: #e0f2fe;">
+                Ward: <strong><?= htmlspecialchars($activeBedHold['ward_type']) ?></strong> (Floor <?= (int)$activeBedHold['floor_number'] ?>) &bull; 
+                Daily Rate: <strong>&#2547;<?= number_format((float)$activeBedHold['daily_rate'], 2) ?></strong> &bull; 
+                Location: <?= htmlspecialchars($activeBedHold['hospital_location']) ?>
+              </div>
             </div>
           </div>
 
-          <form method="POST" onsubmit="return confirm('Cancel this bed hold and release it back to the hospital vacancy?');" style="margin: 0;">
-            <input type="hidden" name="action" value="cancel_bed_hold">
-            <input type="hidden" name="reservation_id" value="<?= (int)$activeBedHold['reservation_id'] ?>">
-            <button type="submit" class="btn-teal-action" style="background: rgba(239, 68, 68, 0.25); color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.3); padding: 0.55rem 1rem; font-size: 0.8rem; font-weight: 700; border-radius: 8px; cursor: pointer;">
-              Cancel Hold
-            </button>
-          </form>
+          <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+            <div style="background: rgba(15, 23, 42, 0.35); border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 10px; padding: 0.5rem 1.2rem; text-align: center;">
+              <div style="font-size: 0.65rem; text-transform: uppercase; font-weight: 700; color: #bae6fd;">Expires In</div>
+              <div id="patientDashboardHoldTimer" data-seconds="<?= (int)$activeBedHold['seconds_remaining'] ?>" style="font-size: 1.5rem; font-weight: 800; color: #fef08a; font-variant-numeric: tabular-nums;">
+                <?= $activeBedHold['countdown_formatted'] ?>
+              </div>
+            </div>
+
+            <form method="POST" onsubmit="return confirm('Cancel this bed hold and release it back to the hospital vacancy?');" style="margin: 0;">
+              <input type="hidden" name="action" value="cancel_bed_hold">
+              <input type="hidden" name="reservation_id" value="<?= (int)$activeBedHold['reservation_id'] ?>">
+              <button type="submit" class="btn-teal-action" style="background: rgba(239, 68, 68, 0.25); color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.3); padding: 0.55rem 1rem; font-size: 0.8rem; font-weight: 700; border-radius: 8px; cursor: pointer;">
+                Cancel Hold
+              </button>
+            </form>
+          </div>
         </div>
-      </div>
-    <?php endif; ?>
+      <?php endif; ?>
+    </div>
+
+    <!-- Floating Patient Toast Notification Container -->
+    <div id="patientDashboardToast" class="patient-toast"></div>
 
     <!-- Live OPD Queue Tracker Widget (Migrated from Live OPD Chamber Queue Widget.html) -->
     <?php
@@ -1619,30 +1955,367 @@ if ($hour >= 5 && $hour < 12) {
       setInterval(pollLiveQueue, 15000);
     })();
 
-    // Interactive Bed Pre-Reservation (45-Minute Hold) Countdown Timer
-    (function initHoldCountdown() {
-      const holdEl = document.getElementById('patientDashboardHoldTimer');
-      if (!holdEl) return;
+    // ── Live Inpatient Admission Status & Real-time Room Details Engine ──
+    (function initLiveInpatientSync() {
+      let currentInpatientState = <?= json_encode(!empty($activeAdmission) ? 'admitted' : (!empty($activeBedHold) ? 'held' : 'none')) ?>;
+      let holdCountdownInterval = null;
+      let currentHoldSeconds = 0;
+      let isPollingInpatient = false;
+      let toastTimeout = null;
 
-      let remainingSecs = parseInt(holdEl.getAttribute('data-seconds'), 10) || 0;
-      const timer = setInterval(() => {
-        if (remainingSecs <= 0) {
-          clearInterval(timer);
-          holdEl.textContent = '00:00 (Expired)';
-          holdEl.style.color = '#ef4444';
-          setTimeout(() => window.location.reload(), 1800);
+      function escapeHtml(str) {
+        if (str === null || str === undefined) return '';
+        return String(str)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#039;');
+      }
+
+      function showPatientToast(message, type = 'info') {
+        const toastEl = document.getElementById('patientDashboardToast');
+        if (!toastEl) return;
+
+        if (toastTimeout) clearTimeout(toastTimeout);
+        toastEl.className = 'patient-toast';
+
+        let iconSvg = '';
+        if (type === 'warning') {
+          toastEl.classList.add('toast-warning');
+          iconSvg = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#f59e0b" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`;
+        } else if (type === 'info') {
+          toastEl.classList.add('toast-info');
+          iconSvg = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#0284c7" stroke-width="2.2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`;
+        } else {
+          iconSvg = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#0d9488" stroke-width="2.2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>`;
+        }
+
+        toastEl.innerHTML = `
+          ${iconSvg}
+          <div style="font-size: 0.86rem; font-weight: 600; color: #1e293b;">${escapeHtml(message)}</div>
+        `;
+
+        toastEl.classList.add('show');
+        toastTimeout = setTimeout(() => {
+          toastEl.classList.remove('show');
+        }, 5500);
+      }
+
+      function startHoldCountdown(seconds) {
+        if (holdCountdownInterval) clearInterval(holdCountdownInterval);
+        currentHoldSeconds = Math.max(0, seconds);
+
+        const holdEl = document.getElementById('patientDashboardHoldTimer');
+        if (!holdEl) return;
+
+        function tick() {
+          if (currentHoldSeconds <= 0) {
+            clearInterval(holdCountdownInterval);
+            holdEl.textContent = '00:00 (Expired)';
+            holdEl.style.color = '#ef4444';
+            setTimeout(() => {
+              renderReleasedNotice(true);
+              showPatientToast('Your provisional bed hold has been released or expired.', 'warning');
+              currentInpatientState = 'none';
+            }, 800);
+            return;
+          }
+
+          currentHoldSeconds--;
+          const mins = Math.floor(currentHoldSeconds / 60);
+          const secs = currentHoldSeconds % 60;
+          holdEl.textContent = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+
+          if (currentHoldSeconds < 300) {
+            holdEl.style.color = '#ef4444';
+          } else {
+            holdEl.style.color = '#fef08a';
+          }
+        }
+
+        holdCountdownInterval = setInterval(tick, 1000);
+      }
+
+      function renderAdmittedRoomCard(adm, animate = true) {
+        const container = document.getElementById('patientInpatientStatusContainer');
+        if (!container) return;
+        container.style.display = '';
+        container.style.marginBottom = '1.75rem';
+
+        const animClass = animate ? 'card-anim-in' : '';
+        const acuityBadge = adm.triage_acuity ? `<span class="badge-acuity-pill">${escapeHtml(adm.triage_acuity)}</span>` : '';
+        let docTitle = adm.attending_consultant;
+        if (!docTitle) {
+          const rawDoc = (adm.doctor_name || '').trim();
+          docTitle = rawDoc ? (/^dr\.?/i.test(rawDoc) ? rawDoc : 'Dr. ' + rawDoc) : 'Assigned Specialist';
+          if (adm.doctor_specialty) {
+            docTitle += ' (' + adm.doctor_specialty + ')';
+          }
+        }
+        const formattedTime = adm.formatted_time || adm.admitted_at;
+
+        container.innerHTML = `
+          <div class="active-inpatient-room-card ${animClass}" id="activeInpatientRoomCard">
+            <div class="inpatient-card-header">
+              <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                <span class="badge-inpatient-verified">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                  VERIFIED INPATIENT ADMISSION
+                </span>
+                <span class="badge-dossier-pill">Dossier #${escapeHtml(adm.admission_number || String(adm.admission_id))}</span>
+              </div>
+              <div class="badge-admitted-live">
+                <span class="dot-live-pulse"></span>
+                &bull; Admitted / Under Care
+              </div>
+            </div>
+
+            <div class="inpatient-card-body">
+              <div class="inpatient-main-info">
+                <div class="inpatient-room-title">
+                  <span class="inpatient-bed-highlight">Bed #${escapeHtml(adm.bed_number)}</span>
+                  <span style="color: var(--text-heading); font-weight: 800; font-size: 1.25rem;">
+                    ${escapeHtml(adm.ward_type)} &bull; Floor ${escapeHtml(String(adm.floor_number))}
+                  </span>
+                </div>
+                <div class="inpatient-facility-meta">
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="#0284c7" stroke-width="2"><path d="M3 21h18M3 7v14M21 7v14M6 7V3h12v4M9 11h2M9 15h2M13 11h2M13 15h2"/></svg>
+                  <strong>${escapeHtml(adm.facility_name)}</strong> &bull; ${escapeHtml(adm.facility_location)}
+                </div>
+              </div>
+
+              <div class="inpatient-details-grid">
+                <div class="inpatient-detail-box">
+                  <div class="detail-label">Attending Consultant</div>
+                  <div class="detail-val" style="color: #0f766e; font-weight: 800;">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#0d9488" stroke-width="2" style="display:inline-block; vertical-align:middle; margin-right:4px;"><path d="M4.8 2.3A.3.3 0 1 0 5 2H4a2 2 0 0 0-2 2v5a6 6 0 0 0 6 6v0a6 6 0 0 0 6-6V4a2 2 0 0 0-2-2h-1a.2.2 0 1 0 .3.3"></path><path d="M8 15v1a6 6 0 0 0 6 6v0a6 6 0 0 0 6-6v-4"></path><circle cx="20" cy="10" r="2"></circle></svg>
+                    ${escapeHtml(docTitle)}
+                  </div>
+                </div>
+                <div class="inpatient-detail-box">
+                  <div class="detail-label">Admission Timestamp</div>
+                  <div class="detail-val">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#64748b" stroke-width="2" style="display:inline-block; vertical-align:middle; margin-right:4px;"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                    ${escapeHtml(formattedTime)}
+                  </div>
+                </div>
+                <div class="inpatient-detail-box">
+                  <div class="detail-label">Primary Care Intake</div>
+                  <div class="detail-val" style="color: var(--text-heading); font-weight: 700;">
+                    ${escapeHtml(adm.primary_diagnosis || 'Inpatient Clinical Care')}
+                    ${acuityBadge}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      function renderReleasedNotice(animate = true) {
+        const container = document.getElementById('patientInpatientStatusContainer');
+        if (!container) return;
+        container.style.display = '';
+        container.style.marginBottom = '1.75rem';
+
+        const animClass = animate ? 'card-anim-in' : '';
+        container.innerHTML = `
+          <div class="hold-released-notification ${animClass}" id="patientHoldReleasedNotice">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#f59e0b" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+              <span style="font-weight: 600; color: #334155;">Your provisional bed hold has been released or expired.</span>
+            </div>
+            <a href="#networkBedMatrix" style="font-size: 0.8rem; font-weight: 700; color: #0d9488; text-decoration: none; padding: 4px 10px; background: #f0fdfa; border: 1px solid #ccfbf1; border-radius: 6px;">
+              View Available Beds &rarr;
+            </a>
+          </div>
+        `;
+      }
+
+      function renderHoldCard(hold, animate = true) {
+        const container = document.getElementById('patientInpatientStatusContainer');
+        if (!container) return;
+        container.style.display = '';
+        container.style.marginBottom = '1.75rem';
+
+        const animClass = animate ? 'card-anim-in' : '';
+        const dailyRate = typeof hold.daily_rate === 'number' ? hold.daily_rate.toFixed(2) : parseFloat(hold.daily_rate || 0).toFixed(2);
+        container.innerHTML = `
+          <div class="active-bed-hold-banner ${animClass}" id="activeBedHoldBanner" style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: #ffffff; border-radius: 16px; padding: 1.25rem 1.75rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; border: 2px solid #7dd3fc; box-shadow: 0 10px 25px rgba(2, 132, 199, 0.3);">
+            <div style="display: flex; align-items: center; gap: 1rem;">
+              <div style="width: 48px; height: 48px; border-radius: 12px; background: rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center;">
+                <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#ffffff" stroke-width="2"><path d="M2 4v16M2 8h18a2 2 0 0 1 2 2v10M2 17h20M6 8v9"/></svg>
+              </div>
+              <div>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#fef08a; animation: pulse 1.5s infinite;"></span>
+                  <span style="font-size: 0.72rem; text-transform: uppercase; font-weight: 800; letter-spacing: 0.8px; color: #bae6fd;">TEMPORARY BED PRE-RESERVATION</span>
+                </div>
+                <h3 style="margin: 0.2rem 0; font-size: 1.2rem; font-weight: 800; color: #ffffff;">
+                  Hold Active: Bed ${escapeHtml(hold.bed_number)} at ${escapeHtml(hold.hospital_name)}
+                </h3>
+                <div style="font-size: 0.82rem; color: #e0f2fe;">
+                  Ward: <strong>${escapeHtml(hold.ward_type)}</strong> (Floor ${escapeHtml(String(hold.floor_number))}) &bull; 
+                  Daily Rate: <strong>&#2547;${dailyRate}</strong> &bull; 
+                  Location: ${escapeHtml(hold.hospital_location)}
+                </div>
+              </div>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+              <div style="background: rgba(15, 23, 42, 0.35); border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 10px; padding: 0.5rem 1.2rem; text-align: center;">
+                <div style="font-size: 0.65rem; text-transform: uppercase; font-weight: 700; color: #bae6fd;">Expires In</div>
+                <div id="patientDashboardHoldTimer" data-seconds="${parseInt(hold.seconds_remaining, 10)}" style="font-size: 1.5rem; font-weight: 800; color: #fef08a; font-variant-numeric: tabular-nums;">
+                  ${escapeHtml(hold.countdown_formatted || '45:00')}
+                </div>
+              </div>
+
+              <form method="POST" onsubmit="return confirm('Cancel this bed hold and release it back to the hospital vacancy?');" style="margin: 0;">
+                <input type="hidden" name="action" value="cancel_bed_hold">
+                <input type="hidden" name="reservation_id" value="${parseInt(hold.reservation_id, 10)}">
+                <button type="submit" class="btn-teal-action" style="background: rgba(239, 68, 68, 0.25); color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.3); padding: 0.55rem 1rem; font-size: 0.8rem; font-weight: 700; border-radius: 8px; cursor: pointer;">
+                  Cancel Hold
+                </button>
+              </form>
+            </div>
+          </div>
+        `;
+        startHoldCountdown(parseInt(hold.seconds_remaining, 10));
+      }
+
+      function handleInpatientStateTransition(newState, payload) {
+        if (newState === currentInpatientState) {
+          if (newState === 'held' && payload && payload.hold) {
+            const serverSecs = parseInt(payload.hold.seconds_remaining, 10);
+            if (Math.abs(currentHoldSeconds - serverSecs) > 10) {
+              currentHoldSeconds = serverSecs;
+            }
+          }
           return;
         }
 
-        remainingSecs--;
-        const mins = Math.floor(remainingSecs / 60);
-        const secs = remainingSecs % 60;
-        holdEl.textContent = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+        const oldState = currentInpatientState;
 
-        if (remainingSecs < 300) {
-          holdEl.style.color = '#ef4444';
+        // Inpatient Discharge / Exit Transition
+        if (oldState === 'admitted' && (newState === 'none' || newState === 'discharged' || (payload && payload.is_discharged) || (payload && !payload.admission))) {
+          const roomCard = document.getElementById('activeInpatientRoomCard');
+          const container = document.getElementById('patientInpatientStatusContainer');
+
+          if (roomCard) {
+            // Smoothly fade and slide-out the admission card using CSS transition
+            roomCard.style.transition = 'all 0.4s ease';
+            roomCard.style.opacity = '0';
+            roomCard.style.transform = 'translateY(-10px)';
+
+            setTimeout(() => {
+              if (roomCard.parentNode) {
+                roomCard.parentNode.removeChild(roomCard);
+              }
+              if (container) {
+                container.innerHTML = '';
+                container.style.display = 'none';
+                container.style.marginBottom = '0';
+              }
+              showPatientToast('Inpatient admission successfully concluded / Patient discharged.', 'info');
+              currentInpatientState = 'none';
+            }, 400);
+          } else {
+            if (container) {
+              container.innerHTML = '';
+              container.style.display = 'none';
+              container.style.marginBottom = '0';
+            }
+            showPatientToast('Inpatient admission successfully concluded / Patient discharged.', 'info');
+            currentInpatientState = 'none';
+          }
+        } else if (oldState === 'admitted' && newState === 'held') {
+          const roomCard = document.getElementById('activeInpatientRoomCard');
+          if (roomCard) {
+            roomCard.style.transition = 'all 0.4s ease';
+            roomCard.style.opacity = '0';
+            roomCard.style.transform = 'translateY(-10px)';
+            setTimeout(() => {
+              if (roomCard.parentNode) roomCard.parentNode.removeChild(roomCard);
+              renderHoldCard(payload.hold, true);
+              currentInpatientState = 'held';
+            }, 400);
+          } else {
+            renderHoldCard(payload.hold, true);
+            currentInpatientState = 'held';
+          }
+        } else if (oldState === 'held' && newState === 'none') {
+          const holdBanner = document.getElementById('activeBedHoldBanner');
+          if (holdBanner) {
+            holdBanner.classList.add('card-anim-out');
+            setTimeout(() => {
+              if (holdCountdownInterval) clearInterval(holdCountdownInterval);
+              renderReleasedNotice(true);
+              showPatientToast('Your provisional bed hold has been released or expired.', 'warning');
+              currentInpatientState = 'none';
+            }, 380);
+          } else {
+            if (holdCountdownInterval) clearInterval(holdCountdownInterval);
+            renderReleasedNotice(true);
+            showPatientToast('Your provisional bed hold has been released or expired.', 'warning');
+            currentInpatientState = 'none';
+          }
+        } else if (oldState === 'held' && newState === 'admitted') {
+          const holdBanner = document.getElementById('activeBedHoldBanner');
+          if (holdBanner) {
+            holdBanner.classList.add('card-anim-out');
+            setTimeout(() => {
+              if (holdCountdownInterval) clearInterval(holdCountdownInterval);
+              renderAdmittedRoomCard(payload.admission, true);
+              showPatientToast('Hospital staff confirmed your inpatient admission! Room details are live.', 'teal');
+              currentInpatientState = 'admitted';
+            }, 380);
+          } else {
+            if (holdCountdownInterval) clearInterval(holdCountdownInterval);
+            renderAdmittedRoomCard(payload.admission, true);
+            showPatientToast('Hospital staff confirmed your inpatient admission! Room details are live.', 'teal');
+            currentInpatientState = 'admitted';
+          }
+        } else if (oldState === 'none' && newState === 'admitted') {
+          renderAdmittedRoomCard(payload.admission, true);
+          showPatientToast('Hospital staff confirmed your inpatient admission! Room details are live.', 'teal');
+          currentInpatientState = 'admitted';
+        } else if (oldState === 'none' && newState === 'held') {
+          renderHoldCard(payload.hold, true);
+          currentInpatientState = 'held';
+        } else {
+          currentInpatientState = newState;
         }
-      }, 1000);
+      }
+
+      async function pollPatientInpatientStatus() {
+        if (isPollingInpatient) return;
+        isPollingInpatient = true;
+        try {
+          const res = await fetch('api/live_inpatient_sync.php', {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+          });
+          if (!res.ok) return;
+          const data = await res.json();
+          if (data && data.success) {
+            handleInpatientStateTransition(data.state, data);
+          }
+        } catch (err) {
+          // Graceful polling fallback
+        } finally {
+          isPollingInpatient = false;
+        }
+      }
+
+      // Initialize countdown if held on initial page load
+      const initialHoldEl = document.getElementById('patientDashboardHoldTimer');
+      if (initialHoldEl) {
+        const initSecs = parseInt(initialHoldEl.getAttribute('data-seconds'), 10) || 0;
+        startHoldCountdown(initSecs);
+      }
+
+      // Lightweight polling interval: every 4 seconds
+      setInterval(pollPatientInpatientStatus, 4000);
     })();
   </script>
 

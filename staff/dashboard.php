@@ -1,26 +1,30 @@
 <?php
 /**
- * MedPulse Enterprise HMS — Staff Portal: Inpatient Intake & Bed Admission Console
- * 
- * Features:
- * - Real-time incoming 45-minute self-service bed holds queue
- * - Pre-filled clinical admission dossier intake modal
- * - Atomic transactional sync across Staff Desk, Branch Admin, and Super Admin Telemetry
- * - Dynamic live countdown timers & multi-tiered registry sync
+ * MedPulse Enterprise HMS — Staff Portal
+ * Staff Operations & Ward Admission Desk
+ *
+ * Real-Time Polling & Inpatient Admission Modal Engine
+ * - Exact canonical MedPulse layout, sidebar, and styling shell retained
+ * - Real-time background polling (every 4s) against staff/api/live_sync.php
+ * - Dynamic 45-minute countdown ticking with "[ Accept & Admit ]" and "[ Release ]" buttons
+ * - Live Inpatient Registry synchronization without page reload
+ * - Modal admission dossier with atomic transactional submission
  */
 declare(strict_types=1);
 
 require_once __DIR__ . '/../includes/session_guard.php';
-require_once __DIR__ . '/../config/db.php';
-require_once __DIR__ . '/../controllers/BedReservationController.php';
+if (!isset($pdo)) {
+    require_once __DIR__ . '/../config/db.php';
+}
 
 // Authentication Guard: Staff role required (or elevated admin/super_admin)
 $role = strtolower($_SESSION['role'] ?? '');
-if (empty($_SESSION['user_id']) || !in_array($role, ['staff', 'admin', 'super_admin'], true)) {
+if (empty($_SESSION['user_id']) || !in_array($role, ['staff', 'admin', 'super_admin', 'nurse', 'receptionist'], true)) {
     medpulseDestroySession('../login.php');
 }
 
 $currentUserId = (int)$_SESSION['user_id'];
+$sessionHospitalId = (int)($_SESSION['branch_id'] ?? $_SESSION['hospital_id'] ?? 1);
 
 // Resolve Logged-in Staff Member Profile & Hospital Affiliation
 try {
@@ -29,26 +33,18 @@ try {
                h.name AS hospital_name, h.location AS hospital_location, h.code AS hospital_code
         FROM users u
         LEFT JOIN staff s ON s.user_id = u.user_id
-        LEFT JOIN hospitals h ON h.hospital_id = COALESCE(s.hospital_id, 1)
+        LEFT JOIN hospitals h ON h.hospital_id = COALESCE(s.hospital_id, u.hospital_id, :sess_hosp, 1)
         WHERE u.user_id = :uid
         LIMIT 1
     ");
-    $staffStmt->execute([':uid' => $currentUserId]);
+    $staffStmt->execute([':uid' => $currentUserId, ':sess_hosp' => $sessionHospitalId]);
     $staffProfile = $staffStmt->fetch(PDO::FETCH_ASSOC);
 
-    $staffId = (int)($staffProfile['staff_id'] ?? 0);
-    if ($staffId === 0) {
-        // Auto-provision staff link if missing
-        $initHosp = !empty($_SESSION['hospital_id']) ? (int)$_SESSION['hospital_id'] : 1;
-        $insStf = $pdo->prepare("
-            INSERT INTO staff (user_id, hospital_id, department, role_title, status)
-            VALUES (?, ?, 'Inpatient Nursing & Triage', 'Senior Triage Officer', 'active')
-        ");
-        $insStf->execute([$currentUserId, $initHosp]);
-        $staffId = (int)$pdo->lastInsertId();
+    $staffId           = (int)($_SESSION['staff_id'] ?? $staffProfile['staff_id'] ?? 0);
+    if ($staffId <= 0 && !empty($staffProfile['staff_id'])) {
+        $staffId = (int)$staffProfile['staff_id'];
     }
-
-    $staffHospitalId   = (int)($staffProfile['hospital_id'] ?? $_SESSION['hospital_id'] ?? 1);
+    $staffHospitalId   = (int)($staffProfile['hospital_id'] ?? $sessionHospitalId);
     $staffName         = $staffProfile['full_name'] ?? $_SESSION['full_name'] ?? 'Staff Officer';
     $staffDesignation  = $staffProfile['role_title'] ?? 'Senior Triage Officer / Admission Clerk';
     if ($staffDesignation === 'Staff' || empty($staffDesignation)) {
@@ -58,163 +54,25 @@ try {
     $staffHospitalName = $staffProfile['hospital_name'] ?? 'MedPulse Central Hospital';
     $staffHospitalCode = $staffProfile['hospital_code'] ?? 'HOSP-1';
 
+    // Persist scoped session bindings
+    $_SESSION['staff_id']    = $staffId;
+    $_SESSION['branch_id']   = $staffHospitalId;
+    $_SESSION['hospital_id'] = $staffHospitalId;
+
 } catch (PDOException $e) {
     error_log("Staff Profile Error: " . $e->getMessage());
-    $staffId           = 1;
-    $staffHospitalId   = 1;
+    $staffId           = (int)($_SESSION['staff_id'] ?? 1);
+    $staffHospitalId   = $sessionHospitalId;
     $staffName         = $_SESSION['full_name'] ?? 'Staff Officer';
     $staffDesignation  = 'Senior Triage Officer / Admission Clerk';
     $staffDepartment   = 'Inpatient Nursing & Triage';
     $staffHospitalName = 'MedPulse Central Hospital';
     $staffHospitalCode = 'HOSP-1';
+
+    $_SESSION['staff_id']    = $staffId;
+    $_SESSION['branch_id']   = $staffHospitalId;
+    $_SESSION['hospital_id'] = $staffHospitalId;
 }
-
-// ── Handle Inpatient Admission Submission ───────────────────────────────────
-$flashMessage = null;
-$flashType    = 'info';
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'process_admission') {
-    $isAjax = (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') || isset($_POST['ajax']);
-
-    // CSRF verification
-    if (!hash_equals($_SESSION['csrf_token'] ?? '', $_POST['csrf_token'] ?? '')) {
-        if ($isAjax) {
-            header('Content-Type: application/json');
-            http_response_code(403);
-            echo json_encode(['success' => false, 'message' => 'CSRF verification failed. Please refresh the page.']);
-            exit;
-        }
-        $flashMessage = 'Security validation failed. Please refresh and try again.';
-        $flashType    = 'error';
-    } else {
-        $admissionParams = [
-            'reservation_id'      => filter_var($_POST['reservation_id'] ?? null, FILTER_VALIDATE_INT) ?: null,
-            'bed_id'              => (int)($_POST['bed_id'] ?? 0),
-            'patient_id'          => (int)($_POST['patient_id'] ?? 0),
-            'hospital_id'         => $staffHospitalId,
-            'admitting_staff_id'  => $staffId,
-            'staff_user_id'       => $currentUserId,
-            'attending_doctor_id' => (int)($_POST['attending_doctor_id'] ?? 0),
-            'guardian_name'       => trim($_POST['guardian_name'] ?? ''),
-            'guardian_relation'   => trim($_POST['guardian_relation'] ?? 'Next of Kin'),
-            'guardian_phone'      => trim($_POST['guardian_phone'] ?? ''),
-            'admission_reason'    => trim($_POST['admission_reason'] ?? ''),
-            'primary_diagnosis'   => trim($_POST['primary_diagnosis'] ?? ''),
-            'triage_acuity'       => trim($_POST['triage_acuity'] ?? 'Routine'),
-            'daily_rate'          => (float)($_POST['daily_rate'] ?? 0.0),
-            'deposit_amount'      => (float)($_POST['deposit_amount'] ?? 0.0),
-            'payment_method'      => trim($_POST['payment_method'] ?? 'Cash'),
-            'payment_reference'   => trim($_POST['payment_reference'] ?? '')
-        ];
-
-        $admissionResult = BedReservationController::processAdmission($pdo, $admissionParams);
-
-        if ($isAjax) {
-            header('Content-Type: application/json');
-            echo json_encode($admissionResult);
-            exit;
-        }
-
-        if (!empty($admissionResult['success'])) {
-            $flashMessage = $admissionResult['message'];
-            $flashType    = 'success';
-        } else {
-            $flashMessage = $admissionResult['message'] ?? 'Admission failed to process.';
-            $flashType    = 'error';
-        }
-    }
-}
-
-// ── Handle Bed Hold Cancellation ────────────────────────────────────────────
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'cancel_hold') {
-    $resId = (int)($_POST['reservation_id'] ?? 0);
-    $patId = (int)($_POST['patient_id'] ?? 0);
-    if ($resId > 0 && $patId > 0) {
-        $cancelResult = BedReservationController::cancelReservation($pdo, $patId, $resId);
-        $flashMessage = $cancelResult['message'] ?? 'Reservation updated.';
-        $flashType    = !empty($cancelResult['success']) ? 'success' : 'error';
-    }
-}
-
-// ── Run Maintenance Sweep & Fetch Live Telemetry Data ───────────────────────
-BedReservationController::releaseExpiredHolds($pdo);
-
-// 1. Incoming Active 45-Minute Holds for this Facility
-$holdsStmt = $pdo->prepare("
-    SELECT r.id AS reservation_id, r.hospital_id, r.bed_id, r.patient_id, r.hold_expires_at, r.status, r.created_at,
-           b.bed_number, b.ward_type, b.floor_number, COALESCE(b.daily_rate, b.price_per_day, 1500.00) AS daily_rate,
-           u.full_name AS patient_name, u.phone AS patient_phone, u.email AS patient_email, u.gender,
-           COALESCE(TIMESTAMPDIFF(YEAR, p.dob, CURDATE()), u.age, 0) AS age,
-           COALESCE(p.patient_uid, CONCAT('MP-', u.user_id)) AS patient_uid,
-           COALESCE(p.blood_group, u.blood_group, 'Unknown') AS blood_group,
-           COALESCE(p.allergies, 'NKDA') AS allergies,
-           TIMESTAMPDIFF(SECOND, NOW(), r.hold_expires_at) AS seconds_remaining
-    FROM bed_reservations r
-    JOIN hospital_beds b ON r.bed_id = b.bed_id
-    JOIN users u ON u.user_id = r.patient_id
-    LEFT JOIN patients p ON (p.user_id = r.patient_id OR p.id = r.patient_id)
-    WHERE r.hospital_id = :hosp_id
-      AND r.status = 'held'
-      AND r.hold_expires_at > NOW()
-    ORDER BY r.created_at DESC
-");
-$holdsStmt->execute([':hosp_id' => $staffHospitalId]);
-$incomingHolds = $holdsStmt->fetchAll(PDO::FETCH_ASSOC);
-
-// 2. Active Inpatient Admissions for this Facility
-$admissionsStmt = $pdo->prepare("
-    SELECT a.*,
-           b.bed_number, b.ward_type, b.floor_number,
-           u.full_name AS patient_name, u.phone AS patient_phone, u.gender,
-           COALESCE(p.blood_group, u.blood_group, 'Unknown') AS blood_group,
-           COALESCE(TIMESTAMPDIFF(YEAR, p.dob, CURDATE()), u.age, 0) AS age,
-           doc.full_name AS doctor_name, COALESCE(dp.specialty, doc.department, 'General Medicine') AS doctor_specialty,
-           stf_u.full_name AS staff_name, COALESCE(stf.role_title, 'Senior Triage Officer') AS staff_role
-    FROM admissions a
-    JOIN hospital_beds b ON a.bed_id = b.bed_id
-    JOIN users u ON a.patient_id = u.user_id
-    LEFT JOIN patients p ON (p.user_id = u.user_id OR p.id = u.user_id)
-    LEFT JOIN users doc ON a.attending_doctor_id = doc.user_id
-    LEFT JOIN doctor_profiles dp ON doc.user_id = dp.user_id
-    LEFT JOIN staff stf ON a.admitting_staff_id = stf.staff_id
-    LEFT JOIN users stf_u ON stf.user_id = stf_u.user_id
-    WHERE a.hospital_id = :hosp_id
-      AND a.status = 'Admitted'
-    ORDER BY a.admitted_at DESC
-    LIMIT 40
-");
-$admissionsStmt->execute([':hosp_id' => $staffHospitalId]);
-$activeAdmissions = $admissionsStmt->fetchAll(PDO::FETCH_ASSOC);
-
-// 3. Facility Bed Capacity KPI Telemetry
-$censusStmt = $pdo->prepare("
-    SELECT 
-        COUNT(*) AS total_beds,
-        SUM(CASE WHEN LOWER(status) = 'occupied' THEN 1 ELSE 0 END) AS occupied_beds,
-        SUM(CASE WHEN LOWER(status) = 'available' THEN 1 ELSE 0 END) AS available_beds,
-        SUM(CASE WHEN LOWER(status) = 'reserved' THEN 1 ELSE 0 END) AS reserved_beds
-    FROM hospital_beds
-    WHERE hospital_id = :hosp_id
-");
-$censusStmt->execute([':hosp_id' => $staffHospitalId]);
-$facilityCensus = $censusStmt->fetch(PDO::FETCH_ASSOC) ?: [];
-$totalBeds     = (int)($facilityCensus['total_beds'] ?? 0);
-$occupiedBeds  = (int)($facilityCensus['occupied_beds'] ?? 0);
-$availableBeds = (int)($facilityCensus['available_beds'] ?? 0);
-$reservedBeds  = (int)($facilityCensus['reserved_beds'] ?? 0);
-$occupancyPct  = $totalBeds > 0 ? round(($occupiedBeds / $totalBeds) * 100) : 0;
-
-// 4. Query Active Approved Doctors for Consultant Allocation Dropdown
-$docQuery = $pdo->prepare("
-    SELECT u.user_id, u.full_name, COALESCE(dp.specialty, d.specialty, 'General Medicine') AS specialty
-    FROM users u
-    JOIN doctors d ON (d.user_id = u.user_id OR d.id = u.user_id)
-    LEFT JOIN doctor_profiles dp ON u.user_id = dp.user_id
-    WHERE u.role = 'Doctor' AND u.status = 'active'
-    ORDER BY u.full_name ASC
-");
-$docQuery->execute();
-$activeDoctors = $docQuery->fetchAll(PDO::FETCH_ASSOC);
 
 // CSRF token generation
 if (empty($_SESSION['csrf_token'])) {
@@ -227,1065 +85,1125 @@ $csrfToken = $_SESSION['csrf_token'];
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Staff Operations &amp; Inpatient Bed Admission Desk &middot; MedPulse HMS</title>
+  <meta name="csrf-token" content="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
+  <title>Staff Operations &amp; Ward Admission Desk &middot; MedPulse HMS</title>
   
-  <link rel="icon" type="image/svg+xml" href="../assets/images/favicon.svg">
+  <!-- Hospital Favicon (Official MedPulse Icon) -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='0%25' y2='100%25'><stop offset='0%25' stop-color='%230284c7'/><stop offset='100%25' stop-color='%230d9488'/></linearGradient></defs><rect width='64' height='64' rx='18' fill='url(%23g)'/><path d='M32 46s-14-9.5-14-19a9 9 0 0 1 14-7.5A9 9 0 0 1 46 27c0 9.5-14 19-14 19z' fill='rgba(255,255,255,0.2)'/><path d='M19 32h6l3-6 5 13 4-8 3 3h5' fill='none' stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+  
+  <!-- Google Fonts: Plus Jakarta Sans & JetBrains Mono -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
   
-  <!-- SweetAlert2 for Instant Modal Action Feedback -->
-  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <!-- Single Source of Truth Official MedPulse Stylesheet -->
+  <link rel="stylesheet" href="../assets/css/patient_dashboard.css">
 
   <style>
+    /* ══════════════════════════════════════════════════════════
+       MEDPULSE CANONICAL DESIGN SHELL REFINEMENTS
+       Strict light theme: #f8fafc canvas, soft white cards
+       Teal accent #0d9488 active states & profile pills
+       ══════════════════════════════════════════════════════════ */
     :root {
       --brand-primary: #0284c7;
       --brand-teal: #0d9488;
-      --brand-dark: #0f172a;
+      --brand-teal-dark: #0f766e;
+      --bg-page: #f8fafc;
       --surface: #ffffff;
-      --surface-subtle: #f8fafc;
       --surface-border: #e2e8f0;
       --text-heading: #0f172a;
       --text-body: #334155;
       --text-muted: #64748b;
-      --status-emerald: #10b981;
-      --status-amber: #f59e0b;
-      --status-crimson: #ef4444;
     }
 
-    * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-      background: #f1f5f9;
+      background-color: var(--bg-page);
       color: var(--text-body);
       min-height: 100vh;
       display: flex;
-      flex-direction: column;
     }
 
-    /* Top Navigation Shell */
-    .staff-navbar {
-      background: #0f172a;
-      color: #ffffff;
-      padding: 0.9rem 1.75rem;
+    /* Active Sidebar Navigation Pill (Teal Accent #0d9488) */
+    .nav-item.active a {
+      background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%) !important;
+      color: #ffffff !important;
+      box-shadow: 0 4px 14px rgba(13, 148, 136, 0.3) !important;
+    }
+    .nav-item.active a .ui-ico {
+      stroke: #ffffff !important;
+    }
+    .nav-item.active a .live-chip-sm {
+      background: rgba(255, 255, 255, 0.22) !important;
+      color: #ffffff !important;
+      border-color: rgba(255, 255, 255, 0.45) !important;
+    }
+
+    /* Right-side Topbar with Authenticated Staff Profile Pill */
+    .staff-topbar {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-      position: sticky;
-      top: 0;
-      z-index: 100;
-      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
-    }
-    .staff-nav-brand {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      text-decoration: none;
-      color: #ffffff;
-    }
-    .staff-brand-icon {
-      width: 38px;
-      height: 38px;
-      background: linear-gradient(135deg, var(--brand-primary), var(--brand-teal));
-      border-radius: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 1.15rem;
-      color: #ffffff;
-      box-shadow: 0 2px 8px rgba(2, 132, 199, 0.4);
-    }
-    .staff-nav-title {
-      font-size: 1.1rem;
-      font-weight: 800;
-      letter-spacing: -0.01em;
-    }
-    .staff-nav-subtitle {
-      font-size: 0.72rem;
-      color: #94a3b8;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      font-weight: 600;
-    }
-    .staff-nav-user {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-    }
-    .staff-user-chip {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      background: rgba(255, 255, 255, 0.08);
-      border: 1px solid rgba(255, 255, 255, 0.14);
-      padding: 5px 12px;
-      border-radius: 9999px;
-    }
-    .staff-avatar-circle {
-      width: 28px;
-      height: 28px;
-      border-radius: 50%;
-      background: var(--brand-teal);
-      color: #ffffff;
-      font-size: 0.76rem;
-      font-weight: 800;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .staff-user-text {
-      font-size: 0.82rem;
-      font-weight: 700;
-      color: #f8fafc;
-    }
-    .staff-badge-id {
-      background: #0284c7;
-      color: #ffffff;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 0.72rem;
-      font-weight: 700;
-      padding: 1px 7px;
-      border-radius: 6px;
-    }
-    .btn-signout {
-      color: #94a3b8;
-      text-decoration: none;
-      font-size: 0.85rem;
-      font-weight: 600;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      transition: color 0.2s;
-    }
-    .btn-signout:hover { color: #f87171; }
-
-    /* Main Container */
-    .staff-container {
-      max-width: 1360px;
-      width: 100%;
-      margin: 1.5rem auto 3rem;
-      padding: 0 1.25rem;
-      flex: 1;
-    }
-
-    /* Facility Banner */
-    .facility-banner {
-      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-      border-radius: 16px;
-      padding: 1.5rem 1.75rem;
-      color: #ffffff;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
       flex-wrap: wrap;
       gap: 1rem;
-      margin-bottom: 1.5rem;
-      box-shadow: 0 4px 20px rgba(15, 23, 42, 0.1);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-    }
-    .facility-meta h1 {
-      font-size: 1.35rem;
-      font-weight: 800;
-      margin-bottom: 0.25rem;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    .facility-pill {
-      background: rgba(13, 148, 136, 0.2);
-      border: 1px solid rgba(13, 148, 136, 0.4);
-      color: #2dd4bf;
-      font-size: 0.72rem;
-      font-weight: 800;
-      padding: 2px 10px;
-      border-radius: 9999px;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-    }
-    .facility-sub {
-      color: #94a3b8;
-      font-size: 0.86rem;
-    }
-    .staff-desk-info {
-      background: rgba(255, 255, 255, 0.06);
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      border-radius: 12px;
-      padding: 0.65rem 1.1rem;
-      display: flex;
-      align-items: center;
-      gap: 14px;
-    }
-
-    /* KPI Cards */
-    .kpi-row {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-      gap: 1.25rem;
-      margin-bottom: 1.75rem;
-    }
-    .kpi-card {
+      padding: 0.85rem 1.25rem;
       background: var(--surface);
       border: 1px solid var(--surface-border);
-      border-radius: 14px;
-      padding: 1.25rem 1.4rem;
-      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.03);
+      border-radius: 1rem;
+      margin-bottom: 1.75rem;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+    }
+
+    .topbar-context {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .topbar-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      background: rgba(13, 148, 136, 0.08);
+      color: var(--brand-teal);
+      border: 1px solid rgba(13, 148, 136, 0.22);
+      padding: 5px 12px;
+      border-radius: 9999px;
+      font-size: 0.76rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    .topbar-profile-container {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-left: auto;
+    }
+
+    .staff-profile-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: #f8fafc;
+      border: 1px solid var(--surface-border);
+      border-radius: 9999px;
+      padding: 4px 14px 4px 5px;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+    }
+
+    .staff-avatar-badge {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--brand-primary), var(--brand-teal));
+      color: #ffffff;
+      font-weight: 800;
+      font-size: 0.84rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      box-shadow: 0 2px 6px rgba(13, 148, 136, 0.25);
+    }
+
+    .staff-pill-details {
+      display: flex;
+      flex-direction: column;
+      line-height: 1.25;
+    }
+
+    .staff-pill-name {
+      font-size: 0.86rem;
+      font-weight: 700;
+      color: var(--text-heading);
+    }
+
+    .staff-pill-designation {
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: var(--brand-teal);
+    }
+
+    .staff-pill-branch {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #ffffff;
+      border: 1px solid var(--surface-border);
+      padding: 3px 9px;
+      border-radius: 9999px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: var(--text-heading);
+      margin-left: 4px;
+    }
+
+    .branch-pill-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #10b981;
+      box-shadow: 0 0 6px #10b981;
+    }
+
+    /* Clean Page Header Banner */
+    .branch-identity-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(13, 148, 136, 0.1);
+      border: 1px solid rgba(13, 148, 136, 0.25);
+      padding: 5px 12px;
+      border-radius: 9999px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: var(--brand-teal);
+      margin-bottom: 10px;
+    }
+
+    .badge-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #10b981;
+      box-shadow: 0 0 6px #10b981;
+    }
+
+    /* Soft White Card Containers */
+    .medpulse-card {
+      background: var(--surface);
+      border: 1px solid var(--surface-border);
+      border-radius: 1rem;
+      margin-bottom: 1.75rem;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+      overflow: hidden;
+    }
+
+    .medpulse-card-header {
+      padding: 1.25rem 1.5rem;
       display: flex;
       align-items: center;
       justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 1rem;
+      border-bottom: 1px solid #f1f5f9;
+      background: var(--surface);
     }
-    .kpi-label {
-      font-size: 0.78rem;
-      font-weight: 700;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      margin-bottom: 0.35rem;
+
+    .card-header-left {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
     }
-    .kpi-val {
-      font-size: 1.75rem;
-      font-weight: 800;
-      color: var(--text-heading);
-      line-height: 1;
-    }
-    .kpi-sub {
-      font-size: 0.76rem;
-      color: var(--text-muted);
-      margin-top: 0.3rem;
-    }
-    .kpi-icon-box {
-      width: 48px;
-      height: 48px;
+
+    .card-icon-avatar {
+      width: 44px;
+      height: 44px;
       border-radius: 12px;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 1.35rem;
+      flex-shrink: 0;
     }
 
-    /* Queue & Table Panels */
-    .panel-box {
-      background: var(--surface);
-      border: 1px solid var(--surface-border);
-      border-radius: 16px;
-      padding: 1.5rem;
-      margin-bottom: 1.75rem;
-      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.03);
-    }
-    .panel-header-flex {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 1.25rem;
-      flex-wrap: wrap;
-      gap: 10px;
-    }
-    .panel-title {
+    .card-title {
       font-size: 1.15rem;
       font-weight: 800;
       color: var(--text-heading);
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    .pulse-pill-amber {
-      background: #fef3c7;
-      color: #b45309;
-      border: 1px solid #fde68a;
-      font-size: 0.75rem;
-      font-weight: 800;
-      padding: 2px 8px;
-      border-radius: 9999px;
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-    }
-    .pulse-dot-amber {
-      width: 7px;
-      height: 7px;
-      background: #d97706;
-      border-radius: 50%;
-      animation: pulse 1.5s infinite;
-    }
-    @keyframes pulse {
-      0%, 100% { opacity: 1; transform: scale(1); }
-      50% { opacity: 0.4; transform: scale(0.85); }
+      letter-spacing: -0.01em;
     }
 
-    /* Incoming Holds Cards Grid */
+    .card-subtitle {
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .status-indicator-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 9999px;
+      font-size: 0.74rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    .pill-amber {
+      background: #fffbeb;
+      color: #b45309;
+      border: 1px solid #fde68a;
+    }
+
+    .pill-teal {
+      background: #f0fdfa;
+      color: #0f766e;
+      border: 1px solid #99f6e4;
+    }
+
+    .status-indicator-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+    }
+
+    .dot-amber {
+      background: #f59e0b;
+      box-shadow: 0 0 6px #f59e0b;
+    }
+
+    .dot-teal {
+      background: #0d9488;
+      box-shadow: 0 0 6px #0d9488;
+    }
+
+    .medpulse-card-body {
+      padding: 1.5rem;
+    }
+
+    /* Clean Empty State Display */
+    .empty-state-box {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      max-width: 520px;
+      margin: 0 auto;
+      padding: 2.25rem 1rem;
+    }
+
+    .empty-state-graphic {
+      width: 60px;
+      height: 60px;
+      border-radius: 16px;
+      background: #f1f5f9;
+      border: 1px solid var(--surface-border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 1.15rem;
+    }
+
+    .empty-state-heading {
+      font-size: 1.05rem;
+      font-weight: 800;
+      color: var(--text-heading);
+      margin-bottom: 0.4rem;
+    }
+
+    .empty-state-text {
+      font-size: 0.86rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* ══════════════════════════════════════════════════════════
+       DYNAMIC INCOMING HOLDS CARDS GRID
+       ══════════════════════════════════════════════════════════ */
     .holds-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
       gap: 1.25rem;
     }
+
     .hold-card {
       background: #ffffff;
       border: 1.5px solid #fed7aa;
       border-radius: 14px;
       padding: 1.25rem;
-      box-shadow: 0 4px 14px rgba(249, 115, 22, 0.06);
-      transition: all 0.2s ease;
-      position: relative;
-    }
-    .hold-card:hover {
-      border-color: #f97316;
-      transform: translateY(-2px);
-      box-shadow: 0 8px 24px rgba(249, 115, 22, 0.12);
-    }
-    .hold-card-top {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      margin-bottom: 0.75rem;
-    }
-    .hold-bed-badge {
-      background: #0284c7;
-      color: #ffffff;
-      font-weight: 800;
-      padding: 4px 10px;
-      border-radius: 8px;
-      font-size: 0.88rem;
-      font-family: 'JetBrains Mono', monospace;
-    }
-    .hold-timer-chip {
-      background: #fff1f2;
-      border: 1px solid #fecdd3;
-      color: #e11d48;
-      font-weight: 800;
-      font-size: 0.78rem;
-      padding: 3px 9px;
-      border-radius: 9999px;
-      display: flex;
-      align-items: center;
-      gap: 5px;
-      font-variant-numeric: tabular-nums;
-    }
-    .hold-pat-name {
-      font-size: 1.05rem;
-      font-weight: 800;
-      color: var(--text-heading);
-      margin-bottom: 0.2rem;
-    }
-    .hold-pat-meta {
-      font-size: 0.8rem;
-      color: var(--text-muted);
-      margin-bottom: 0.85rem;
-    }
-    .hold-details-box {
-      background: #f8fafc;
-      border-radius: 10px;
-      padding: 0.75rem 0.9rem;
-      font-size: 0.82rem;
+      box-shadow: 0 2px 10px rgba(245, 158, 11, 0.05);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
       display: flex;
       flex-direction: column;
-      gap: 5px;
-      margin-bottom: 1rem;
-      border: 1px solid #e2e8f0;
-    }
-    .hold-row {
-      display: flex;
       justify-content: space-between;
     }
-    .hold-row-key { color: var(--text-muted); font-weight: 600; }
-    .hold-row-val { color: var(--text-heading); font-weight: 700; }
 
-    .btn-accept-admission {
-      width: 100%;
-      background: linear-gradient(135deg, #0284c7 0%, #0d9488 100%);
-      color: #ffffff;
-      border: none;
-      border-radius: 10px;
-      padding: 0.75rem 1rem;
-      font-size: 0.88rem;
-      font-weight: 800;
-      cursor: pointer;
+    .hold-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(245, 158, 11, 0.1);
+      border-color: #f97316;
+    }
+
+    .hold-card-top {
       display: flex;
       align-items: center;
-      justify-content: center;
-      gap: 8px;
-      transition: all 0.2s ease;
-      box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25);
-    }
-    .btn-accept-admission:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 6px 18px rgba(2, 132, 199, 0.35);
-      filter: brightness(1.05);
+      justify-content: space-between;
+      margin-bottom: 0.85rem;
     }
 
-    /* Tables */
-    .table-responsive {
-      overflow-x: auto;
-      border-radius: 12px;
-      border: 1px solid var(--surface-border);
-    }
-    table.data-table {
-      width: 100%;
-      border-collapse: collapse;
-      text-align: left;
-      font-size: 0.86rem;
-    }
-    table.data-table th {
-      background: #f8fafc;
-      color: var(--text-muted);
-      font-size: 0.75rem;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      padding: 0.85rem 1rem;
-      border-bottom: 1px solid var(--surface-border);
-    }
-    table.data-table td {
-      padding: 0.9rem 1rem;
-      border-bottom: 1px solid #f1f5f9;
-      color: var(--text-body);
-      vertical-align: middle;
-    }
-    table.data-table tr:hover {
-      background: #fbfcfe;
-    }
-
-    /* Badges */
-    .badge-bed {
-      background: rgba(2, 132, 199, 0.1);
+    .hold-bed-badge {
+      background: rgba(2, 132, 199, 0.08);
       color: #0284c7;
-      border: 1px solid rgba(2, 132, 199, 0.2);
+      border: 1px solid rgba(2, 132, 199, 0.22);
+      padding: 4px 10px;
+      border-radius: 8px;
       font-family: 'JetBrains Mono', monospace;
-      font-weight: 800;
-      font-size: 0.78rem;
-      padding: 2px 7px;
-      border-radius: 6px;
+      font-size: 0.82rem;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
     }
-    .badge-acuity {
-      padding: 3px 8px;
-      border-radius: 6px;
-      font-size: 0.74rem;
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-    }
-    .acuity-routine { background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; }
-    .acuity-critical { background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; }
-    .acuity-postop { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
 
-    .badge-inpatient-live {
-      background: rgba(16, 185, 129, 0.12);
-      color: #059669;
-      border: 1px solid rgba(16, 185, 129, 0.25);
-      font-size: 0.74rem;
-      font-weight: 800;
+    .hold-countdown-tag {
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      color: #b45309;
+      font-size: 0.76rem;
+      font-weight: 700;
       padding: 3px 9px;
       border-radius: 9999px;
       display: inline-flex;
       align-items: center;
       gap: 5px;
-    }
-    .dot-inpatient {
-      width: 6px;
-      height: 6px;
-      background: #10b981;
-      border-radius: 50%;
+      font-family: 'JetBrains Mono', monospace;
+      font-variant-numeric: tabular-nums;
     }
 
-    /* Modal Styling */
+    .hold-countdown-tag.expired {
+      background: #fef2f2;
+      border-color: #fecaca;
+      color: #ef4444;
+    }
+
+    .hold-patient-title {
+      font-size: 1.05rem;
+      font-weight: 800;
+      color: var(--text-heading);
+      margin-bottom: 0.25rem;
+    }
+
+    .hold-patient-meta {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-bottom: 0.85rem;
+    }
+
+    .hold-info-box {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 0.75rem 0.9rem;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 1rem;
+      font-size: 0.82rem;
+    }
+
+    .hold-info-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .hold-info-label {
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    .hold-info-val {
+      color: var(--text-heading);
+      font-weight: 700;
+    }
+
+    .hold-actions-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .btn-accept-admit {
+      background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%);
+      color: #ffffff;
+      border: none;
+      border-radius: 9px;
+      padding: 0.65rem 1rem;
+      font-size: 0.86rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+      box-shadow: 0 2px 8px rgba(13, 148, 136, 0.25);
+    }
+
+    .btn-accept-admit:hover {
+      box-shadow: 0 4px 14px rgba(13, 148, 136, 0.35);
+      filter: brightness(1.05);
+    }
+
+    .btn-release-hold {
+      background: #ffffff;
+      color: #64748b;
+      border: 1px solid var(--surface-border);
+      border-radius: 9px;
+      padding: 0.65rem 0.85rem;
+      font-size: 0.84rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.18s ease;
+    }
+
+    .btn-release-hold:hover {
+      background: #fef2f2;
+      color: #ef4444;
+      border-color: #fecaca;
+    }
+
+    /* ══════════════════════════════════════════════════════════
+       DYNAMIC INPATIENT REGISTRY TABLE
+       ══════════════════════════════════════════════════════════ */
+    .table-responsive {
+      overflow-x: auto;
+      border-radius: 12px;
+      border: 1px solid var(--surface-border);
+      background: #ffffff;
+    }
+
+    .medpulse-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.86rem;
+      text-align: left;
+    }
+
+    .medpulse-table th {
+      background: #f8fafc;
+      color: var(--text-muted);
+      font-size: 0.74rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 0.85rem 1rem;
+      border-bottom: 1px solid var(--surface-border);
+      white-space: nowrap;
+    }
+
+    .medpulse-table td {
+      padding: 0.85rem 1rem;
+      border-bottom: 1px solid #f1f5f9;
+      color: var(--text-body);
+      vertical-align: middle;
+    }
+
+    .medpulse-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .medpulse-table tr:hover td {
+      background: #fbfcfe;
+    }
+
+    .badge-bed-tag {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.78rem;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 6px;
+      background: rgba(2, 132, 199, 0.08);
+      color: #0284c7;
+      border: 1px solid rgba(2, 132, 199, 0.2);
+      display: inline-block;
+    }
+
+    .badge-acuity {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .acuity-routine {
+      background: #e0f2fe;
+      color: #0369a1;
+      border: 1px solid #bae6fd;
+    }
+
+    .acuity-critical {
+      background: #fee2e2;
+      color: #b91c1c;
+      border: 1px solid #fecaca;
+    }
+
+    .acuity-postop {
+      background: #fef3c7;
+      color: #b45309;
+      border: 1px solid #fde68a;
+    }
+
+    .badge-status-inpatient {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: rgba(16, 185, 129, 0.1);
+      color: #059669;
+      border: 1px solid rgba(16, 185, 129, 0.25);
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 9999px;
+    }
+
+    .dot-inpatient-pulse {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #10b981;
+    }
+
+    /* ══════════════════════════════════════════════════════════
+       MODAL ENGINE (Soft backdrop blur, rounded-2xl, red/teal accents)
+       ══════════════════════════════════════════════════════════ */
     .modal-overlay {
-      display: none;
       position: fixed;
       inset: 0;
-      background: rgba(15, 23, 42, 0.65);
-      backdrop-filter: blur(6px);
+      background: rgba(15, 23, 42, 0.48);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
       z-index: 1000;
+      display: none;
       align-items: center;
       justify-content: center;
       padding: 1rem;
     }
+
     .modal-overlay.active {
       display: flex;
     }
+
     .modal-card {
-      background: #ffffff;
-      border-radius: 20px;
-      max-width: 780px;
+      background: var(--surface);
+      border-radius: 1rem;
+      max-width: 720px;
       width: 100%;
       max-height: 90vh;
       overflow-y: auto;
-      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.25);
-      border: 1px solid #e2e8f0;
-      animation: modalFadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.25);
+      border: 1px solid var(--surface-border);
+      animation: modalSlideUp 0.22s cubic-bezier(0.16, 1, 0.3, 1);
     }
-    @keyframes modalFadeIn {
-      from { opacity: 0; transform: scale(0.96) translateY(10px); }
-      to { opacity: 1; transform: scale(1) translateY(0); }
+
+    .modal-card-admit {
+      border-top: 4px solid #0d9488;
     }
+
+    .modal-card-release {
+      max-width: 480px;
+      border: 1px solid #fee2e2;
+      border-top: 4px solid #ef4444;
+      box-shadow: 0 25px 50px -12px rgba(239, 68, 68, 0.18);
+    }
+
+    @keyframes modalSlideUp {
+      from { opacity: 0; transform: translateY(12px) scale(0.98); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
     .modal-head {
-      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-      color: #ffffff;
-      padding: 1.4rem 1.75rem;
+      padding: 1.25rem 1.5rem;
       display: flex;
       justify-content: space-between;
       align-items: center;
+      border-bottom: 1px solid #f1f5f9;
+      background: #ffffff;
       position: sticky;
       top: 0;
       z-index: 10;
     }
-    .modal-head h3 {
+
+    .modal-head-title {
       font-size: 1.15rem;
       font-weight: 800;
+      color: var(--text-heading);
       display: flex;
       align-items: center;
       gap: 8px;
     }
+
+    .modal-head-sub {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
     .btn-modal-close {
       background: transparent;
       border: none;
-      color: #94a3b8;
       font-size: 1.4rem;
+      color: var(--text-muted);
       cursor: pointer;
       line-height: 1;
+      padding: 4px;
       transition: color 0.15s;
     }
-    .btn-modal-close:hover { color: #ffffff; }
+
+    .btn-modal-close:hover {
+      color: var(--text-heading);
+    }
 
     .modal-body {
-      padding: 1.75rem;
+      padding: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
     }
 
-    /* Modal Form Sections */
-    .form-panel {
+    .modal-section-card {
       background: #f8fafc;
-      border: 1px solid #e2e8f0;
-      border-radius: 14px;
+      border: 1px solid var(--surface-border);
+      border-radius: 12px;
       padding: 1.15rem;
-      margin-bottom: 1.25rem;
     }
-    .form-panel-title {
-      font-size: 0.8rem;
+
+    .modal-sec-title {
+      font-size: 0.78rem;
       font-weight: 800;
-      color: var(--brand-primary);
       text-transform: uppercase;
       letter-spacing: 0.05em;
+      color: var(--brand-teal);
       margin-bottom: 0.85rem;
       display: flex;
       align-items: center;
       gap: 6px;
     }
 
-    .form-grid-3 {
+    .strip-grid-3 {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 0.85rem;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 0.75rem;
     }
+
+    .strip-pill {
+      background: #ffffff;
+      border: 1px solid var(--surface-border);
+      border-radius: 8px;
+      padding: 0.6rem 0.85rem;
+    }
+
+    .strip-label {
+      font-size: 0.68rem;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .strip-val {
+      font-size: 0.88rem;
+      font-weight: 800;
+      color: var(--text-heading);
+      margin-top: 2px;
+    }
+
     .form-grid-2 {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
       gap: 0.85rem;
     }
+
     .form-group {
-      margin-bottom: 0.75rem;
+      margin-bottom: 0.65rem;
     }
-    .form-group:last-child { margin-bottom: 0; }
-    .form-group label {
+
+    .form-group:last-child {
+      margin-bottom: 0;
+    }
+
+    .form-label {
       display: block;
       font-size: 0.78rem;
       font-weight: 700;
       color: var(--text-heading);
       margin-bottom: 0.35rem;
     }
+
     .form-control {
       width: 100%;
       padding: 0.65rem 0.85rem;
       border: 1.5px solid var(--surface-border);
-      border-radius: 10px;
+      border-radius: 9px;
       font-family: inherit;
       font-size: 0.88rem;
       color: var(--text-heading);
       background: #ffffff;
       transition: border-color 0.2s, box-shadow 0.2s;
+      box-sizing: border-box;
     }
+
     .form-control:focus {
       outline: none;
-      border-color: var(--brand-primary);
-      box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.12);
+      border-color: var(--brand-teal);
+      box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.12);
     }
+
     .form-control[readonly] {
       background: #f1f5f9;
       color: #64748b;
       cursor: not-allowed;
     }
 
-    /* Staff Meta Pill Strip */
-    .staff-meta-strip {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-    .staff-pill-box {
-      flex: 1;
-      min-width: 170px;
-      background: #ffffff;
-      border: 1px solid #e2e8f0;
-      border-radius: 10px;
-      padding: 0.6rem 0.85rem;
-    }
-    .spb-label { font-size: 0.68rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; }
-    .spb-val { font-size: 0.88rem; font-weight: 800; color: var(--text-heading); }
-
-    /* Modal Footer */
     .modal-foot {
-      padding: 1.15rem 1.75rem;
-      background: #f8fafc;
-      border-top: 1px solid var(--surface-border);
+      padding: 1.15rem 1.5rem;
+      background: #ffffff;
+      border-top: 1px solid #f1f5f9;
       display: flex;
       justify-content: flex-end;
-      gap: 12px;
+      align-items: center;
+      gap: 10px;
     }
+
     .btn-secondary {
-      padding: 0.7rem 1.25rem;
+      padding: 0.65rem 1.15rem;
       background: #ffffff;
       border: 1px solid var(--surface-border);
-      border-radius: 10px;
+      border-radius: 9px;
       font-weight: 700;
-      font-size: 0.88rem;
+      font-size: 0.86rem;
       color: var(--text-muted);
       cursor: pointer;
+      transition: all 0.18s;
     }
-    .btn-confirm-admission {
-      padding: 0.7rem 1.5rem;
-      background: linear-gradient(135deg, #0284c7 0%, #0d9488 100%);
-      border: none;
-      border-radius: 10px;
-      font-weight: 800;
-      font-size: 0.9rem;
+
+    .btn-secondary:hover {
+      background: #f8fafc;
+      color: var(--text-heading);
+    }
+
+    .btn-submit-modal {
+      padding: 0.68rem 1.4rem;
+      background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%);
       color: #ffffff;
+      border: none;
+      border-radius: 9px;
+      font-weight: 800;
+      font-size: 0.88rem;
       cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      box-shadow: 0 2px 8px rgba(13, 148, 136, 0.25);
+      transition: all 0.2s;
+    }
+
+    .btn-submit-modal:hover {
+      box-shadow: 0 4px 14px rgba(13, 148, 136, 0.35);
+      filter: brightness(1.05);
+    }
+
+    .btn-submit-modal:disabled {
+      opacity: 0.65;
+      cursor: not-allowed;
+    }
+
+    /* ══════════════════════════════════════════════════════════
+       FLOATING NON-BLOCKING TOAST NOTIFICATION
+       ══════════════════════════════════════════════════════════ */
+    .medpulse-toast {
+      position: fixed;
+      top: 24px;
+      right: 24px;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-left: 4px solid #0d9488;
+      border-radius: 12px;
+      padding: 0.9rem 1.25rem;
+      display: none;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+      z-index: 2000;
+      max-width: 440px;
+      animation: toastSlide 0.25s ease-out;
+    }
+
+    .medpulse-toast.show {
+      display: flex;
+    }
+
+    .medpulse-toast.toast-error {
+      border-left-color: #ef4444;
+    }
+
+    @keyframes toastSlide {
+      from { transform: translateX(20px); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+
+    .toast-icon-wrap {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: rgba(13, 148, 136, 0.1);
       display: flex;
       align-items: center;
-      gap: 8px;
-      box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3);
+      justify-content: center;
+      flex-shrink: 0;
     }
-    .btn-confirm-admission:hover {
-      box-shadow: 0 6px 18px rgba(2, 132, 199, 0.4);
+
+    .medpulse-toast.toast-error .toast-icon-wrap {
+      background: #fef2f2;
+    }
+
+    .toast-text {
+      font-size: 0.86rem;
+      font-weight: 600;
+      color: var(--text-heading);
+      line-height: 1.35;
+    }
+
+    .toast-close {
+      background: transparent;
+      border: none;
+      font-size: 1.25rem;
+      color: var(--text-muted);
+      cursor: pointer;
+      margin-left: auto;
+      line-height: 1;
     }
   </style>
 </head>
 <body>
 
-  <!-- Staff Portal Navigation -->
-  <nav class="staff-navbar">
-    <a href="dashboard.php" class="staff-nav-brand">
-      <div class="staff-brand-icon">
-        <i class="fa-solid fa-hospital"></i>
-      </div>
-      <div>
-        <div class="staff-nav-title">MedPulse Staff Portal</div>
-        <div class="staff-nav-subtitle">Inpatient Bed Admission &amp; Ward Desk</div>
-      </div>
-    </a>
+  <!-- Floating Toast Notification Banner -->
+  <div class="medpulse-toast" id="staffToast"></div>
 
-    <div class="staff-nav-user">
-      <div class="staff-user-chip">
-        <div class="staff-avatar-circle">
-          <?= strtoupper(substr($staffName, 0, 1)) ?>
-        </div>
-        <div>
-          <span class="staff-user-text"><?= htmlspecialchars($staffName) ?></span>
-          <span class="staff-badge-id">STF-<?= str_pad((string)$staffId, 3, '0', STR_PAD_LEFT) ?></span>
+  <!-- Centralized Staff Sidebar Component (MedPulse Layout Parity) -->
+  <?php require_once __DIR__ . '/../includes/staff_sidebar.php'; ?>
+
+  <!-- Main Viewport Canvas (Full Width past Fixed Left Sidebar) -->
+  <main class="viewport-full">
+
+    <!-- Right-side Topbar showing authenticated Staff profile pill -->
+    <header class="staff-topbar">
+      <div class="topbar-context">
+        <div class="topbar-badge">
+          <span class="branch-pill-dot"></span>
+          <span>Staff Clinical Console</span>
         </div>
       </div>
-      <a href="../logout.php" class="btn-signout">
-        <i class="fa-solid fa-right-from-bracket"></i> Sign Out
-      </a>
-    </div>
-  </nav>
+      <div class="topbar-profile-container">
+        <div class="staff-profile-pill">
+          <div class="staff-avatar-badge"><?= htmlspecialchars(strtoupper(substr($staffName, 0, 1) ?: 'S'), ENT_QUOTES, 'UTF-8') ?></div>
+          <div class="staff-pill-details">
+            <span class="staff-pill-name" id="topbarStaffName"><?= htmlspecialchars($staffName, ENT_QUOTES, 'UTF-8') ?></span>
+            <span class="staff-pill-designation" id="topbarStaffDesignation"><?= htmlspecialchars($staffDesignation, ENT_QUOTES, 'UTF-8') ?></span>
+          </div>
+          <div class="staff-pill-branch">
+            <svg class="ui-ico ui-ico-sm" style="stroke: #0d9488; width: 14px; height: 14px;" viewBox="0 0 24 24"><path d="M3 21h18M5 21V7l8-4v18M13 7l6 3v11M9 9v.01M9 13v.01M9 17v.01M17 13v.01M17 17v.01"/></svg>
+            <span id="topbarStaffBranch"><?= htmlspecialchars($staffHospitalName, ENT_QUOTES, 'UTF-8') ?></span>
+          </div>
+        </div>
+      </div>
+    </header>
 
-  <div class="staff-container">
-
-    <!-- Flash Alert If Any -->
-    <?php if ($flashMessage): ?>
-      <script>
-        document.addEventListener('DOMContentLoaded', function() {
-          Swal.fire({
-            icon: '<?= $flashType === 'success' ? 'success' : 'error' ?>',
-            title: '<?= $flashType === 'success' ? 'Admission Confirmed' : 'Notification' ?>',
-            text: '<?= addslashes($flashMessage) ?>',
-            confirmButtonColor: '#0284c7'
-          });
-        });
-      </script>
-    <?php endif; ?>
-
-    <!-- Facility & Desk Banner -->
-    <div class="facility-banner">
-      <div class="facility-meta">
+    <!-- Clean Page Header: Staff Operations & Ward Admission Desk -->
+    <div class="welcome-banner">
+      <div class="welcome-text">
+        <div class="branch-identity-badge">
+          <span class="badge-dot"></span>
+          Facility Scope: <span id="headerFacilityName"><?= htmlspecialchars($staffHospitalName, ENT_QUOTES, 'UTF-8') ?></span> &bull; <?= htmlspecialchars($staffDepartment, ENT_QUOTES, 'UTF-8') ?>
+        </div>
         <h1>
-          <?= htmlspecialchars($staffHospitalName) ?>
-          <span class="facility-pill"><?= htmlspecialchars($staffHospitalCode) ?></span>
+          Staff Operations &amp; Ward Admission Desk
+          <svg class="ui-ico" style="stroke: #0d9488; width: 26px; height: 26px;" viewBox="0 0 24 24">
+            <path d="M2 4v16"></path>
+            <path d="M2 8h18a2 2 0 0 1 2 2v10"></path>
+            <path d="M2 17h20"></path>
+            <path d="M6 8v9"></path>
+          </svg>
         </h1>
-        <div class="facility-sub">
-          <i class="fa-solid fa-location-dot"></i> <?= htmlspecialchars($staffProfile['hospital_location'] ?? 'Dhaka Central') ?> &bull; Active Emergency Ward Triage Desk
-        </div>
-      </div>
-      <div class="staff-desk-info">
-        <div>
-          <div style="font-size: 0.68rem; color: #94a3b8; text-transform: uppercase; font-weight: 700;">Desk Officer</div>
-          <div style="font-size: 0.92rem; font-weight: 800; color: #ffffff;"><?= htmlspecialchars($staffName) ?></div>
-        </div>
-        <div style="height: 28px; width: 1px; background: rgba(255,255,255,0.2);"></div>
-        <div>
-          <div style="font-size: 0.68rem; color: #94a3b8; text-transform: uppercase; font-weight: 700;">Designation</div>
-          <div style="font-size: 0.85rem; font-weight: 700; color: #2dd4bf;"><?= htmlspecialchars($staffDesignation) ?></div>
-        </div>
+        <p>Ward-level patient intake desk, real-time incoming 45-minute bed pre-reservations, and synchronized clinical admission telemetry.</p>
       </div>
     </div>
 
-    <!-- Live Telemetry KPI Row -->
-    <div class="kpi-row">
-      <div class="kpi-card" style="border-left: 4px solid #f97316;">
-        <div>
-          <div class="kpi-label">Incoming 45-Min Bed Holds</div>
-          <div class="kpi-val" style="color: #ea580c;"><?= count($incomingHolds) ?></div>
-          <div class="kpi-sub">Awaiting patient intake</div>
+    <!-- Empty Card Container 1: Incoming Bed Holds -->
+    <div class="medpulse-card" id="cardIncomingHolds">
+      <div class="medpulse-card-header">
+        <div class="card-header-left">
+          <div class="card-icon-avatar" style="background: rgba(245, 158, 11, 0.12); color: #d97706;">
+            <svg class="ui-ico" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+          </div>
+          <div>
+            <h2 class="card-title">Incoming Bed Holds</h2>
+            <p class="card-subtitle">Real-time 45-minute patient reservations placed via self-service portal</p>
+          </div>
         </div>
-        <div class="kpi-icon-box" style="background: #fff7ed; color: #ea580c;">
-          <i class="fa-solid fa-clock-rotate-left"></i>
-        </div>
-      </div>
-
-      <div class="kpi-card" style="border-left: 4px solid #10b981;">
-        <div>
-          <div class="kpi-label">Active Facility Inpatients</div>
-          <div class="kpi-val" style="color: #059669;"><?= count($activeAdmissions) ?></div>
-          <div class="kpi-sub">Currently under care</div>
-        </div>
-        <div class="kpi-icon-box" style="background: #f0fdf4; color: #059669;">
-          <i class="fa-solid fa-bed-pulse"></i>
-        </div>
-      </div>
-
-      <div class="kpi-card" style="border-left: 4px solid #0284c7;">
-        <div>
-          <div class="kpi-label">Ward Census &amp; Vacancy</div>
-          <div class="kpi-val" style="color: #0284c7;"><?= $availableBeds ?></div>
-          <div class="kpi-sub"><?= $occupiedBeds ?> Occupied &bull; <?= $occupancyPct ?>% Capacity</div>
-        </div>
-        <div class="kpi-icon-box" style="background: #f0f9ff; color: #0284c7;">
-          <i class="fa-solid fa-hospital-user"></i>
-        </div>
-      </div>
-
-      <div class="kpi-card" style="border-left: 4px solid #8b5cf6;">
-        <div>
-          <div class="kpi-label">Super Admin Telemetry</div>
-          <div class="kpi-val" style="color: #7c3aed;">Synced</div>
-          <div class="kpi-sub">6 Network Facilities Active</div>
-        </div>
-        <div class="kpi-icon-box" style="background: #f5f3ff; color: #7c3aed;">
-          <i class="fa-solid fa-network-wired"></i>
-        </div>
-      </div>
-    </div>
-
-    <!-- Section 1: Incoming 45-Minute Bed Holds -->
-    <div class="panel-box">
-      <div class="panel-header-flex">
-        <div>
-          <h2 class="panel-title">
-            <i class="fa-solid fa-hourglass-half" style="color: #f97316;"></i>
-            Incoming Patient Bed Holds (45-Minute Window)
-          </h2>
-          <p style="font-size: 0.82rem; color: var(--text-muted); margin-top: 2px;">
-            Patients holding beds via self-service portal. Review details and accept for inpatient intake.
-          </p>
-        </div>
-        <div>
-          <span class="pulse-pill-amber">
-            <span class="pulse-dot-amber"></span>
-            <?= count($incomingHolds) ?> Active Hold<?= count($incomingHolds) === 1 ? '' : 's' ?>
+        <div class="card-header-right">
+          <span class="status-indicator-pill pill-amber" id="holdsHeaderBadge">
+            <span class="status-indicator-dot dot-amber"></span>
+            <span id="holdsBadgeText">45-Min Hold Queue</span>
           </span>
         </div>
       </div>
-
-      <?php if (empty($incomingHolds)): ?>
-        <div style="text-align: center; padding: 2.5rem 1rem; color: var(--text-muted);">
-          <div style="font-size: 2.5rem; color: #cbd5e1; margin-bottom: 0.5rem;"><i class="fa-solid fa-circle-check"></i></div>
-          <strong style="color: var(--text-heading); font-size: 1rem; display: block; margin-bottom: 0.25rem;">No Active Incoming Bed Holds</strong>
-          <span>All reserved beds have either been admitted to wards or automatically released to network vacancy.</span>
+      <div class="medpulse-card-body" id="holdsCardBody">
+        <div class="empty-state-box" id="holdsEmptyState">
+          <div class="empty-state-graphic">
+            <svg class="ui-ico" style="width: 30px; height: 30px; stroke: #94a3b8;" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+          </div>
+          <h3 class="empty-state-heading">No Incoming Bed Holds</h3>
+          <p class="empty-state-text">There are currently no active patient pre-reservations awaiting triage intake. Newly initiated holds will appear here automatically with live countdown telemetry.</p>
         </div>
-      <?php else: ?>
-        <div class="holds-grid">
-          <?php foreach ($incomingHolds as $hold): ?>
-            <div class="hold-card" id="holdCard-<?= (int)$hold['reservation_id'] ?>">
-              <div class="hold-card-top">
-                <span class="hold-bed-badge">
-                  <i class="fa-solid fa-bed"></i> Bed <?= htmlspecialchars($hold['bed_number']) ?>
-                </span>
-                <span class="hold-timer-chip" data-seconds="<?= (int)$hold['seconds_remaining'] ?>">
-                  <i class="fa-regular fa-clock"></i>
-                  <span class="timer-readout"><?= sprintf('%02d:%02d', floor($hold['seconds_remaining'] / 60), $hold['seconds_remaining'] % 60) ?></span>
-                </span>
-              </div>
-
-              <div class="hold-pat-name"><?= htmlspecialchars($hold['patient_name']) ?></div>
-              <div class="hold-pat-meta">
-                <strong><?= htmlspecialchars($hold['patient_uid']) ?></strong> &bull; <?= htmlspecialchars($hold['gender'] ?? 'N/A') ?>, <?= (int)$hold['age'] ?> yrs &bull; Blood: <?= htmlspecialchars($hold['blood_group']) ?>
-              </div>
-
-              <div class="hold-details-box">
-                <div class="hold-row">
-                  <span class="hold-row-key">Ward Assignment:</span>
-                  <span class="hold-row-val"><?= htmlspecialchars($hold['ward_type']) ?> (Floor <?= (int)$hold['floor_number'] ?>)</span>
-                </div>
-                <div class="hold-row">
-                  <span class="hold-row-key">Daily Ward Rate:</span>
-                  <span class="hold-row-val" style="color: #0d9488;">৳<?= number_format((float)$hold['daily_rate'], 2) ?>/day</span>
-                </div>
-                <div class="hold-row">
-                  <span class="hold-row-key">Patient Phone:</span>
-                  <span class="hold-row-val"><?= htmlspecialchars($hold['patient_phone']) ?></span>
-                </div>
-              </div>
-
-              <button type="button" 
-                      class="btn-accept-admission"
-                      data-reservation-id="<?= (int)$hold['reservation_id'] ?>"
-                      data-bed-id="<?= (int)$hold['bed_id'] ?>"
-                      data-bed-number="<?= htmlspecialchars($hold['bed_number'], ENT_QUOTES, 'UTF-8') ?>"
-                      data-ward-type="<?= htmlspecialchars($hold['ward_type'], ENT_QUOTES, 'UTF-8') ?>"
-                      data-daily-rate="<?= htmlspecialchars((string)$hold['daily_rate'], ENT_QUOTES, 'UTF-8') ?>"
-                      data-patient-id="<?= (int)$hold['patient_id'] ?>"
-                      data-patient-uid="<?= htmlspecialchars($hold['patient_uid'], ENT_QUOTES, 'UTF-8') ?>"
-                      data-patient-name="<?= htmlspecialchars($hold['patient_name'], ENT_QUOTES, 'UTF-8') ?>"
-                      data-patient-age="<?= (int)$hold['age'] ?>"
-                      data-patient-gender="<?= htmlspecialchars($hold['gender'] ?? 'Male', ENT_QUOTES, 'UTF-8') ?>"
-                      data-patient-phone="<?= htmlspecialchars($hold['patient_phone'], ENT_QUOTES, 'UTF-8') ?>"
-                      onclick="openAdmissionModalFromHold(this)">
-                <i class="fa-solid fa-file-signature"></i> [ Accept &amp; Process Admission ]
-              </button>
-            </div>
-          <?php endforeach; ?>
-        </div>
-      <?php endif; ?>
+        <div class="holds-grid" id="holdsGrid" style="display: none;"></div>
+      </div>
     </div>
 
-    <!-- Section 2: Live Inpatient Ward Registry (Active Facility Admissions) -->
-    <div class="panel-box">
-      <div class="panel-header-flex">
-        <div>
-          <h2 class="panel-title">
-            <i class="fa-solid fa-hospital-user" style="color: var(--brand-teal);"></i>
-            Live Inpatient Ward Registry (Current Facility Inpatients)
-          </h2>
-          <p style="font-size: 0.82rem; color: var(--text-muted); margin-top: 2px;">
-            Synchronized registry across Staff Desk, Branch Admin Inpatient Registry, and Super Admin Telemetry.
-          </p>
+    <!-- Empty Card Container 2: Inpatient Registry -->
+    <div class="medpulse-card" id="cardInpatientRegistry">
+      <div class="medpulse-card-header">
+        <div class="card-header-left">
+          <div class="card-icon-avatar" style="background: rgba(13, 148, 136, 0.12); color: #0d9488;">
+            <svg class="ui-ico" viewBox="0 0 24 24">
+              <path d="M2 4v16"></path>
+              <path d="M2 8h18a2 2 0 0 1 2 2v10"></path>
+              <path d="M2 17h20"></path>
+              <path d="M6 8v9"></path>
+            </svg>
+          </div>
+          <div>
+            <h2 class="card-title">Inpatient Registry</h2>
+            <p class="card-subtitle">Active admitted patients, attending consultants, and ward room occupancy</p>
+          </div>
         </div>
-        <div style="display:flex; align-items:center; gap:8px;">
-          <span class="badge-inpatient-live">
-            <span class="dot-inpatient"></span>
-            <?= count($activeAdmissions) ?> Active Inpatient<?= count($activeAdmissions) === 1 ? '' : 's' ?>
+        <div class="card-header-right">
+          <span class="status-indicator-pill pill-teal" id="inpatientHeaderBadge">
+            <span class="status-indicator-dot dot-teal"></span>
+            <span id="inpatientBadgeText">Live Synchronized</span>
           </span>
         </div>
       </div>
-
-      <?php if (empty($activeAdmissions)): ?>
-        <div style="text-align: center; padding: 2.5rem 1rem; color: var(--text-muted);">
-          No patients are currently admitted in the inpatient ward.
+      <div class="medpulse-card-body" id="inpatientCardBody">
+        <div class="empty-state-box" id="inpatientEmptyState">
+          <div class="empty-state-graphic">
+            <svg class="ui-ico" style="width: 30px; height: 30px; stroke: #94a3b8;" viewBox="0 0 24 24">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
+              <circle cx="9" cy="7" r="4"></circle>
+              <line x1="19" y1="8" x2="19" y2="14"></line>
+              <line x1="22" y1="11" x2="16" y2="11"></line>
+            </svg>
+          </div>
+          <h3 class="empty-state-heading">Inpatient Registry Empty</h3>
+          <p class="empty-state-text">No active inpatient admissions are currently assigned to this facility ward. Admitted patients will be logged in this ledger upon confirmation.</p>
         </div>
-      <?php else: ?>
-        <div class="table-responsive">
-          <table class="data-table">
+        <div class="table-responsive" id="inpatientTableWrap" style="display: none;">
+          <table class="medpulse-table">
             <thead>
               <tr>
                 <th>Bed Assignment</th>
                 <th>Patient Details</th>
-                <th>Admitting Staff</th>
                 <th>Attending Consultant</th>
-                <th>Clinical Diagnosis &amp; Acuity</th>
-                <th>Billing &amp; Deposit</th>
-                <th>Status</th>
+                <th>Admitting Staff</th>
+                <th>Diagnosis &amp; Acuity</th>
+                <th>Admission Time</th>
               </tr>
             </thead>
-            <tbody>
-              <?php foreach ($activeAdmissions as $adm): ?>
-                <?php
-                  $acuity = strtolower($adm['triage_acuity'] ?? 'routine');
-                  $acuityClass = 'acuity-routine';
-                  if ($acuity === 'critical') $acuityClass = 'acuity-critical';
-                  elseif ($acuity === 'post-op') $acuityClass = 'acuity-postop';
-                ?>
-                <tr>
-                  <td>
-                    <span class="badge-bed">
-                      <i class="fa-solid fa-bed"></i> <?= htmlspecialchars($adm['bed_number']) ?>
-                    </span>
-                    <div style="font-size: 0.76rem; color: var(--text-muted); margin-top: 2px;">
-                      <?= htmlspecialchars($adm['ward_type']) ?> &bull; Fl <?= (int)$adm['floor_number'] ?>
-                    </div>
-                  </td>
-                  <td>
-                    <strong style="color: var(--text-heading); font-size: 0.92rem;">
-                      <?= htmlspecialchars($adm['patient_name']) ?>
-                    </strong>
-                    <div style="font-size: 0.76rem; color: var(--text-muted);">
-                      UHID: <span style="font-family:'JetBrains Mono',monospace; font-weight:700; color:#0284c7;"><?= htmlspecialchars($adm['patient_uid']) ?></span>
-                      &bull; <?= htmlspecialchars($adm['gender']) ?>, <?= (int)$adm['age'] ?>y
-                    </div>
-                  </td>
-                  <td>
-                    <div style="font-weight: 700; color: var(--text-heading);">
-                      <?= htmlspecialchars($adm['staff_name'] ?? $staffName) ?>
-                    </div>
-                    <div style="font-size: 0.74rem; color: #0d9488; font-weight: 600;">
-                      <?= htmlspecialchars($adm['staff_role'] ?? $staffDesignation) ?>
-                    </div>
-                  </td>
-                  <td>
-                    <div style="font-weight: 700; color: var(--text-heading);">
-                      Dr. <?= htmlspecialchars($adm['doctor_name'] ?? 'Assigned Duty Doctor') ?>
-                    </div>
-                    <div style="font-size: 0.74rem; color: var(--text-muted);">
-                      <?= htmlspecialchars($adm['doctor_specialty'] ?? 'Clinical Specialist') ?>
-                    </div>
-                  </td>
-                  <td>
-                    <div style="font-weight: 700; color: var(--text-heading); max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="<?= htmlspecialchars($adm['primary_diagnosis'] ?: $adm['admission_reason']) ?>">
-                      <?= htmlspecialchars($adm['primary_diagnosis'] ?: $adm['admission_reason']) ?>
-                    </div>
-                    <div style="margin-top: 3px;">
-                      <span class="badge-acuity <?= $acuityClass ?>"><?= htmlspecialchars($adm['triage_acuity']) ?></span>
-                    </div>
-                  </td>
-                  <td>
-                    <div style="font-weight: 800; color: #0d9488;">
-                      ৳<?= number_format((float)$adm['deposit_amount'], 2) ?>
-                    </div>
-                    <div style="font-size: 0.74rem; color: var(--text-muted);">
-                      <?= htmlspecialchars($adm['payment_method']) ?> &bull; ৳<?= number_format((float)$adm['daily_rate'], 2) ?>/day
-                    </div>
-                  </td>
-                  <td>
-                    <span class="badge-inpatient-live">
-                      <span class="dot-inpatient"></span> Inpatient
-                    </span>
-                    <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 2px;">
-                      <?= date('d M, h:i A', strtotime($adm['admitted_at'])) ?>
-                    </div>
-                  </td>
-                </tr>
-              <?php endforeach; ?>
-            </tbody>
+            <tbody id="inpatientTableBody"></tbody>
           </table>
         </div>
-      <?php endif; ?>
+      </div>
     </div>
 
-  </div>
+  </main>
 
-  <!-- ── Inpatient Admission Dossier Modal ───────────────────────────────────── -->
+  <!-- ── Inpatient Admission Dossier Modal (Teal Accent) ───────────────────── -->
   <div class="modal-overlay" id="admissionModal">
-    <div class="modal-card">
+    <div class="modal-card modal-card-admit">
       <div class="modal-head">
         <div>
-          <h3><i class="fa-solid fa-hospital-user"></i> Hospital Bed Admission Dossier</h3>
-          <div style="font-size: 0.76rem; color: #94a3b8;">Complete patient clinical intake &amp; confirm room occupancy</div>
+          <div class="modal-head-title">
+            <svg class="ui-ico" style="stroke: #0d9488; width: 20px; height: 20px;" viewBox="0 0 24 24"><path d="M2 4v16"></path><path d="M2 8h18a2 2 0 0 1 2 2v10"></path><path d="M2 17h20"></path><path d="M6 8v9"></path></svg>
+            Hospital Bed Admission Dossier
+          </div>
+          <div class="modal-head-sub">Complete patient clinical intake &amp; confirm room occupancy</div>
         </div>
         <button type="button" class="btn-modal-close" onclick="closeAdmissionModal()">&times;</button>
       </div>
 
-      <form id="admissionForm" method="POST" action="dashboard.php">
-        <input type="hidden" name="action" value="process_admission">
+      <form id="admissionForm" onsubmit="submitAdmission(event)">
         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
         <input type="hidden" name="reservation_id" id="modalReservationId" value="">
         <input type="hidden" name="bed_id" id="modalBedId" value="">
         <input type="hidden" name="patient_id" id="modalPatientId" value="">
+        <input type="hidden" name="daily_rate" id="modalDailyRate" value="1500.00">
 
         <div class="modal-body">
-          
-          <!-- 1. Admitting Staff Metadata -->
-          <div class="form-panel" style="border-left: 3px solid #0284c7;">
-            <div class="form-panel-title">
-              <i class="fa-solid fa-id-badge"></i> 1. Admitting Staff Metadata (Officer On Duty)
+          <!-- 1. Staff Metadata (Read-only) -->
+          <div class="modal-section-card">
+            <div class="modal-sec-title">
+              <svg class="ui-ico ui-ico-sm" style="stroke: #0d9488;" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line></svg>
+              1. Admitting Staff Metadata (Read-Only)
             </div>
-            <div class="staff-meta-strip">
-              <div class="staff-pill-box">
-                <div class="spb-label">Staff Member Name</div>
-                <div class="spb-val"><?= htmlspecialchars($staffName) ?></div>
+            <div class="strip-grid-3">
+              <div class="strip-pill">
+                <div class="strip-label">Staff Officer</div>
+                <div class="strip-val" id="modalStaffName"><?= htmlspecialchars($staffName, ENT_QUOTES, 'UTF-8') ?></div>
               </div>
-              <div class="staff-pill-box">
-                <div class="spb-label">Official Designation</div>
-                <div class="spb-val" style="color: #0d9488;"><?= htmlspecialchars($staffDesignation) ?></div>
+              <div class="strip-pill">
+                <div class="strip-label">Designation</div>
+                <div class="strip-val" style="color: #0d9488;" id="modalStaffDesignation"><?= htmlspecialchars($staffDesignation, ENT_QUOTES, 'UTF-8') ?></div>
               </div>
-              <div class="staff-pill-box">
-                <div class="spb-label">Staff Identity #</div>
-                <div class="spb-val" style="font-family:'JetBrains Mono',monospace;">STF-<?= str_pad((string)$staffId, 3, '0', STR_PAD_LEFT) ?></div>
-              </div>
-            </div>
-          </div>
-
-          <!-- 2. Patient & Guardian Details -->
-          <div class="form-panel">
-            <div class="form-panel-title">
-              <i class="fa-solid fa-user-injured"></i> 2. Patient &amp; Emergency Guardian Details
-            </div>
-            <div class="form-grid-3">
-              <div class="form-group">
-                <label>Patient UHID</label>
-                <input type="text" class="form-control" id="modalPatientUid" readonly>
-              </div>
-              <div class="form-group">
-                <label>Patient Full Name</label>
-                <input type="text" class="form-control" id="modalPatientName" readonly>
-              </div>
-              <div class="form-group">
-                <label>Demographics</label>
-                <input type="text" class="form-control" id="modalPatientDemo" readonly>
-              </div>
-            </div>
-
-            <div class="form-grid-3" style="margin-top: 0.75rem;">
-              <div class="form-group">
-                <label>Emergency Contact / Guardian Name *</label>
-                <input type="text" class="form-control" name="guardian_name" id="modalGuardianName" placeholder="Full name of next of kin" required>
-              </div>
-              <div class="form-group">
-                <label>Relation to Patient *</label>
-                <select class="form-control" name="guardian_relation" id="modalGuardianRelation" required>
-                  <option value="Spouse">Spouse</option>
-                  <option value="Parent">Parent / Mother / Father</option>
-                  <option value="Child">Son / Daughter</option>
-                  <option value="Sibling">Brother / Sister</option>
-                  <option value="Guardian">Legal Guardian</option>
-                  <option value="Other">Other Kin / Relative</option>
-                </select>
-              </div>
-              <div class="form-group">
-                <label>Guardian Contact Phone *</label>
-                <input type="tel" class="form-control" name="guardian_phone" id="modalGuardianPhone" placeholder="017XXXXXXXX" required>
+              <div class="strip-pill">
+                <div class="strip-label">Branch Facility</div>
+                <div class="strip-val" id="modalStaffBranch"><?= htmlspecialchars($staffHospitalName, ENT_QUOTES, 'UTF-8') ?></div>
               </div>
             </div>
           </div>
 
-          <!-- 3. Clinical Allocation & Acuity -->
-          <div class="form-panel">
-            <div class="form-panel-title">
-              <i class="fa-solid fa-stethoscope"></i> 3. Clinical Allocation &amp; Triage Acuity
+          <!-- 2. Patient & Bed Details (Read-only) -->
+          <div class="modal-section-card">
+            <div class="modal-sec-title">
+              <svg class="ui-ico ui-ico-sm" style="stroke: #0d9488;" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle></svg>
+              2. Patient &amp; Bed Assignment (Read-Only)
+            </div>
+            <div class="strip-grid-3">
+              <div class="strip-pill">
+                <div class="strip-label">Patient Name</div>
+                <div class="strip-val" id="modalPatientName">-</div>
+              </div>
+              <div class="strip-pill">
+                <div class="strip-label">Patient UHID</div>
+                <div class="strip-val" style="font-family:'JetBrains Mono',monospace; color:#0284c7;" id="modalPatientUhid">-</div>
+              </div>
+              <div class="strip-pill">
+                <div class="strip-label">Assigned Bed</div>
+                <div class="strip-val" id="modalBedNumber">-</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 3. Dynamic Clinical Inputs -->
+          <div class="modal-section-card">
+            <div class="modal-sec-title">
+              <svg class="ui-ico ui-ico-sm" style="stroke: #0d9488;" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+              3. Clinical Allocation &amp; Triage Acuity
             </div>
             <div class="form-grid-2">
               <div class="form-group">
-                <label>Attending Physician / Consultant *</label>
+                <label class="form-label" for="modalAttendingDoctor">Attending Consultant *</label>
                 <select class="form-control" name="attending_doctor_id" id="modalAttendingDoctor" required>
-                  <option value="">-- Select Active Doctor from Registry --</option>
-                  <?php foreach ($activeDoctors as $doc): ?>
-                    <option value="<?= (int)$doc['user_id'] ?>">
-                      Dr. <?= htmlspecialchars($doc['full_name']) ?> (<?= htmlspecialchars($doc['specialty']) ?>)
-                    </option>
-                  <?php endforeach; ?>
+                  <option value="">-- Select Active Consultant --</option>
                 </select>
               </div>
               <div class="form-group">
-                <label>Triage Acuity Level *</label>
+                <label class="form-label" for="modalTriageAcuity">Triage Acuity Level *</label>
                 <select class="form-control" name="triage_acuity" id="modalTriageAcuity" required>
-                  <option value="Routine">Routine (Stable Inpatient Care)</option>
+                  <option value="Routine">Routine (Stable Ward Monitoring)</option>
                   <option value="Critical">Critical (High Dependency / ICU Priority)</option>
                   <option value="Post-Op">Post-Op (Surgical Recovery Care)</option>
                 </select>
@@ -1293,204 +1211,551 @@ $csrfToken = $_SESSION['csrf_token'];
             </div>
 
             <div class="form-group" style="margin-top: 0.75rem;">
-              <label>Admission Reason / Primary Diagnosis *</label>
-              <textarea class="form-control" name="primary_diagnosis" id="modalDiagnosis" rows="2" placeholder="e.g. Acute exacerbation of COPD, post-appendectomy observation, severe dehydration..." required></textarea>
-            </div>
-          </div>
-
-          <!-- 4. Room/Bed Assignment & Billing Reference -->
-          <div class="form-panel">
-            <div class="form-panel-title">
-              <i class="fa-solid fa-receipt"></i> 4. Room/Bed Assignment &amp; Billing Reference
-            </div>
-            <div class="form-grid-3">
-              <div class="form-group">
-                <label>Assigned Room / Bed #</label>
-                <input type="text" class="form-control" id="modalBedDisplay" readonly>
-              </div>
-              <div class="form-group">
-                <label>Daily Ward Rate (৳)</label>
-                <input type="number" step="0.01" class="form-control" name="daily_rate" id="modalDailyRate" required>
-              </div>
-              <div class="form-group">
-                <label>Initial Admission Deposit (৳) *</label>
-                <input type="number" step="0.01" class="form-control" name="deposit_amount" id="modalDeposit" value="5000.00" required>
-              </div>
+              <label class="form-label" for="modalPrimaryDiagnosis">Primary Diagnosis / Admission Reason *</label>
+              <textarea class="form-control" name="primary_diagnosis" id="modalPrimaryDiagnosis" rows="2" placeholder="e.g. Acute exacerbation of COPD, post-op observation, acute gastroenteritis with dehydration" required></textarea>
             </div>
 
             <div class="form-grid-2" style="margin-top: 0.75rem;">
               <div class="form-group">
-                <label>Deposit Payment Method *</label>
-                <select class="form-control" name="payment_method" id="modalPaymentMethod" required>
-                  <option value="Cash">Cash (Hospital Reception)</option>
-                  <option value="Card">Credit / Debit POS Card</option>
-                  <option value="MFS">Mobile Financial Service (bKash / Nagad)</option>
-                </select>
+                <label class="form-label" for="modalGuardianName">Emergency Contact / Guardian *</label>
+                <input type="text" class="form-control" name="guardian_name" id="modalGuardianName" placeholder="Full name of Next of Kin" required>
               </div>
               <div class="form-group">
-                <label>Payment Reference / Transaction ID</label>
-                <input type="text" class="form-control" name="payment_reference" placeholder="e.g., POS-994821 or TXN-BKASH-84">
+                <label class="form-label" for="modalGuardianPhone">Guardian Contact Phone *</label>
+                <input type="tel" class="form-control" name="guardian_phone" id="modalGuardianPhone" placeholder="017XXXXXXXX" required>
               </div>
             </div>
           </div>
 
+          <!-- 4. Billing Deposit & Channel -->
+          <div class="modal-section-card">
+            <div class="modal-sec-title">
+              <svg class="ui-ico ui-ico-sm" style="stroke: #0d9488;" viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect><line x1="1" y1="10" x2="23" y2="10"></line></svg>
+              4. Admission Billing &amp; Deposit
+            </div>
+            <div class="form-grid-2">
+              <div class="form-group">
+                <label class="form-label" for="modalDepositAmount">Initial Admission Deposit (৳) *</label>
+                <input type="number" step="0.01" class="form-control" name="deposit_amount" id="modalDepositAmount" value="5000.00" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="modalPaymentMethod">Payment Channel *</label>
+                <select class="form-control" name="payment_method" id="modalPaymentMethod" required>
+                  <option value="Cash">Cash (Ward Intake Desk)</option>
+                  <option value="Card">Credit / Debit POS Card</option>
+                  <option value="MFS">MFS (bKash / Nagad / Upay)</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group" style="margin-top: 0.75rem;">
+              <label class="form-label" for="modalPaymentReference">Payment Reference / Transaction ID</label>
+              <input type="text" class="form-control" name="payment_reference" id="modalPaymentReference" placeholder="e.g. POS-98214 or TRX-BKASH-7462">
+            </div>
+          </div>
         </div>
 
         <div class="modal-foot">
           <button type="button" class="btn-secondary" onclick="closeAdmissionModal()">Cancel</button>
-          <button type="submit" class="btn-confirm-admission" id="btnSubmitAdmission">
-            <i class="fa-solid fa-check-circle"></i> Confirm Inpatient Admission
+          <button type="submit" class="btn-submit-modal" id="btnSubmitAdmission">
+            <svg class="ui-ico ui-ico-sm" style="stroke: white;" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            Confirm Inpatient Admission
           </button>
         </div>
       </form>
     </div>
   </div>
 
+  <!-- ── Custom Bed Hold Release Confirmation Modal (Red Accent) ─────────────── -->
+  <div class="modal-overlay" id="releaseConfirmModal">
+    <div class="modal-card modal-card-release">
+      <div class="modal-head" style="border-bottom: 1px solid #fee2e2; background: #fffcfc;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <div style="width: 40px; height: 40px; border-radius: 10px; background: #fef2f2; border: 1px solid #fecaca; display: flex; align-items: center; justify-content: center; color: #ef4444; flex-shrink: 0;">
+            <svg class="ui-ico" style="stroke: #ef4444; width: 22px; height: 22px;" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+          </div>
+          <div>
+            <div class="modal-head-title" style="color: #991b1b; font-size: 1.05rem;">Release Bed Reservation Hold</div>
+            <div class="modal-head-sub" style="color: #64748b;">Cancel hold &amp; reopen bed to network vacancy</div>
+          </div>
+        </div>
+        <button type="button" class="btn-modal-close" onclick="closeReleaseModal()">&times;</button>
+      </div>
+
+      <div class="modal-body" style="padding: 1.25rem 1.5rem; gap: 1rem;">
+        <p style="font-size: 0.88rem; color: #475569; margin: 0; line-height: 1.5;">
+          Are you sure you want to release the active reservation hold for this patient? The bed will immediately return to <strong>Available</strong> status across the hospital network.
+        </p>
+
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 0.85rem 1rem; display: flex; flex-direction: column; gap: 8px;">
+          <div style="display: flex; justify-content: space-between; font-size: 0.83rem;">
+            <span style="color: #64748b; font-weight: 600;">Patient Name:</span>
+            <strong style="color: #0f172a;" id="releaseModalPatientName">-</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; font-size: 0.83rem;">
+            <span style="color: #64748b; font-weight: 600;">Patient UHID:</span>
+            <span style="font-family: 'JetBrains Mono', monospace; color: #0284c7; font-weight: 700;" id="releaseModalUhid">-</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; font-size: 0.83rem;">
+            <span style="color: #64748b; font-weight: 600;">Assigned Bed:</span>
+            <strong style="color: #0f172a;" id="releaseModalBedNumber">-</strong>
+          </div>
+        </div>
+
+        <input type="hidden" id="releaseModalReservationId" value="">
+        <input type="hidden" id="releaseModalBedId" value="">
+
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 0.5rem;">
+          <button type="button" class="btn-secondary" onclick="closeReleaseModal()" style="padding: 0.65rem 1.1rem;">
+            [ Keep Hold ]
+          </button>
+          <button type="button" id="btnConfirmRelease" onclick="confirmReleaseHoldAction()" style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: #ffffff; border: none; border-radius: 9px; padding: 0.65rem 1.25rem; font-size: 0.86rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.28); transition: all 0.2s;">
+            <svg class="ui-ico ui-ico-sm" style="stroke: white;" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            [ Release Bed to Vacancy ]
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Real-Time Polling & Inpatient Admission Engine ───────────────────────── -->
   <script>
-    // ── Live Countdown Timers for Incoming Bed Holds ──────────────────────────
-    function initHoldTimers() {
-      const chips = document.querySelectorAll('.hold-timer-chip');
-      chips.forEach(chip => {
-        let secs = parseInt(chip.getAttribute('data-seconds'), 10) || 0;
-        const readout = chip.querySelector('.timer-readout');
+    const csrfToken = <?= json_encode($csrfToken, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+    let activeDoctorsList = [];
+    let currentHoldsMap = new Map(); // reservationId => holdObject
+    let pollIntervalTimer = null;
+    let countdownTickTimer = null;
 
-        const interval = setInterval(() => {
-          if (secs <= 0) {
-            clearInterval(interval);
-            chip.textContent = 'Hold Expired';
-            chip.style.background = '#fef2f2';
-            chip.style.color = '#ef4444';
-            setTimeout(() => window.location.reload(), 2000);
-            return;
-          }
-          secs--;
-          chip.setAttribute('data-seconds', secs);
-          const mins = Math.floor(secs / 60);
-          const rem = secs % 60;
-          if (readout) {
-            readout.textContent = `${String(mins).padStart(2, '0')}:${String(rem).padStart(2, '0')}`;
-          }
-        }, 1000);
-      });
+    // Toast Notification System
+    function showToast(message, type = 'success') {
+      const toast = document.getElementById('staffToast');
+      if (!toast) return;
+
+      toast.className = 'medpulse-toast ' + (type === 'success' ? '' : 'toast-error');
+      const iconSvg = (type === 'success')
+        ? '<svg class="ui-ico" style="stroke: #0d9488;" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>'
+        : '<svg class="ui-ico" style="stroke: #ef4444;" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>';
+
+      toast.innerHTML = `
+        <div class="toast-icon-wrap">${iconSvg}</div>
+        <div class="toast-text">${message}</div>
+        <button type="button" class="toast-close" onclick="this.parentElement.classList.remove('show')">&times;</button>
+      `;
+      toast.classList.add('show');
+
+      clearTimeout(toast._timer);
+      toast._timer = setTimeout(() => {
+        toast.classList.remove('show');
+      }, 4000);
     }
-    initHoldTimers();
 
-    // ── Admission Modal Controls & Pre-fill ──────────────────────────────────
-    function openAdmissionModalFromHold(button) {
-      const reservationId = button.getAttribute('data-reservation-id') || '';
-      const bedId         = button.getAttribute('data-bed-id') || '';
-      const bedNumber     = button.getAttribute('data-bed-number') || '';
-      const wardType      = button.getAttribute('data-ward-type') || '';
-      const dailyRate     = button.getAttribute('data-daily-rate') || '1500';
-      const patientId     = button.getAttribute('data-patient-id') || '';
-      const patientUid    = button.getAttribute('data-patient-uid') || '';
-      const patientName   = button.getAttribute('data-patient-name') || '';
-      const patientAge    = button.getAttribute('data-patient-age') || '';
-      const patientGender = button.getAttribute('data-patient-gender') || '';
-      const patientPhone  = button.getAttribute('data-patient-phone') || '';
+    // Format Remaining Seconds as MM:SS Left
+    function formatCountdown(totalSecs) {
+      if (totalSecs <= 0) return 'Expired';
+      const m = Math.floor(totalSecs / 60);
+      const s = totalSecs % 60;
+      return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')} Left`;
+    }
 
-      document.getElementById('modalReservationId').value = reservationId;
-      document.getElementById('modalBedId').value         = bedId;
-      document.getElementById('modalPatientId').value     = patientId;
+    // Modal Controls
+    function openAdmissionModal(reservationId) {
+      const hold = currentHoldsMap.get(Number(reservationId));
+      if (!hold) return;
 
-      document.getElementById('modalPatientUid').value  = patientUid;
-      document.getElementById('modalPatientName').value = patientName;
-      document.getElementById('modalPatientDemo').value = `${patientGender}, ${patientAge} yrs`;
+      document.getElementById('modalReservationId').value = hold.reservation_id;
+      document.getElementById('modalBedId').value         = hold.bed_id;
+      document.getElementById('modalPatientId').value     = hold.patient_id;
+      document.getElementById('modalDailyRate').value     = hold.daily_rate || '1500.00';
 
-      document.getElementById('modalBedDisplay').value  = `${bedNumber} (${wardType})`;
-      document.getElementById('modalDailyRate').value   = dailyRate;
+      document.getElementById('modalPatientName').textContent = hold.patient_name;
+      document.getElementById('modalPatientUhid').textContent = hold.uhid;
+      document.getElementById('modalBedNumber').textContent   = `Bed ${hold.bed_number} (${hold.ward_type})`;
 
       // Default emergency contact to patient phone if empty
       const gPhone = document.getElementById('modalGuardianPhone');
-      if (gPhone && !gPhone.value) {
-        gPhone.value = patientPhone;
+      if (gPhone && (!gPhone.value || gPhone.value.trim() === '')) {
+        gPhone.value = hold.phone && hold.phone !== 'N/A' ? hold.phone : '';
       }
+
+      // Populate Doctors dropdown dynamically
+      populateDoctorSelect();
 
       document.getElementById('admissionModal').classList.add('active');
       document.body.style.overflow = 'hidden';
     }
 
     function closeAdmissionModal() {
-      document.getElementById('admissionModal').classList.remove('active');
+      const modal = document.getElementById('admissionModal');
+      if (modal) modal.classList.remove('active');
       document.body.style.overflow = '';
     }
 
-    // Close on escape key
-    document.addEventListener('keydown', function(e) {
-      if (e.key === 'Escape') closeAdmissionModal();
+    // Custom Release Confirmation Modal Controls (Purges window.confirm / alert)
+    function openReleaseModal(reservationId, bedId, patientName, bedNumber, wardType, uhid) {
+      document.getElementById('releaseModalReservationId').value = reservationId;
+      document.getElementById('releaseModalBedId').value         = bedId;
+      document.getElementById('releaseModalPatientName').textContent = patientName || 'Selected Patient';
+      document.getElementById('releaseModalUhid').textContent        = uhid || 'N/A';
+      document.getElementById('releaseModalBedNumber').textContent   = `Bed ${bedNumber}${wardType ? ' (' + wardType + ')' : ''}`;
+
+      document.getElementById('releaseConfirmModal').classList.add('active');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeReleaseModal() {
+      const modal = document.getElementById('releaseConfirmModal');
+      if (modal) modal.classList.remove('active');
+      document.body.style.overflow = '';
+    }
+
+    // Real-Time Asynchronous Release Action Dispatcher
+    async function confirmReleaseHoldAction() {
+      const resId = document.getElementById('releaseModalReservationId').value;
+      const bedId = document.getElementById('releaseModalBedId').value;
+      const btn   = document.getElementById('btnConfirmRelease');
+
+      if (!resId && !bedId) return;
+
+      btn.disabled = true;
+      btn.innerHTML = '<svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24" style="stroke: white; animation: spin 1s linear infinite;"><line x1="12" y1="2" x2="12" y2="6"></line><line x1="12" y1="18" x2="12" y2="22"></line><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line><line x1="2" y1="12" x2="6" y2="12"></line><line x1="18" y1="12" x2="22" y2="12"></line></svg> Releasing Bed...';
+
+      const formData = new FormData();
+      formData.append('action', 'release_hold');
+      formData.append('reservation_id', resId);
+      formData.append('bed_id', bedId);
+      formData.append('csrf_token', csrfToken);
+
+      try {
+        const res = await fetch('api/live_sync.php', {
+          method: 'POST',
+          body: formData
+        });
+        const data = await res.json();
+        if (data.success) {
+          closeReleaseModal();
+          showToast('Bed successfully released to open vacancy.', 'success');
+          // Smoothly refresh incoming hold cards and inpatient registry via DOM transition
+          await pollSync();
+        } else {
+          showToast(data.message || 'Could not release hold.', 'error');
+        }
+      } catch (err) {
+        showToast('Network error while releasing hold.', 'error');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<svg class="ui-ico ui-ico-sm" style="stroke: white;" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg> [ Release Bed to Vacancy ]';
+      }
+    }
+
+    // Modal Keyboard & Backdrop Click Listeners
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeAdmissionModal();
+        closeReleaseModal();
+      }
     });
 
-    // ── AJAX Admission Submission & Instant Feedback ──────────────────────────
-    const form = document.getElementById('admissionForm');
-    const submitBtn = document.getElementById('btnSubmitAdmission');
+    document.addEventListener('click', (e) => {
+      if (e.target && e.target.id === 'admissionModal') closeAdmissionModal();
+      if (e.target && e.target.id === 'releaseConfirmModal') closeReleaseModal();
+    });
 
-    if (form) {
-      form.addEventListener('submit', function(e) {
-        e.preventDefault();
-        
-        submitBtn.disabled = true;
-        submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Processing Transaction...';
+    function populateDoctorSelect() {
+      const select = document.getElementById('modalAttendingDoctor');
+      if (!select) return;
 
-        const formData = new FormData(form);
-        formData.append('ajax', '1');
+      const currentVal = select.value;
+      select.innerHTML = '<option value="">-- Select Active Consultant --</option>';
 
-        fetch('dashboard.php', {
-          method: 'POST',
-          body: formData,
-          headers: {
-            'X-Requested-With': 'XMLHttpRequest'
-          }
-        })
-        .then(res => res.json())
-        .then(data => {
-          if (data.success) {
-            closeAdmissionModal();
-            Swal.fire({
-              icon: 'success',
-              title: 'Inpatient Admitted Successfully!',
-              html: `
-                <div style="font-size:0.92rem; text-align:left; background:#f8fafc; padding:12px; border-radius:10px; border:1px solid #e2e8f0;">
-                  <div><strong>Dossier #:</strong> <span style="font-family:'JetBrains Mono',monospace; color:#0284c7;">${data.admission_number}</span></div>
-                  <div><strong>Patient:</strong> ${data.patient_name} (${data.patient_uid})</div>
-                  <div><strong>Bed Assignment:</strong> Bed ${data.bed_number} (${data.ward_type})</div>
-                  <div><strong>Acuity:</strong> ${data.triage_acuity}</div>
-                  <div style="margin-top:6px; color:#10b981; font-weight:700;">Synced across Staff Desk, Branch Registry &amp; Super Admin Telemetry.</div>
-                </div>
-              `,
-              confirmButtonText: 'View Updated Inpatient Ledger',
-              confirmButtonColor: '#0284c7'
-            }).then(() => {
-              window.location.reload();
-            });
-          } else {
-            submitBtn.disabled = false;
-            submitBtn.innerHTML = '<i class="fa-solid fa-check-circle"></i> Confirm Inpatient Admission';
-            Swal.fire({
-              icon: 'error',
-              title: 'Admission Failed',
-              text: data.message || 'Unable to complete transaction.',
-              confirmButtonColor: '#0284c7'
-            });
-          }
-        })
-        .catch(err => {
-          submitBtn.disabled = false;
-          submitBtn.innerHTML = '<i class="fa-solid fa-check-circle"></i> Confirm Inpatient Admission';
-          Swal.fire({
-            icon: 'error',
-            title: 'System Error',
-            text: 'A network communication error occurred.',
-            confirmButtonColor: '#0284c7'
-          });
-        });
+      const seenDocNames = new Set();
+      activeDoctorsList.forEach(doc => {
+        let rawName = (doc.name || '').trim();
+        // Strip duplicate Dr., Doctor, Prof. Dr., etc.
+        let clean = rawName.replace(/^(?:(?:Col\.|Lt\.\s*Col\.|Brig\.\s*Gen\.|Major)\s*(?:\(Retd\.?\))?\s*)*(?:(?:Assoc\.|Associate|Asst\.|Assistant|Prof\.|Professor)\s+)?(?:Dr\.?|Doctor)\s*/i, '').trim();
+        if (!clean) clean = rawName;
+        let normKey = clean.toLowerCase();
+        if (seenDocNames.has(normKey)) return; // Deduplicate
+        seenDocNames.add(normKey);
+
+        const opt = document.createElement('option');
+        opt.value = doc.id;
+        const specialty = doc.specialty ? ` (${doc.specialty})` : '';
+        opt.textContent = `Dr. ${clean}${specialty}`;
+        if (String(doc.id) === String(currentVal)) {
+          opt.selected = true;
+        }
+        select.appendChild(opt);
       });
     }
 
-    // Client-Side History Guard: Kill BFCache and re-verify session on back-navigation
-    window.addEventListener("pageshow", function(event) {
-      if (event.persisted || (window.performance && window.performance.navigation && window.performance.navigation.type === 2)) {
-        window.location.reload();
+    // Submit Admission Dossier Action
+    async function submitAdmission(e) {
+      e.preventDefault();
+      const form = document.getElementById('admissionForm');
+      const submitBtn = document.getElementById('btnSubmitAdmission');
+
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = '<svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24" style="stroke: white; animation: spin 1s linear infinite;"><line x1="12" y1="2" x2="12" y2="6"></line><line x1="12" y1="18" x2="12" y2="22"></line><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line><line x1="2" y1="12" x2="6" y2="12"></line><line x1="18" y1="12" x2="22" y2="12"></line></svg> Confirming Inpatient Admission...';
+
+      const formData = new FormData(form);
+      formData.append('action', 'admit');
+
+      try {
+        const res = await fetch('api/live_sync.php', {
+          method: 'POST',
+          body: formData
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          closeAdmissionModal();
+          showToast('Patient admitted successfully.', 'success');
+          // Immediate polling cycle to sync cards and registry rows instantly
+          await pollSync();
+        } else {
+          showToast(data.message || 'Admission failed to process.', 'error');
+        }
+      } catch (err) {
+        showToast('Network communication error during admission.', 'error');
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<svg class="ui-ico ui-ico-sm" style="stroke: white;" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg> Confirm Inpatient Admission';
       }
+    }
+
+    // Render Incoming Bed Holds
+    function renderIncomingHolds(holds) {
+      const emptyBox = document.getElementById('holdsEmptyState');
+      const grid = document.getElementById('holdsGrid');
+      const badgeText = document.getElementById('holdsBadgeText');
+
+      currentHoldsMap.clear();
+
+      if (!holds || holds.length === 0) {
+        if (badgeText) badgeText.textContent = '0 Active Holds';
+        if (emptyBox) emptyBox.style.display = 'flex';
+        if (grid) {
+          grid.style.display = 'none';
+          grid.innerHTML = '';
+        }
+        return;
+      }
+
+      if (badgeText) {
+        badgeText.textContent = `${holds.length} Active Hold${holds.length > 1 ? 's' : ''}`;
+      }
+      if (emptyBox) emptyBox.style.display = 'none';
+      if (grid) grid.style.display = 'grid';
+
+      // Check if modal is open: do not reset active modal
+      const isModalOpen = document.getElementById('admissionModal')?.classList.contains('active');
+
+      // Build cards
+      let html = '';
+      holds.forEach(hold => {
+        currentHoldsMap.set(Number(hold.reservation_id), hold);
+        const secs = Math.max(0, Number(hold.seconds_remaining) || 0);
+        const timeLabel = formatCountdown(secs);
+        const expiredClass = secs <= 0 ? 'expired' : '';
+
+        html += `
+          <div class="hold-card" data-hold-id="${hold.reservation_id}">
+            <div>
+              <div class="hold-card-top">
+                <span class="hold-bed-badge">
+                  <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><path d="M2 4v16"></path><path d="M2 8h18a2 2 0 0 1 2 2v10"></path><path d="M2 17h20"></path><path d="M6 8v9"></path></svg>
+                  Bed ${escapeHtml(hold.bed_number)}
+                </span>
+                <span class="hold-countdown-tag ${expiredClass}" data-secs="${secs}" id="holdTimer-${hold.reservation_id}">
+                  <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                  <span class="countdown-text">${timeLabel}</span>
+                </span>
+              </div>
+
+              <div class="hold-patient-title">${escapeHtml(hold.patient_name)}</div>
+              <div class="hold-patient-meta">
+                UHID: <strong style="font-family:'JetBrains Mono',monospace; color:#0284c7;">${escapeHtml(hold.uhid)}</strong> &bull; 
+                ${escapeHtml(hold.gender)}, ${hold.age} yrs
+              </div>
+
+              <div class="hold-info-box">
+                <div class="hold-info-row">
+                  <span class="hold-info-label">Ward Type:</span>
+                  <span class="hold-info-val">${escapeHtml(hold.ward_type)} (Floor ${hold.floor_number})</span>
+                </div>
+                <div class="hold-info-row">
+                  <span class="hold-info-label">Daily Rate:</span>
+                  <span class="hold-info-val" style="color:#0d9488;">৳${Number(hold.daily_rate).toFixed(2)}/day</span>
+                </div>
+                <div class="hold-info-row">
+                  <span class="hold-info-label">Contact:</span>
+                  <span class="hold-info-val">${escapeHtml(hold.phone)}</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="hold-actions-row">
+              <button type="button" class="btn-accept-admit" onclick="openAdmissionModal(${hold.reservation_id})">
+                <svg class="ui-ico ui-ico-sm" style="stroke: white;" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                [ Accept &amp; Admit ]
+              </button>
+              <button type="button" class="btn-release-hold" onclick="openReleaseModal(${hold.reservation_id}, ${hold.bed_id}, '${escapeAttr(hold.patient_name)}', '${escapeAttr(hold.bed_number)}', '${escapeAttr(hold.ward_type)}', '${escapeAttr(hold.uhid)}')">
+                [ Release ]
+              </button>
+            </div>
+          </div>
+        `;
+      });
+
+      if (grid) {
+        grid.innerHTML = html;
+      }
+    }
+
+    // Render Inpatient Registry
+    function renderInpatientRegistry(inpatients) {
+      const emptyBox = document.getElementById('inpatientEmptyState');
+      const tableWrap = document.getElementById('inpatientTableWrap');
+      const tableBody = document.getElementById('inpatientTableBody');
+      const badgeText = document.getElementById('inpatientBadgeText');
+
+      if (!inpatients || inpatients.length === 0) {
+        if (badgeText) badgeText.textContent = '0 Inpatients';
+        if (emptyBox) emptyBox.style.display = 'flex';
+        if (tableWrap) tableWrap.style.display = 'none';
+        if (tableBody) tableBody.innerHTML = '';
+        return;
+      }
+
+      if (badgeText) {
+        badgeText.textContent = `${inpatients.length} Active Inpatient${inpatients.length > 1 ? 's' : ''}`;
+      }
+      if (emptyBox) emptyBox.style.display = 'none';
+      if (tableWrap) tableWrap.style.display = 'block';
+
+      let rowsHtml = '';
+      inpatients.forEach(p => {
+        const acuity = (p.triage_acuity || 'Routine').toLowerCase();
+        let acuityClass = 'acuity-routine';
+        if (acuity === 'critical') acuityClass = 'acuity-critical';
+        else if (acuity === 'post-op') acuityClass = 'acuity-postop';
+
+        rowsHtml += `
+          <tr>
+            <td>
+              <span class="badge-bed-tag">Bed ${escapeHtml(p.bed_number)}</span>
+              <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">
+                ${escapeHtml(p.ward_type)} &bull; Fl ${p.floor_number}
+              </div>
+            </td>
+            <td>
+              <strong style="color:var(--text-heading); font-size:0.92rem;">${escapeHtml(p.patient_name)}</strong>
+              <div style="font-size:0.76rem; color:var(--text-muted);">
+                <span style="font-family:'JetBrains Mono',monospace; color:#0284c7; font-weight:700;">${escapeHtml(p.uhid)}</span>
+                &bull; ${escapeHtml(p.patient_gender)}, ${p.patient_age}y
+              </div>
+            </td>
+            <td>
+              <div style="font-weight:700; color:var(--text-heading);">${escapeHtml(p.attending_consultant)}</div>
+              <div style="font-size:0.74rem; color:var(--text-muted);">Specialist In-Charge</div>
+            </td>
+            <td>
+              <div style="font-weight:700; color:var(--text-heading);">${escapeHtml(p.staff_name)}</div>
+              <div style="font-size:0.74rem; color:#0d9488; font-weight:600;">${escapeHtml(p.staff_designation)}</div>
+            </td>
+            <td>
+              <div style="font-weight:700; color:var(--text-heading); max-width:200px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${escapeAttr(p.primary_diagnosis)}">
+                ${escapeHtml(p.primary_diagnosis)}
+              </div>
+              <div style="margin-top:3px;">
+                <span class="badge-acuity ${acuityClass}">${escapeHtml(p.triage_acuity)}</span>
+              </div>
+            </td>
+            <td>
+              <div style="font-size:0.82rem; font-weight:600; color:var(--text-heading);">${p.formatted_admission_time}</div>
+              <div style="margin-top:2px;">
+                <span class="badge-status-inpatient">
+                  <span class="dot-inpatient-pulse"></span> Admitted
+                </span>
+              </div>
+            </td>
+          </tr>
+        `;
+      });
+
+      if (tableBody) {
+        tableBody.innerHTML = rowsHtml;
+      }
+    }
+
+    // 1-Second Countdown Ticking Engine
+    function tickCountdowns() {
+      const tags = document.querySelectorAll('.hold-countdown-tag');
+      tags.forEach(tag => {
+        let secs = parseInt(tag.getAttribute('data-secs'), 10) || 0;
+        if (secs > 0) {
+          secs--;
+          tag.setAttribute('data-secs', secs);
+          const txt = tag.querySelector('.countdown-text');
+          if (txt) txt.textContent = formatCountdown(secs);
+
+          if (secs <= 0) {
+            tag.classList.add('expired');
+            if (txt) txt.textContent = 'Expired';
+            // Auto trigger poll on expiration
+            pollSync();
+          }
+        }
+      });
+    }
+
+    // Background Polling Engine
+    async function pollSync() {
+      try {
+        const res = await fetch('api/live_sync.php?action=sync');
+        if (!res.ok) return;
+
+        const data = await res.json();
+        if (!data || !data.success) return;
+
+        // Keep active doctors list updated for modal
+        if (data.doctors && Array.isArray(data.doctors)) {
+          activeDoctorsList = data.doctors;
+        }
+
+        // Render sections smoothly
+        renderIncomingHolds(data.incoming_holds || []);
+        renderInpatientRegistry(data.inpatients || []);
+
+      } catch (err) {
+        console.warn('Live sync poll warning:', err);
+      }
+    }
+
+    // HTML Escaping Utility
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function escapeAttr(str) {
+      return escapeHtml(str).replace(/"/g, '&quot;');
+    }
+
+    // Initialize On Page Ready
+    document.addEventListener('DOMContentLoaded', () => {
+      // Immediate initial sync
+      pollSync();
+
+      // Poll interval: every 4 seconds
+      pollIntervalTimer = setInterval(pollSync, 4000);
+
+      // Countdown tick: every 1 second
+      countdownTickTimer = setInterval(tickCountdowns, 1000);
     });
   </script>
 </body>

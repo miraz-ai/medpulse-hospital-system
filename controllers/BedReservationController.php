@@ -101,7 +101,7 @@ class BedReservationController {
                 JOIN hospitals h ON r.hospital_id = h.hospital_id
                 JOIN beds b ON r.bed_id = b.id
                 WHERE r.patient_id = :patient_id 
-                  AND r.status = 'held' 
+                  AND r.status IN ('held', 'active_hold') 
                   AND r.hold_expires_at > NOW()
                 ORDER BY r.created_at DESC
                 LIMIT 1
@@ -160,6 +160,26 @@ class BedReservationController {
                 return [
                     'success' => false,
                     'message' => 'Active hold exists: You already have a bed on hold at ' . $existingHold['hospital_name'] . '. Only 1 active hold allowed per patient across the network.'
+                ];
+            }
+
+            // 2b. Check if the patient is already an active inpatient (admitted)
+            $admStmt = $pdo->prepare("
+                SELECT a.admission_id, h.name AS hospital_name
+                FROM admissions a
+                JOIN hospitals h ON a.hospital_id = h.hospital_id
+                WHERE a.patient_id = :patient_id
+                  AND a.status = 'Admitted'
+                LIMIT 1
+            ");
+            $admStmt->execute([':patient_id' => $patientId]);
+            $existingAdmission = $admStmt->fetch(PDO::FETCH_ASSOC);
+
+            if ($existingAdmission) {
+                $pdo->rollBack();
+                return [
+                    'success' => false,
+                    'message' => 'You are currently an active inpatient at ' . $existingAdmission['hospital_name'] . '. A new bed reservation cannot be placed while you are admitted. Please contact the facility for assistance.'
                 ];
             }
 

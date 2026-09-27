@@ -152,6 +152,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['_action'])) {
                 FROM hospital_beds
             ")->fetch(PDO::FETCH_ASSOC);
 
+            $totB = (int)($telemetry['total'] ?? 0);
+            $occB = (int)($telemetry['occ'] ?? 0);
+            $telemetry['occ_rate'] = $totB > 0 ? round(($occB / $totB) * 100, 1) : 0.0;
+
             // Fetch bed statuses for requested bed IDs
             $rawBedIds = $_POST['bed_ids'] ?? [];
             $bedIds = is_array($rawBedIds) ? array_filter(array_map('intval', $rawBedIds)) : [];
@@ -1002,6 +1006,15 @@ try {
       <div class="net-chip">
         <span class="net-chip-val" id="chipValOcc" style="color:var(--status-red);"><?= number_format((int)($netStats['occ'] ?? 0)) ?></span>
         <span class="net-chip-label">Occupied</span>
+      </div>
+      <div class="net-chip">
+        <?php
+          $totBeds = (int)($netStats['total'] ?? 0);
+          $occBeds = (int)($netStats['occ'] ?? 0);
+          $occRate = $totBeds > 0 ? round(($occBeds / $totBeds) * 100, 1) : 0;
+        ?>
+        <span class="net-chip-val" id="chipValOccRate" style="color:#7c3aed;"><?= $occRate ?>%</span>
+        <span class="net-chip-label">Occupancy Rate</span>
       </div>
       <div class="net-chip">
         <span class="net-chip-val" id="chipValHold" style="color:#e11d48;"><?= number_format((int)($netStats['hold'] ?? 0)) ?></span>
@@ -2156,11 +2169,16 @@ try {
             const holdEl = document.getElementById('chipValHold');
             const sanEl = document.getElementById('chipValSanitizing');
             const maintEl = document.getElementById('chipValMaint');
+            const occRateEl = document.getElementById('chipValOccRate');
             if (availEl && t.avail !== undefined) availEl.textContent = Number(t.avail).toLocaleString();
             if (occEl && t.occ !== undefined) occEl.textContent = Number(t.occ).toLocaleString();
             if (holdEl && t.hold !== undefined) holdEl.textContent = Number(t.hold).toLocaleString();
             if (sanEl && t.sanitizing !== undefined) sanEl.textContent = Number(t.sanitizing).toLocaleString();
             if (maintEl && t.maint !== undefined) maintEl.textContent = Number(t.maint).toLocaleString();
+            if (occRateEl) {
+              const rateVal = t.occ_rate !== undefined ? t.occ_rate : (t.total > 0 ? ((Number(t.occ) / Number(t.total)) * 100).toFixed(1) : 0);
+              occRateEl.textContent = rateVal + '%';
+            }
           }
 
           if (res.bed_states && Array.isArray(res.bed_states)) {

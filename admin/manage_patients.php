@@ -7,7 +7,7 @@
 require_once __DIR__ . '/../includes/admin_auth.php';
 
 try {
-    // Fetch registered patients joined with patients table
+    // Fetch registered patients joined with patients table and active inpatient admissions
     $patientsStmt = $pdo->prepare("
         SELECT 
             u.user_id, 
@@ -20,9 +20,33 @@ try {
             COALESCE(p.blood_group, u.blood_group, 'Unknown') AS blood_group, 
             COALESCE(p.dob, u.date_of_birth) AS dob,
             p.patient_uid,
-            u.created_at 
+            u.created_at,
+            act_adm.admission_id,
+            act_adm.admission_number,
+            act_adm.bed_number,
+            act_adm.ward_type,
+            act_adm.floor_number,
+            act_adm.primary_diagnosis,
+            act_adm.doctor_name,
+            act_adm.doctor_specialty,
+            act_adm.staff_name,
+            act_adm.staff_designation
         FROM users u 
         LEFT JOIN patients p ON u.user_id = p.user_id
+        LEFT JOIN (
+            SELECT a.patient_id, a.admission_id, a.admission_number, a.primary_diagnosis,
+                   b.bed_number, b.ward_type, b.floor_number,
+                   doc.full_name AS doctor_name, COALESCE(dp.specialty, doc.department, 'General Medicine') AS doctor_specialty,
+                   COALESCE(su.full_name, 'Admission Desk Officer') AS staff_name,
+                   COALESCE(stf.role_title, 'Frontdesk Registrar') AS staff_designation
+            FROM admissions a
+            JOIN hospital_beds b ON a.bed_id = b.bed_id
+            LEFT JOIN users doc ON a.attending_doctor_id = doc.user_id
+            LEFT JOIN doctor_profiles dp ON doc.user_id = dp.user_id
+            LEFT JOIN staff stf ON a.admitting_staff_id = stf.staff_id
+            LEFT JOIN users su ON stf.user_id = su.user_id
+            WHERE a.status = 'Admitted'
+        ) act_adm ON act_adm.patient_id = u.user_id
         WHERE u.role = 'Patient' 
         ORDER BY u.created_at DESC
     ");
@@ -179,6 +203,20 @@ try {
                     <strong style="font-size: 0.92rem; color: var(--text-heading);">
                       <?= htmlspecialchars($patient['full_name'], ENT_QUOTES, 'UTF-8') ?>
                     </strong>
+                    <?php if (!empty($patient['admission_id'])): ?>
+                      <div style="margin-top: 4px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                        <span style="display: inline-flex; align-items: center; gap: 5px; background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; padding: 2px 7px; border-radius: 9999px; font-size: 0.72rem; font-weight: 800;">
+                          <span style="width: 6px; height: 6px; border-radius: 50%; background: #10b981; box-shadow: 0 0 6px #10b981;"></span>
+                          INPATIENT: Bed #<?= htmlspecialchars($patient['bed_number']) ?> (<?= htmlspecialchars($patient['ward_type']) ?> &bull; Fl <?= (int)$patient['floor_number'] ?>)
+                        </span>
+                        <span style="font-size: 0.73rem; color: #0f766e; font-weight: 600;">
+                          Dr. <?= htmlspecialchars($patient['doctor_name']) ?> &bull; <?= htmlspecialchars($patient['staff_name']) ?> (<?= htmlspecialchars($patient['staff_designation']) ?>)
+                        </span>
+                        <a href="admissions.php?q=<?= urlencode($patient['patient_uid'] ?: $patient['full_name']) ?>" style="font-size: 0.72rem; color: #0284c7; font-weight: 700; text-decoration: none;">
+                          View Dossier &rarr;
+                        </a>
+                      </div>
+                    <?php endif; ?>
                   </td>
                   <td style="color: var(--text-muted);"><?= htmlspecialchars($patient['email'], ENT_QUOTES, 'UTF-8') ?></td>
                   <td><?= htmlspecialchars($patient['phone'], ENT_QUOTES, 'UTF-8') ?></td>

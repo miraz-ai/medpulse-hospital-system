@@ -126,6 +126,42 @@ if ($isLoggedOut) {
     font-weight: 400;
     margin-left: 4px;
   }
+
+  /* ── 100vh Desktop Hero Lock & Independent Form Scroll ── */
+  @media (min-width: 769px) {
+    html, body {
+      height: 100vh;
+      overflow: hidden;
+    }
+    .auth-page {
+      height: 100vh;
+      max-height: 100vh;
+      overflow: hidden;
+    }
+    .brand-panel {
+      height: 100vh;
+      max-height: 100vh;
+      position: sticky;
+      top: 0;
+      overflow: hidden;
+    }
+    .brand-panel__inner {
+      height: 100%;
+      max-height: 100vh;
+      overflow: hidden;
+    }
+    .form-panel {
+      height: 100vh;
+      max-height: 100vh;
+      overflow-y: auto;
+      overflow-x: hidden;
+      align-items: flex-start;
+      overscroll-behavior: contain;
+    }
+    .form-card {
+      margin: auto 0;
+    }
+  }
 </style>
 </head>
 <body>
@@ -153,7 +189,7 @@ if ($isLoggedOut) {
       <ul class="trust-list">
         <li>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3l7 3v6c0 5-3.4 8.6-7 10-3.6-1.4-7-5-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>
-          Encrypted, HIPAA-ready patient data
+          DGHS &amp; BMDC-compliant encrypted clinical records
         </li>
         <li>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.2 2"/></svg>

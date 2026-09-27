@@ -17,9 +17,14 @@ if (isset($pdo) && isset($_SESSION['user_id'])) {
         $docUid = (int)$_SESSION['user_id'];
         
         // Active assigned inpatients
-        $inpatStmt = $pdo->prepare("SELECT COUNT(*) FROM bed_allocations WHERE attending_doctor_id = ? AND status = 'Active'");
+        $inpatStmt = $pdo->prepare("SELECT COUNT(*) FROM admissions WHERE attending_doctor_id = ? AND status = 'Admitted'");
         $inpatStmt->execute([$docUid]);
         $sidebarInpatientCount = (int)$inpatStmt->fetchColumn();
+        if ($sidebarInpatientCount === 0) {
+            $inpatStmt2 = $pdo->prepare("SELECT COUNT(*) FROM bed_allocations WHERE attending_doctor_id = ? AND status = 'Active'");
+            $inpatStmt2->execute([$docUid]);
+            $sidebarInpatientCount = (int)$inpatStmt2->fetchColumn();
+        }
 
         // Today's scheduled or in-consultation appointments
         $appStmt = $pdo->prepare("SELECT COUNT(*) FROM appointments WHERE doctor_id = ? AND appointment_date = CURDATE() AND status IN ('Scheduled', 'In-Consultation', 'booked', 'checked_in', 'in_consultation')");

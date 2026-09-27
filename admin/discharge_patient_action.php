@@ -323,6 +323,33 @@ try {
         ':summary' => $dischargeSummary
     ]);
 
+    // ── CRITICAL: Sync admissions table so patient polling detects discharge ──
+    // The live_inpatient_sync.php endpoint reads admissions.status to determine
+    // inpatient state. Without this update, patient dashboard stays stuck on admit.
+    $closeAdm = $pdo->prepare("
+        UPDATE admissions 
+        SET status = 'Discharged', discharged_at = NOW() 
+        WHERE patient_id = :pid 
+          AND status = 'Admitted'
+          AND bed_id = :bid
+    ");
+    $closeAdm->execute([
+        ':pid' => $targetPatientId,
+        ':bid' => $targetBedId
+    ]);
+    // Fallback: if bed_id wasn't matched (edge case), close by patient_id alone
+    if ($closeAdm->rowCount() === 0) {
+        $closeAdmFb = $pdo->prepare("
+            UPDATE admissions 
+            SET status = 'Discharged', discharged_at = NOW() 
+            WHERE patient_id = :pid 
+              AND status = 'Admitted'
+            ORDER BY admitted_at DESC 
+            LIMIT 1
+        ");
+        $closeAdmFb->execute([':pid' => $targetPatientId]);
+    }
+
     $endAssignments = $pdo->prepare("
         UPDATE patient_doctor_assignments 
         SET status = 'Inactive', ended_at = NOW() 

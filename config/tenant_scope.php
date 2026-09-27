@@ -42,7 +42,7 @@ class TenantScope
      */
     public static function getHospitalId(): int
     {
-        return (int)($_SESSION['hospital_id'] ?? 1);
+        return (int)($_SESSION['branch_id'] ?? $_SESSION['hospital_id'] ?? 1);
     }
 
     /**

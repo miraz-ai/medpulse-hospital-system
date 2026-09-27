@@ -97,6 +97,12 @@ SOURCE 27_branch_tenant_isolation_schema.sql;
 -- 28. Super Admin Network Overview Dashboard & Audit Log Tracking
 SOURCE 28_super_admin_network_dashboard_schema.sql;
 
+-- 29. Hospital Bed Admission Workflow & Inpatient Registry
+SOURCE 29_hospital_bed_admission_workflow.sql;
+
+-- 30. Provision Multi-Branch Dedicated Reception/Admission Staff Accounts
+SOURCE 30_multi_branch_staff_accounts.sql;
+
 -- Re-enable foreign key constraints
 SET FOREIGN_KEY_CHECKS = 1;
 
