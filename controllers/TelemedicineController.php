@@ -393,47 +393,84 @@ class TelemedicineController {
      * 1. No fake countdown timers. Driven purely by sequential tokens.
      * 2. Zoom link is STRICTLY NULL until doctor calls patient's token.
      */
-    public static function getPatientLiveSession(PDO $pdo, int $patientId): ?array {
+    public static function getPatientLiveSession(PDO $pdo, int $patientId, ?int $specificAppointmentId = null): ?array {
         self::ensureSchema($pdo);
 
         try {
-            $stmt = $pdo->prepare("
-                SELECT 
-                    a.id AS appointment_id, a.hospital_id, a.doctor_id, a.patient_id, 
-                    a.appointment_date, a.appointment_time, a.time_slot, 
-                    a.token_number, a.serial_number, a.status, a.queue_status,
-                    a.reason_for_visit, a.symptoms, a.created_at,
-                    a.actual_start_time,
-                    u.full_name AS doctor_name, u.email AS doctor_email,
-                    COALESCE(dp.specialty, 'Specialist Consultant') AS specialty,
-                    COALESCE(dp.designation, 'Attending Specialist') AS designation,
-                    COALESCE(dp.bmdc_license_number, 'BMDC-VERIFIED') AS bmdc_license_number,
-                    COALESCE(dp.room_number, 'Virtual Chamber 101') AS room_number,
-                    COALESCE(dp.session_status, 'idle') AS session_status,
-                    COALESCE(dp.current_serving_token, 0) AS current_serving_token,
-                    dp.teleconsult_link, dp.teleconsult_room_code,
-                    COALESCE(h.name, 'MedPulse Hospital & Specialty Care') AS hospital_name,
-                    COALESCE(h.city, 'Dhaka') AS hospital_city
-                FROM appointments a
-                JOIN users u ON a.doctor_id = u.user_id
-                LEFT JOIN doctor_profiles dp ON u.user_id = dp.user_id
-                LEFT JOIN hospitals h ON a.hospital_id = h.hospital_id
-                WHERE a.patient_id = :patient_id
-                  AND a.appointment_date = CURRENT_DATE
-                  AND LOWER(COALESCE(a.status, '')) NOT IN ('cancelled')
-                  AND (a.queue_status IS NULL OR LOWER(a.queue_status) != 'cancelled')
-                  AND COALESCE(a.teleconsult_dismissed, 0) = 0
-                ORDER BY 
-                    CASE 
-                        WHEN LOWER(a.status) = 'in_consultation' OR LOWER(COALESCE(a.queue_status, '')) = 'serving' THEN 1
-                        WHEN LOWER(a.status) IN ('booked', 'checked_in') THEN 2
-                        WHEN LOWER(a.status) = 'completed' OR LOWER(COALESCE(a.queue_status, '')) = 'completed' THEN 3
-                        ELSE 4
-                    END ASC,
-                    a.id DESC
-                LIMIT 1
-            ");
-            $stmt->execute([':patient_id' => $patientId]);
+            $params = [':patient_id' => $patientId];
+
+            if ($specificAppointmentId !== null && $specificAppointmentId > 0) {
+                // Tracking a specific active room session previously allocated to this browser session
+                $sql = "
+                    SELECT 
+                        a.id AS appointment_id, a.hospital_id, a.doctor_id, a.patient_id, 
+                        a.appointment_date, a.appointment_time, a.time_slot, 
+                        a.token_number, a.serial_number, a.status, a.queue_status,
+                        a.reason_for_visit, a.symptoms, a.created_at,
+                        a.actual_start_time,
+                        u.full_name AS doctor_name, u.email AS doctor_email,
+                        COALESCE(dp.specialty, 'Specialist Consultant') AS specialty,
+                        COALESCE(dp.designation, 'Attending Specialist') AS designation,
+                        COALESCE(dp.bmdc_license_number, 'BMDC-VERIFIED') AS bmdc_license_number,
+                        COALESCE(dp.room_number, 'Virtual Chamber 101') AS room_number,
+                        COALESCE(dp.session_status, 'idle') AS session_status,
+                        COALESCE(dp.current_serving_token, 0) AS current_serving_token,
+                        dp.teleconsult_link, dp.teleconsult_room_code,
+                        COALESCE(h.name, 'MedPulse Hospital & Specialty Care') AS hospital_name,
+                        COALESCE(h.city, 'Dhaka') AS hospital_city
+                    FROM appointments a
+                    JOIN users u ON a.doctor_id = u.user_id
+                    LEFT JOIN doctor_profiles dp ON u.user_id = dp.user_id
+                    LEFT JOIN hospitals h ON a.hospital_id = h.hospital_id
+                    WHERE a.id = :app_id
+                      AND a.patient_id = :patient_id
+                      AND LOWER(COALESCE(a.status, '')) NOT IN ('cancelled')
+                      AND (a.queue_status IS NULL OR LOWER(a.queue_status) != 'cancelled')
+                      AND COALESCE(a.teleconsult_dismissed, 0) = 0
+                    LIMIT 1
+                ";
+                $params[':app_id'] = $specificAppointmentId;
+            } else {
+                // Stage 1 Initial Discovery: STRICTLY check for active ongoing tokens IN ('booked', 'checked_in', 'in_consultation')
+                // Previous completed or cancelled sessions must NOT be returned, ensuring Stage 1 discovery view is presented!
+                $sql = "
+                    SELECT 
+                        a.id AS appointment_id, a.hospital_id, a.doctor_id, a.patient_id, 
+                        a.appointment_date, a.appointment_time, a.time_slot, 
+                        a.token_number, a.serial_number, a.status, a.queue_status,
+                        a.reason_for_visit, a.symptoms, a.created_at,
+                        a.actual_start_time,
+                        u.full_name AS doctor_name, u.email AS doctor_email,
+                        COALESCE(dp.specialty, 'Specialist Consultant') AS specialty,
+                        COALESCE(dp.designation, 'Attending Specialist') AS designation,
+                        COALESCE(dp.bmdc_license_number, 'BMDC-VERIFIED') AS bmdc_license_number,
+                        COALESCE(dp.room_number, 'Virtual Chamber 101') AS room_number,
+                        COALESCE(dp.session_status, 'idle') AS session_status,
+                        COALESCE(dp.current_serving_token, 0) AS current_serving_token,
+                        dp.teleconsult_link, dp.teleconsult_room_code,
+                        COALESCE(h.name, 'MedPulse Hospital & Specialty Care') AS hospital_name,
+                        COALESCE(h.city, 'Dhaka') AS hospital_city
+                    FROM appointments a
+                    JOIN users u ON a.doctor_id = u.user_id
+                    LEFT JOIN doctor_profiles dp ON u.user_id = dp.user_id
+                    LEFT JOIN hospitals h ON a.hospital_id = h.hospital_id
+                    WHERE a.patient_id = :patient_id
+                      AND a.appointment_date = CURRENT_DATE
+                      AND LOWER(a.status) IN ('booked', 'checked_in', 'in_consultation')
+                      AND (a.queue_status IS NULL OR LOWER(a.queue_status) IN ('scheduled', 'serving'))
+                      AND COALESCE(a.teleconsult_dismissed, 0) = 0
+                    ORDER BY 
+                        CASE 
+                            WHEN LOWER(a.status) = 'in_consultation' OR LOWER(COALESCE(a.queue_status, '')) = 'serving' THEN 1
+                            ELSE 2
+                        END ASC,
+                        a.id DESC
+                    LIMIT 1
+                ";
+            }
+
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute($params);
             $app = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$app) {

@@ -43,10 +43,13 @@ if (empty($_SESSION['user_id']) || strtolower($_SESSION['role'] ?? '') !== 'pati
 $patientId = (int)$_SESSION['user_id'];
 $requestedHospitalId = isset($_GET['hospital_id']) ? (int)$_GET['hospital_id'] : 1;
 if ($requestedHospitalId <= 0) $requestedHospitalId = 1;
+$activeAppointmentId = (isset($_GET['active_appointment_id']) && (int)$_GET['active_appointment_id'] > 0)
+    ? (int)$_GET['active_appointment_id']
+    : null;
 
 try {
     // 1. Fetch current patient's active live tele-consultation session (if any)
-    $activeSession = TelemedicineController::getPatientLiveSession($pdo, $patientId);
+    $activeSession = TelemedicineController::getPatientLiveSession($pdo, $patientId, $activeAppointmentId);
 
     // If patient is in an active session, use that session's hospital
     $effectiveHospitalId = ($activeSession && !empty($activeSession['hospital_id']))

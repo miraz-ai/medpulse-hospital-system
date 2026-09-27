@@ -211,6 +211,29 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo, $initialHosp
       gap: 4px;
       width: fit-content;
     }
+    .branch-select-dropdown {
+      width: 100%;
+      padding: 0.6rem 2.2rem 0.6rem 0.9rem;
+      background: #ffffff;
+      border: 1.5px solid #cbd5e1;
+      border-radius: 10px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: #0f172a;
+      outline: none;
+      cursor: pointer;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23475569'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 0.75rem center;
+      background-size: 14px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+      transition: all 0.2s ease;
+    }
+    .branch-select-dropdown:focus {
+      border-color: #0284c7;
+      box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15);
+    }
 
     /* Virtual Waiting Room 2-Column Grid */
     .vc-waiting-grid {
@@ -790,7 +813,7 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo, $initialHosp
                 <div style="display: flex; flex-direction: column; gap: 0.75rem;">
                   <button type="button" class="btn-return-directory" onclick="dismissSessionAndReturn();">
                     <svg style="width: 16px; height: 16px; stroke: currentColor;" fill="none" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
-                    <span>Request Another Consultation / Change Facility</span>
+                    <span>Request Another Consultation / Back to Chamber List</span>
                   </button>
                   <a href="appointments.php" class="btn-view-records">
                     <span>View My Appointments &amp; History</span>
@@ -858,7 +881,7 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo, $initialHosp
         
         <!-- 1. Intuitive Facility Selector -->
         <div class="facility-selector-container">
-          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.5rem;">
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem;">
             <div>
               <div style="font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: #0284c7;">
                 Step 1: Select Facility
@@ -867,9 +890,27 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo, $initialHosp
                 Hospital Branch &amp; Emergency Center
               </h2>
             </div>
-            <span style="font-size: 0.75rem; font-weight: 700; color: #64748b;">
-              Showing verified on-duty emergency doctors for selected branch
-            </span>
+            
+            <!-- Dynamic Hospital Branch Selector Dropdown -->
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <label for="branchSelectDropdown" style="font-size: 0.78rem; font-weight: 700; color: #475569; white-space: nowrap;">
+                Branch Dropdown:
+              </label>
+              <div style="min-width: 250px;">
+                <select id="branchSelectDropdown" 
+                        class="branch-select-dropdown" 
+                        onchange="selectHospitalBranch(parseInt(this.value));">
+                  <?php foreach ($networkHospitals as $hosp): 
+                    $hId = (int)$hosp['hospital_id'];
+                    $isSelected = ($hId === $initialHospitalId);
+                  ?>
+                    <option value="<?= $hId ?>" <?= $isSelected ? 'selected' : '' ?>>
+                      <?= htmlspecialchars($hosp['name']) ?> (<?= (int)$hosp['doctor_count'] ?> on-duty)
+                    </option>
+                  <?php endforeach; ?>
+                </select>
+              </div>
+            </div>
           </div>
 
           <!-- Facility Cards Selector -->
@@ -1125,6 +1166,12 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo, $initialHosp
       window.selectHospitalBranch = async function(hospitalId) {
         selectedHospitalId = hospitalId;
 
+        // Sync dropdown value
+        const branchDropdown = document.getElementById('branchSelectDropdown');
+        if (branchDropdown && parseInt(branchDropdown.value) !== hospitalId) {
+          branchDropdown.value = hospitalId;
+        }
+
         // Update card active classes
         document.querySelectorAll('.facility-card').forEach(card => {
           card.classList.remove('is-active');
@@ -1139,7 +1186,7 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo, $initialHosp
       // Core Background Polling Handler
       async function executeZeroReloadSync() {
         try {
-          const resp = await fetch(`api/live_telemedicine_sync.php?hospital_id=${selectedHospitalId}`, {
+          const resp = await fetch(`api/live_telemedicine_sync.php?hospital_id=${selectedHospitalId}&active_appointment_id=${activeAppointmentId}`, {
             method: 'GET',
             headers: { 'Accept': 'application/json' }
           });
@@ -1431,7 +1478,7 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo, $initialHosp
             <div style="display: flex; flex-direction: column; gap: 0.75rem;">
               <button type="button" class="btn-return-directory" onclick="dismissSessionAndReturn();">
                 <svg style="width: 16px; height: 16px; stroke: currentColor;" fill="none" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
-                <span>Request Another Consultation / Change Facility</span>
+                <span>Request Another Consultation / Back to Chamber List</span>
               </button>
               <a href="appointments.php" class="btn-view-records">
                 <span>View My Appointments &amp; History</span>
@@ -1441,7 +1488,7 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo, $initialHosp
         `;
       }
 
-      // Dismiss completed session and return to facility / doctor selector
+      // Dismiss completed session and return to Stage 1 (Branch & Doctor Discovery)
       window.dismissSessionAndReturn = async function() {
         const csrfToken = document.getElementById('pageCsrfToken').value;
         try {
@@ -1465,7 +1512,7 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo, $initialHosp
         await executeZeroReloadSync();
       };
 
-      // Handle when patient has no active queue token
+      // Handle when patient has no active queue token (Stage 1 Initial Discovery)
       function handleNoActiveSession(doctors, hospitals) {
         stopTitleFlash();
         hasChimedForCurrentTurn = false;
@@ -1482,11 +1529,19 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo, $initialHosp
         const docBadge = document.getElementById('doctorCountBadge');
         if (docBadge) docBadge.textContent = `${doctors.length} Doctors Available`;
 
-        // Update Doctor Counts on Facility Cards
+        // Update Doctor Counts on Facility Cards & Branch Dropdown
         if (hospitals) {
+          const branchDropdown = document.getElementById('branchSelectDropdown');
           hospitals.forEach(h => {
             const fc = document.getElementById(`facDocCount_${h.hospital_id}`);
             if (fc) fc.textContent = h.doctor_count;
+
+            if (branchDropdown) {
+              const opt = branchDropdown.querySelector(`option[value="${h.hospital_id}"]`);
+              if (opt) {
+                opt.textContent = `${h.name} (${h.doctor_count} on-duty)`;
+              }
+            }
           });
         }
 
