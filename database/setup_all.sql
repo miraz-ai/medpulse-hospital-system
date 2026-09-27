@@ -103,6 +103,9 @@ SOURCE 29_hospital_bed_admission_workflow.sql;
 -- 30. Provision Multi-Branch Dedicated Reception/Admission Staff Accounts
 SOURCE 30_multi_branch_staff_accounts.sql;
 
+-- 31. Virtual Care Suite (24/7 Live Tele-Consultation Room)
+SOURCE 31_virtual_care_telemedicine.sql;
+
 -- Re-enable foreign key constraints
 SET FOREIGN_KEY_CHECKS = 1;
 

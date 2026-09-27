@@ -84,6 +84,15 @@ if (isset($pdo) && isset($_SESSION['user_id'])) {
         <span class="live-chip-sm" style="background: rgba(16, 185, 129, 0.15); color: #059669; border-color: rgba(16, 185, 129, 0.3);">LIVE</span>
       </a>
     </li>
+    <li class="nav-item <?= ($currentRoute === 'telemedicine.php') ? 'active' : '' ?>">
+      <a href="telemedicine.php">
+        <div class="nav-item-inner">
+          <svg class="ui-ico" viewBox="0 0 24 24"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+          Virtual Care Suite
+        </div>
+        <span class="live-chip-sm" style="background: rgba(59, 130, 246, 0.15); color: #2563eb; border-color: rgba(59, 130, 246, 0.3);">24/7 LIVE</span>
+      </a>
+    </li>
     <li class="nav-item <?= ($currentRoute === 'my_inpatients.php') ? 'active' : '' ?>">
       <a href="my_inpatients.php">
         <div class="nav-item-inner">
