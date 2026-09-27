@@ -361,17 +361,27 @@ $bPlt    = (int)($resource['platelet_bags'] ?? 30);
 $bCryo   = (int)($resource['cryo_units'] ?? 15);
 $courierEnRoute = (int)($resource['courier_dispatched'] ?? 0) === 1;
 
-// Recent audit logs for this branch
+// Recent facility logistics & equipment calibration audit logs for this branch
 $logsStmt = $pdo->prepare("
     SELECT action, description, created_at, category, ip_address 
     FROM audit_logs 
-    WHERE target_entity LIKE ? OR description LIKE ?
+    WHERE (
+        target_entity LIKE :target_prefix 
+        OR (
+            category IN ('LOGISTICS', 'EQUIPMENT', 'CALIBRATION', 'SYSTEM') 
+            AND (description LIKE :like_code OR description LIKE :like_name)
+        )
+    )
+    AND category != 'AUTH'
+    AND action NOT IN ('LOGIN_SUCCESS', 'LOGIN_FAILED', 'LOGOUT', 'AUTH')
     ORDER BY log_id DESC 
-    LIMIT 6
+    LIMIT 8
 ");
-$matchEntity = "hospital_id:{$adminHospitalId}%";
-$matchDesc   = "%{$branchCode}%";
-$logsStmt->execute([$matchEntity, $matchDesc]);
+$logsStmt->execute([
+    ':target_prefix' => "hospital_id:{$adminHospitalId}%",
+    ':like_code'     => "%{$branchCode}%",
+    ':like_name'     => "%{$branchName}%"
+]);
 $recentLogs = $logsStmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
 <!DOCTYPE html>
@@ -524,6 +534,12 @@ $recentLogs = $logsStmt->fetchAll(PDO::FETCH_ASSOC);
     }
     .ri-card:hover {
       box-shadow: 0 8px 25px rgba(0,0,0,0.06);
+    }
+    .ri-audit-card {
+      display: block !important;
+      height: auto !important;
+      min-height: 0 !important;
+      justify-content: normal !important;
     }
 
     .ri-card-head {
@@ -1230,8 +1246,8 @@ $recentLogs = $logsStmt->fetchAll(PDO::FETCH_ASSOC);
     <!-- ═══════════════════════════════════════════════════════════════
          RECENT LOGISTICS AUDIT TRAIL
     ════════════════════════════════════════════════════════════════ -->
-    <div class="ri-card" style="margin-bottom:24px;">
-      <div class="ri-card-head">
+    <div class="ri-card ri-audit-card" style="margin-bottom:24px;display:block;height:auto;min-height:0;">
+      <div class="ri-card-head" style="margin-bottom:14px;padding-bottom:12px;">
         <div>
           <h3 class="ri-card-title">
             <svg class="ui-ico" style="width:18px;height:18px;stroke:var(--sa-accent);" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
@@ -1241,8 +1257,8 @@ $recentLogs = $logsStmt->fetchAll(PDO::FETCH_ASSOC);
         </div>
       </div>
 
-      <div style="overflow-x:auto;">
-        <table class="admin-data-table" style="width:100%;font-size:0.80rem;">
+      <div style="overflow-x:auto;margin:0;padding:0;min-height:0;">
+        <table class="admin-data-table" style="width:100%;font-size:0.80rem;margin:0;">
           <thead>
             <tr>
               <th style="padding:8px 12px;">Timestamp</th>
@@ -1256,7 +1272,7 @@ $recentLogs = $logsStmt->fetchAll(PDO::FETCH_ASSOC);
             <?php if (!empty($recentLogs)): ?>
               <?php foreach ($recentLogs as $log): ?>
               <tr>
-                <td style="padding:10px 12px;color:var(--text-muted);font-size:0.74rem;">
+                <td style="padding:10px 12px;color:var(--text-muted);font-size:0.74rem;white-space:nowrap;">
                   <?= date('M j, Y H:i', strtotime($log['created_at'])) ?>
                 </td>
                 <td style="padding:10px 12px;">
@@ -1264,21 +1280,21 @@ $recentLogs = $logsStmt->fetchAll(PDO::FETCH_ASSOC);
                     <?= htmlspecialchars($log['category'], ENT_QUOTES, 'UTF-8') ?>
                   </span>
                 </td>
-                <td style="padding:10px 12px;font-weight:700;">
+                <td style="padding:10px 12px;font-weight:700;color:var(--text-heading);white-space:nowrap;">
                   <?= htmlspecialchars($log['action'], ENT_QUOTES, 'UTF-8') ?>
                 </td>
                 <td style="padding:10px 12px;color:var(--text-heading);">
                   <?= htmlspecialchars($log['description'], ENT_QUOTES, 'UTF-8') ?>
                 </td>
-                <td style="padding:10px 12px;color:var(--text-muted);font-family:monospace;font-size:0.72rem;">
-                  <?= htmlspecialchars($log['ip_address'], ENT_QUOTES, 'UTF-8') ?>
+                <td style="padding:10px 12px;color:var(--text-muted);font-family:monospace;font-size:0.72rem;white-space:nowrap;">
+                  <?= htmlspecialchars($log['ip_address'] ?? '127.0.0.1', ENT_QUOTES, 'UTF-8') ?>
                 </td>
               </tr>
               <?php endforeach; ?>
             <?php else: ?>
               <tr>
-                <td colspan="5" style="text-align:center;padding:16px;color:var(--text-muted);">
-                  No recent logistics events recorded for this branch.
+                <td colspan="5" style="text-align:center;padding:24px 16px;color:var(--text-muted);font-size:0.82rem;font-weight:500;">
+                  No calibration or telemetry events recorded yet
                 </td>
               </tr>
             <?php endif; ?>
