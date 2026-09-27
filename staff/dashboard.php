@@ -139,19 +139,20 @@ $csrfToken = $_SESSION['csrf_token'];
       border-color: rgba(255, 255, 255, 0.45) !important;
     }
 
-    /* Right-side Topbar with Authenticated Staff Profile Pill */
+    /* Right-side Topbar with Authenticated Staff Profile Card */
     .staff-topbar {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      flex-wrap: wrap;
-      gap: 1rem;
-      padding: 0.85rem 1.25rem;
-      background: var(--surface);
-      border: 1px solid var(--surface-border);
+      gap: 1.25rem;
+      padding: 0.75rem 1.25rem;
+      background: var(--surface, #ffffff);
+      border: 1px solid var(--surface-border, rgba(226, 232, 240, 0.8));
       border-radius: 1rem;
       margin-bottom: 1.75rem;
       box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+      min-height: 56px;
+      box-sizing: border-box;
     }
 
     .topbar-context {
@@ -163,43 +164,51 @@ $csrfToken = $_SESSION['csrf_token'];
     .topbar-badge {
       display: inline-flex;
       align-items: center;
-      gap: 7px;
+      gap: 8px;
       background: rgba(13, 148, 136, 0.08);
-      color: var(--brand-teal);
+      color: var(--brand-teal, #0d9488);
       border: 1px solid rgba(13, 148, 136, 0.22);
-      padding: 5px 12px;
+      padding: 6px 14px;
       border-radius: 9999px;
-      font-size: 0.76rem;
+      font-size: 0.78rem;
       font-weight: 700;
       letter-spacing: 0.02em;
+      line-height: 1;
     }
 
-    .topbar-profile-container {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      margin-left: auto;
+    .branch-pill-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #10b981;
+      box-shadow: 0 0 6px #10b981;
+      flex-shrink: 0;
     }
 
-    .staff-profile-pill {
+    .staff-profile-card {
       display: inline-flex;
       align-items: center;
       gap: 10px;
       background: #f8fafc;
-      border: 1px solid var(--surface-border);
+      border: 1px solid var(--surface-border, rgba(226, 232, 240, 0.8));
       border-radius: 9999px;
       padding: 4px 14px 4px 5px;
-      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+      transition: all 0.2s ease;
+    }
+    .staff-profile-card:hover {
+      border-color: rgba(13, 148, 136, 0.35);
+      background: #ffffff;
     }
 
     .staff-avatar-badge {
-      width: 34px;
-      height: 34px;
+      width: 32px;
+      height: 32px;
       border-radius: 50%;
-      background: linear-gradient(135deg, var(--brand-primary), var(--brand-teal));
+      background: linear-gradient(135deg, var(--brand-primary, #0284c7), var(--brand-teal, #0d9488));
       color: #ffffff;
       font-weight: 800;
-      font-size: 0.84rem;
+      font-size: 0.82rem;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -207,44 +216,43 @@ $csrfToken = $_SESSION['csrf_token'];
       box-shadow: 0 2px 6px rgba(13, 148, 136, 0.25);
     }
 
-    .staff-pill-details {
-      display: flex;
-      flex-direction: column;
-      line-height: 1.25;
+    .staff-profile-meta {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
     }
 
     .staff-pill-name {
-      font-size: 0.86rem;
+      font-size: 0.82rem;
       font-weight: 700;
-      color: var(--text-heading);
+      color: var(--text-heading, #0f172a);
+    }
+
+    .staff-meta-sep {
+      color: var(--text-muted, #94a3b8);
+      font-size: 0.75rem;
     }
 
     .staff-pill-designation {
-      font-size: 0.72rem;
+      font-size: 0.75rem;
       font-weight: 600;
-      color: var(--brand-teal);
+      color: var(--brand-teal, #0d9488);
     }
 
     .staff-pill-branch {
       display: inline-flex;
       align-items: center;
-      gap: 6px;
+      gap: 5px;
       background: #ffffff;
-      border: 1px solid var(--surface-border);
-      padding: 3px 9px;
+      border: 1px solid var(--surface-border, rgba(226, 232, 240, 0.8));
+      padding: 3px 10px;
       border-radius: 9999px;
       font-size: 0.72rem;
-      font-weight: 700;
-      color: var(--text-heading);
-      margin-left: 4px;
-    }
-
-    .branch-pill-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: #10b981;
-      box-shadow: 0 0 6px #10b981;
+      font-weight: 600;
+      color: var(--text-body, #334155);
+      margin-left: 2px;
+      white-space: nowrap;
     }
 
     /* Clean Page Header Banner */
@@ -984,7 +992,7 @@ $csrfToken = $_SESSION['csrf_token'];
   <!-- Main Viewport Canvas (Full Width past Fixed Left Sidebar) -->
   <main class="viewport-full">
 
-    <!-- Right-side Topbar showing authenticated Staff profile pill -->
+    <!-- Right-side Topbar showing authenticated Staff profile card -->
     <header class="staff-topbar">
       <div class="topbar-context">
         <div class="topbar-badge">
@@ -992,17 +1000,16 @@ $csrfToken = $_SESSION['csrf_token'];
           <span>Staff Clinical Console</span>
         </div>
       </div>
-      <div class="topbar-profile-container">
-        <div class="staff-profile-pill">
-          <div class="staff-avatar-badge"><?= htmlspecialchars(strtoupper(substr($staffName, 0, 1) ?: 'S'), ENT_QUOTES, 'UTF-8') ?></div>
-          <div class="staff-pill-details">
-            <span class="staff-pill-name" id="topbarStaffName"><?= htmlspecialchars($staffName, ENT_QUOTES, 'UTF-8') ?></span>
-            <span class="staff-pill-designation" id="topbarStaffDesignation"><?= htmlspecialchars($staffDesignation, ENT_QUOTES, 'UTF-8') ?></span>
-          </div>
-          <div class="staff-pill-branch">
-            <svg class="ui-ico ui-ico-sm" style="stroke: #0d9488; width: 14px; height: 14px;" viewBox="0 0 24 24"><path d="M3 21h18M5 21V7l8-4v18M13 7l6 3v11M9 9v.01M9 13v.01M9 17v.01M17 13v.01M17 17v.01"/></svg>
-            <span id="topbarStaffBranch"><?= htmlspecialchars($staffHospitalName, ENT_QUOTES, 'UTF-8') ?></span>
-          </div>
+      <div class="staff-profile-card">
+        <div class="staff-avatar-badge"><?= htmlspecialchars(strtoupper(substr($staffName, 0, 1) ?: 'S'), ENT_QUOTES, 'UTF-8') ?></div>
+        <div class="staff-profile-meta">
+          <span class="staff-pill-name" id="topbarStaffName"><?= htmlspecialchars($staffName, ENT_QUOTES, 'UTF-8') ?></span>
+          <span class="staff-meta-sep">&bull;</span>
+          <span class="staff-pill-designation" id="topbarStaffDesignation"><?= htmlspecialchars($staffDesignation, ENT_QUOTES, 'UTF-8') ?></span>
+        </div>
+        <div class="staff-pill-branch" title="<?= htmlspecialchars($staffHospitalName, ENT_QUOTES, 'UTF-8') ?>">
+          <svg class="ui-ico ui-ico-sm" style="stroke: #0d9488; width: 13px; height: 13px;" viewBox="0 0 24 24"><path d="M3 21h18M5 21V7l8-4v18M13 7l6 3v11M9 9v.01M9 13v.01M9 17v.01M17 13v.01M17 17v.01"/></svg>
+          <span id="topbarStaffBranch"><?= htmlspecialchars($staffHospitalName, ENT_QUOTES, 'UTF-8') ?></span>
         </div>
       </div>
     </header>

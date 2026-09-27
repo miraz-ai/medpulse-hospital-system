@@ -83,7 +83,7 @@ $currentRoute = basename($_SERVER['PHP_SELF'] ?? '');
           <svg class="ui-ico" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
           Resource Telemetry
         </div>
-        <span class="live-chip-sm" style="background:#0284c7;">IOT</span>
+        <span class="live-chip-sm" style="background:#0284c7; color:#ffffff !important; border-color:#0284c7; font-weight:800;">IOT</span>
       </a>
     </li>
   </ul>

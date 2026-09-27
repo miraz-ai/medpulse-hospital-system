@@ -581,14 +581,14 @@ try {
         <p>Enterprise Operations Console: Real-time clinical telemetry, personnel security, and role-based registries are synchronized.</p>
       </div>
       <div class="banner-actions">
-        <button class="btn-action-telemed" onclick="showToast('Security audit telemetry is operating in strict mode.', 'success')">
+        <!-- <button class="btn-action-telemed" onclick="showToast('Security audit telemetry is operating in strict mode.', 'success')">
           <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
           Audit Telemetry
         </button>
         <button class="btn-action-gradient" onclick="window.location.href='index.php'">
           <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24" style="stroke: white;"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
           Register Staff
-        </button>
+        </button> -->
       </div>
     </div>
 

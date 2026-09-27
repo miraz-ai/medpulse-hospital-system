@@ -216,6 +216,23 @@ try {
       font-family: 'JetBrains Mono', monospace;
     }
 
+    /* Executive Top Banner Badge */
+    .sa-welcome-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 5px 13px;
+      background: #ecfdf5;
+      color: #047857;
+      border: 1px solid rgba(16, 185, 129, 0.28);
+      border-radius: 9999px;
+      font-size: 0.74rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      margin-bottom: 8px;
+      box-shadow: 0 1px 2px rgba(16, 185, 129, 0.06);
+    }
+
     /* Executive Governance Notice Banner */
     .executive-boundary-banner {
       background: linear-gradient(135deg, rgba(30, 41, 59, 0.98), rgba(15, 23, 42, 1));
@@ -610,8 +627,8 @@ try {
     <!-- Topbar Banner -->
     <div class="welcome-banner">
       <div class="welcome-text">
-        <div class="sa-welcome-badge" style="background:var(--emerald-gradient);">
-          <svg style="width:12px;height:12px;stroke:#fff;fill:none;stroke-width:2;" viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+        <div class="sa-welcome-badge">
+          <svg style="width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2.2;" viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
           Executive Financial Governance
         </div>
         <h1>
