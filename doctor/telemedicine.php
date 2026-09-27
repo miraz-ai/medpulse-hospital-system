@@ -40,8 +40,9 @@ try {
 $cleanName = cleanDoctorBaseName($doctor['full_name'] ?? 'Doctor');
 $displayName = formatDoctorTitle($cleanName, $doctor['designation'] ?? null, $doctor['military_rank'] ?? null);
 $specialty = htmlspecialchars($doctor['specialty'] ?? 'General Medicine & Critical Care', ENT_QUOTES, 'UTF-8');
-$hospitalName = htmlspecialchars($doctor['hospital_name'] ?? 'MedPulse Hospital & Specialty Care', ENT_QUOTES, 'UTF-8');
-$hospitalCity = htmlspecialchars($doctor['hospital_city'] ?? 'Dhaka', ENT_QUOTES, 'UTF-8');
+$rawHospitalName = html_entity_decode((string)($doctor['hospital_name'] ?? 'MedPulse Hospital & Specialty Care'), ENT_QUOTES, 'UTF-8');
+$hospitalName = htmlspecialchars($rawHospitalName, ENT_QUOTES, 'UTF-8');
+$hospitalCity = htmlspecialchars(html_entity_decode((string)($doctor['hospital_city'] ?? 'Dhaka'), ENT_QUOTES, 'UTF-8'), ENT_QUOTES, 'UTF-8');
 
 $defaultMeeting = TelemedicineController::buildDefaultMeetingUrl($doctorUserId);
 $meetingLink = $doctor['teleconsult_link'] ?: $defaultMeeting['url'];
@@ -96,6 +97,124 @@ $roomCode = $doctor['teleconsult_room_code'] ?: $defaultMeeting['room_code'];
       0% { opacity: 0.4; transform: scale(0.9); }
       100% { opacity: 1; transform: scale(1.2); }
     }
+
+    /* Modern 4-Column Telemetry Stat Cards Grid */
+    .vc-telemetry-grid {
+      display: grid;
+      grid-template-columns: repeat(1, minmax(0, 1fr));
+      gap: 1rem;
+      margin-top: 1.5rem;
+    }
+    @media (min-width: 640px) {
+      .vc-telemetry-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+    @media (min-width: 1024px) {
+      .vc-telemetry-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+    }
+    .vc-stat-card {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 14px;
+      padding: 0.85rem 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      transition: all 0.2s ease;
+      min-width: 0;
+    }
+    .vc-stat-card:hover {
+      background: rgba(255, 255, 255, 0.09);
+      border-color: rgba(255, 255, 255, 0.22);
+      transform: translateY(-1px);
+    }
+    .vc-stat-icon-wrap {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .vc-stat-icon-wrap.facility {
+      background: rgba(56, 189, 248, 0.15);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      color: #38bdf8;
+    }
+    .vc-stat-icon-wrap.room {
+      background: rgba(129, 140, 248, 0.15);
+      border: 1px solid rgba(129, 140, 248, 0.3);
+      color: #818cf8;
+    }
+    .vc-stat-icon-wrap.status {
+      background: rgba(52, 211, 153, 0.15);
+      border: 1px solid rgba(52, 211, 153, 0.3);
+      color: #34d399;
+    }
+    .vc-stat-icon-wrap.queue {
+      background: rgba(251, 191, 36, 0.15);
+      border: 1px solid rgba(251, 191, 36, 0.3);
+      color: #fbbf24;
+    }
+    .vc-stat-content {
+      min-width: 0;
+      flex: 1;
+    }
+    .vc-stat-label {
+      font-size: 0.68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: rgba(255, 255, 255, 0.65);
+      margin-bottom: 2px;
+      display: block;
+    }
+    .vc-stat-value {
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: #ffffff;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: block;
+    }
+    .vc-stat-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.82rem;
+      font-weight: 800;
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      padding: 2px 8px;
+      border-radius: 6px;
+      color: #f8fafc;
+      letter-spacing: 0.04em;
+    }
+    .vc-status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: #34d399;
+    }
+    .vc-queue-highlight {
+      font-size: 1.05rem;
+      font-weight: 800;
+      color: #fbbf24;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
     .vc-host-card {
       background: #ffffff;
       border: 1px solid var(--surface-border);
@@ -213,37 +332,58 @@ $roomCode = $doctor['teleconsult_room_code'] ?: $defaultMeeting['room_code'];
           Host encrypted HD video consultations for <?= htmlspecialchars($displayName) ?>. Call queued patients sequentially and advance tokens with zero-reload synchronization.
         </p>
 
-          <div style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.15); border-radius: 12px; padding: 0.6rem 1rem; display: flex; align-items: center; gap: 8px;">
-            <svg style="width: 18px; height: 18px; stroke: #38bdf8;" fill="none" viewBox="0 0 24 24"><path d="M3 21h18M9 8h1M9 12h1M9 16h1M14 8h1M14 12h1M14 16h1M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16"/></svg>
-            <div>
-              <span style="font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.8; display: block;">Branch Facility</span>
-              <strong style="font-size: 0.82rem;"><?= htmlspecialchars($hospitalName) ?></strong>
+        <!-- 4-Column Stat Cards Grid -->
+        <div class="vc-telemetry-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+
+          <!-- Card 1: Branch Facility -->
+          <div class="vc-stat-card">
+            <div class="vc-stat-icon-wrap facility">
+              <svg style="width: 20px; height: 20px; stroke: currentColor;" fill="none" viewBox="0 0 24 24"><path d="M3 21h18M9 8h1M9 12h1M9 16h1M14 8h1M14 12h1M14 16h1M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16"/></svg>
+            </div>
+            <div class="vc-stat-content">
+              <span class="vc-stat-label">Branch Facility</span>
+              <strong class="vc-stat-value" title="<?= $hospitalName ?>"><?= $hospitalName ?></strong>
             </div>
           </div>
 
-          <div style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.15); border-radius: 12px; padding: 0.6rem 1rem; display: flex; align-items: center; gap: 8px;">
-            <svg style="width: 18px; height: 18px; stroke: #38bdf8;" fill="none" viewBox="0 0 24 24"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
-            <div>
-              <span style="font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.8; display: block;">Room Code</span>
-              <strong style="font-size: 0.82rem; font-family: monospace;" id="bannerRoomCode"><?= htmlspecialchars($roomCode) ?></strong>
+          <!-- Card 2: Room Code -->
+          <div class="vc-stat-card">
+            <div class="vc-stat-icon-wrap room">
+              <svg style="width: 20px; height: 20px; stroke: currentColor;" fill="none" viewBox="0 0 24 24"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+            </div>
+            <div class="vc-stat-content">
+              <span class="vc-stat-label">Room Code</span>
+              <div>
+                <span class="vc-stat-pill" id="bannerRoomCode"><?= htmlspecialchars($roomCode) ?></span>
+              </div>
             </div>
           </div>
 
-          <div style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.15); border-radius: 12px; padding: 0.6rem 1rem; display: flex; align-items: center; gap: 8px;">
-            <svg style="width: 18px; height: 18px; stroke: #34d399;" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-            <div>
-              <span style="font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.8; display: block;">Room Status</span>
-              <strong style="font-size: 0.82rem;" id="bannerRoomStatus">Active &bull; Accepting Patients</strong>
+          <!-- Card 3: Room Status -->
+          <div class="vc-stat-card">
+            <div class="vc-stat-icon-wrap status">
+              <svg style="width: 20px; height: 20px; stroke: currentColor;" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+            </div>
+            <div class="vc-stat-content">
+              <span class="vc-stat-label">Room Status</span>
+              <div class="vc-status-badge" id="bannerRoomStatus">
+                <span class="vc-pulse-dot"></span>
+                <span>Active &bull; Accepting</span>
+              </div>
             </div>
           </div>
 
-          <div style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.15); border-radius: 12px; padding: 0.6rem 1rem; display: flex; align-items: center; gap: 8px;">
-            <svg style="width: 18px; height: 18px; stroke: #fcd34d;" fill="none" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
-            <div>
-              <span style="font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.8; display: block;">Queue Count</span>
-              <strong style="font-size: 0.82rem;" id="bannerWaitingCount">0 Waiting</strong>
+          <!-- Card 4: Queue Count -->
+          <div class="vc-stat-card">
+            <div class="vc-stat-icon-wrap queue">
+              <svg style="width: 20px; height: 20px; stroke: currentColor;" fill="none" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+            </div>
+            <div class="vc-stat-content">
+              <span class="vc-stat-label">Queue Count</span>
+              <strong class="vc-queue-highlight" id="bannerWaitingCount">0 Waiting</strong>
             </div>
           </div>
+
         </div>
       </div>
     </div>
