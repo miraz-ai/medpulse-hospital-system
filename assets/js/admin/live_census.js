@@ -72,9 +72,53 @@
           pill.title = `Real-time clinical telemetry: ${t.label} (${t.bpm})`;
           const lbl = pill.querySelector('.ecg-label');
           if (lbl) {
-            lbl.innerHTML = `<span class="ecg-bpm-dot"></span>${escHtml(t.bpm)} &bull; ${escHtml(t.label)} &bull; ${escHtml(String(t.active_beds))} BEDS ACTIVE`;
+            const sub = t.sublabel ? ` &bull; ${escHtml(t.sublabel)}` : (t.active_beds ? ` &bull; ${escHtml(String(t.active_beds))} BEDS ACTIVE` : '');
+            lbl.innerHTML = `<span class="ecg-bpm-dot"></span>${escHtml(t.bpm)} &bull; ${escHtml(t.label)}${sub}`;
           }
         }
+      }
+
+      // Update Beds in Surge Hold card dynamically
+      const surgeCard = document.getElementById('surgeHoldMetricCard');
+      const surgeCounter = document.getElementById('surgeHoldCounter');
+      const surgeBadge = document.getElementById('surgeHoldCardBadge');
+      if (surgeCard && s.emergency_hold_beds !== undefined) {
+        const isSurgeOn = !!(data.disaster_mode || (data.telemetry && data.telemetry.disaster_active));
+        if (surgeCounter) {
+          surgeCounter.textContent = isSurgeOn ? Number(s.emergency_hold_beds).toLocaleString() : '0';
+        }
+        if (isSurgeOn) {
+          surgeCard.style.border = '1.5px solid rgba(244, 63, 94, 0.5)';
+          surgeCard.style.background = 'linear-gradient(135deg, rgba(255, 241, 242, 0.6) 0%, #fff 100%)';
+          surgeCard.style.cursor = 'pointer';
+          surgeCard.onclick = window.toggleSurgeHoldFilter;
+          const cardVal = document.getElementById('surgeHoldCardValue');
+          if (cardVal) cardVal.style.color = '#e11d48';
+          if (surgeBadge) {
+            surgeBadge.style.background = '#ffe4e6';
+            surgeBadge.style.color = '#9f1239';
+            surgeBadge.innerHTML = '<span>⚡ Click to isolate surge beds</span>';
+          }
+        } else {
+          surgeCard.style.border = '1.5px solid #e2e8f0';
+          surgeCard.style.background = '#ffffff';
+          surgeCard.style.cursor = 'default';
+          surgeCard.onclick = null;
+          const cardVal = document.getElementById('surgeHoldCardValue');
+          if (cardVal) cardVal.style.color = '#334155';
+          if (surgeBadge) {
+            surgeBadge.style.background = '#f1f5f9';
+            surgeBadge.style.color = '#64748b';
+            surgeBadge.innerHTML = '<span>Normal Operations &bull; All Units Stable</span>';
+          }
+        }
+      }
+
+      // Update Carousel Visibility if present
+      const carousel = document.getElementById('branchDisasterCarousel');
+      if (carousel) {
+        const isSurgeOn = !!(data.disaster_mode || (data.telemetry && data.telemetry.disaster_active));
+        carousel.style.display = isSurgeOn ? '' : 'none';
       }
     } catch (_) { /* silent — chip values remain from last render */ }
   }

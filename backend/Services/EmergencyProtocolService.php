@@ -193,7 +193,9 @@ class EmergencyProtocolService
         $totalHospitalReloc = 0;
 
         foreach ($all as $proto) {
-            if (in_array($hospitalId, $proto['target_hospital_ids'], true)) {
+            $isAffected = (($proto['target_scope'] ?? '') === 'NETWORK_WIDE') 
+                       || in_array($hospitalId, $proto['target_hospital_ids'] ?? [], true);
+            if ($isAffected) {
                 $hCounts = $this->pdo->prepare("
                     SELECT 
                         SUM(status = 'Emergency Hold') AS held_count,
@@ -744,7 +746,18 @@ class EmergencyProtocolService
                     $sanitizedCount = count($usedBedIds);
                 }
 
-                // 3. Unassigned 'Emergency Hold' beds for this protocol revert to 'Available'
+                // 3a. Allocated beds held under surge restore to Occupied
+                $this->pdo->prepare("
+                    UPDATE hospital_beds b
+                    JOIN bed_allocations ba ON b.bed_id = ba.bed_id AND ba.status = 'Active'
+                    SET b.status = 'Occupied',
+                        b.patient_id = ba.patient_id,
+                        b.relocation_status = 'NONE',
+                        b.emergency_protocol_id = NULL
+                    WHERE b.emergency_protocol_id = ? AND b.status = 'Emergency Hold'
+                ")->execute([$protocolId]);
+
+                // 3b. Unassigned 'Emergency Hold' beds for this protocol revert to 'Available'
                 $holdBedsStmt = $this->pdo->prepare("
                     SELECT b.bed_id FROM hospital_beds b
                     LEFT JOIN bed_allocations ba ON b.bed_id = ba.bed_id AND ba.status = 'Active'
@@ -840,7 +853,18 @@ class EmergencyProtocolService
                 $sanitizedCount = count($usedBedIds);
             }
 
-            // 3. Unassigned Emergency Hold beds revert to Available
+            // 3a. Allocated beds held under surge restore to Occupied
+            $this->pdo->query("
+                UPDATE hospital_beds b
+                JOIN bed_allocations ba ON b.bed_id = ba.bed_id AND ba.status = 'Active'
+                SET b.status = 'Occupied',
+                    b.patient_id = ba.patient_id,
+                    b.relocation_status = 'NONE',
+                    b.emergency_protocol_id = NULL
+                WHERE b.status = 'Emergency Hold'
+            ");
+
+            // 3b. Unassigned Emergency Hold beds revert to Available
             $holdBedsStmt = $this->pdo->query("
                 SELECT b.bed_id FROM hospital_beds b
                 LEFT JOIN bed_allocations ba ON b.bed_id = ba.bed_id AND ba.status = 'Active'

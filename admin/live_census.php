@@ -15,17 +15,30 @@ $emergencyService = new \MedPulse\Services\EmergencyProtocolService($pdo);
 $allActiveProtocols = $emergencyService->getActiveProtocols();
 $branchActiveProtocols = [];
 foreach ($allActiveProtocols as $p) {
-    if ($p['target_scope'] === 'NETWORK_WIDE') {
+    $scope = $p['target_scope'] ?? 'TARGETED';
+    $hids  = is_array($p['target_hospital_ids'] ?? null) 
+             ? $p['target_hospital_ids'] 
+             : (json_decode($p['target_hospital_ids'] ?? '[]', true) ?: []);
+    if ($scope === 'NETWORK_WIDE' || in_array($adminHospitalId, $hids, true)) {
         $branchActiveProtocols[] = $p;
-    } else {
-        $th = !empty($p['target_hospitals']) ? json_decode($p['target_hospitals'], true) : [];
-        if (is_array($th) && in_array($adminHospitalId, $th)) {
-            $branchActiveProtocols[] = $p;
-        }
     }
 }
 $branchActiveCount = count($branchActiveProtocols);
-$activeEmergency  = !empty($branchActiveProtocols) ? $branchActiveProtocols[0] : null;
+$activeEmergency   = !empty($branchActiveProtocols) ? $branchActiveProtocols[0] : null;
+$isDisasterActive  = ($branchActiveCount > 0);
+
+// Optional branch stand-down GET request handler
+if (isset($_GET['action']) && $_GET['action'] === 'stand_down_branch') {
+    $actorId = (int)($_SESSION['user_id'] ?? 0);
+    $clientIp = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+    foreach ($branchActiveProtocols as $proto) {
+        $emergencyService->standDownEmergency((int)$proto['id'], $actorId, $clientIp);
+    }
+    // Revert unassigned emergency hold beds for this hospital
+    $pdo->prepare("UPDATE hospital_beds SET status = 'Available', relocation_status = 'NONE', emergency_protocol_id = NULL WHERE hospital_id = ? AND status = 'Emergency Hold'")->execute([$adminHospitalId]);
+    header("Location: live_census.php?stand_down=success");
+    exit;
+}
 
 // =============================================================================
 // BED LIFECYCLE ACTION HANDLER (JSON API)
@@ -93,25 +106,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || (isset($_GET['_action']) && in_arra
             $icuPct = $totIcu > 0 ? ($occIcu / $totIcu) * 100 : 0;
             $availIcu = max(0, $totIcu - $occIcu);
 
-            $hasActiveSurge = !empty($emergencyService->isHospitalAffected($adminHospitalId)) || ((int)($row['emergency_hold_beds'] ?? 0) > 0);
-            if ($hasActiveSurge) {
-                $tBpm = '118 BPM'; $tClass = 'telemetry-critical'; $tLabel = 'DISASTER SURGE';
+            // Check dynamic active emergency protocol from DB for this hospital branch
+            $affected = $emergencyService->isHospitalAffected($adminHospitalId);
+            $isBranchDisasterOn = !empty($affected);
+
+            // Beds in surge hold evaluate to 0 if Disaster Mode is OFF
+            $surgeHeldBeds = $isBranchDisasterOn ? (int)($row['emergency_hold_beds'] ?? 0) : 0;
+
+            if ($isBranchDisasterOn) {
+                $tBpm = '118 BPM';
+                $tClass = 'telemetry-critical';
+                $tLabel = 'DISASTER SURGE';
+                $tSublabel = 'SURGE CAPACITY ACTIVE';
             } elseif ($totIcu > 0 && ($availIcu === 0 || $icuPct >= 90)) {
-                $tBpm = '124 BPM'; $tClass = 'telemetry-critical'; $tLabel = 'CODE SURGE';
+                $tBpm = '124 BPM';
+                $tClass = 'telemetry-critical';
+                $tLabel = 'CODE SURGE';
+                $tSublabel = 'CRITICAL LOAD';
             } elseif ($icuPct >= 70) {
-                $tBpm = '98 BPM'; $tClass = 'telemetry-warning'; $tLabel = 'HIGH LOAD';
+                $tBpm = '98 BPM';
+                $tClass = 'telemetry-warning';
+                $tLabel = 'HIGH LOAD';
+                $tSublabel = 'ELEVATED OCCUPANCY';
             } else {
-                $tBpm = '72 BPM'; $tClass = 'telemetry-normal'; $tLabel = 'STABLE';
+                $tBpm = '72 BPM';
+                $tClass = 'telemetry-normal';
+                $tLabel = 'NORMAL OPERATIONS';
+                $tSublabel = 'OPTIMAL CAPACITY';
             }
 
             echo json_encode([
                 'success' => true,
-                'stats' => $row,
+                'disaster_mode' => $isBranchDisasterOn,
+                'stats' => array_merge($row, [
+                    'emergency_hold_beds' => $surgeHeldBeds
+                ]),
                 'telemetry' => [
                     'bpm' => $tBpm,
                     'class' => $tClass,
                     'label' => $tLabel,
-                    'active_beds' => (int)($row['total_beds'] ?? 0)
+                    'sublabel' => $tSublabel,
+                    'active_beds' => (int)($row['total_beds'] ?? 0),
+                    'disaster_active' => $isBranchDisasterOn
                 ]
             ]);
         } catch (Throwable $e) {
@@ -586,28 +622,37 @@ try {
     $critical_occupancy_rate = $total_critical_beds > 0 ? ($occupied_critical_beds / $total_critical_beds) * 100 : 0;
     $total_active_beds = $totalHospitalBeds;
 
-    // Threshold classification (Disaster surge spikes rhythm to rapid 118 BPM rose-500):
-    if ($branchActiveCount > 0 || $totalEmergencyHoldBeds > 0) {
+    // Threshold classification:
+    // When Disaster Mode is ON (Active Surge): elevated pulse rate (118 BPM, DISASTER SURGE, SURGE CAPACITY ACTIVE, red accent)
+    // When Disaster Mode is OFF (Normal Hospital Mode): calm normal resting telemetry (72 BPM, NORMAL OPERATIONS, OPTIMAL CAPACITY, green/teal)
+    if ($isDisasterActive) {
         $telemetry_bpm = '118 BPM';
         $telemetry_class = 'telemetry-critical';
         $telemetry_label = 'DISASTER SURGE';
+        $telemetry_sublabel = 'SURGE CAPACITY ACTIVE';
         $telemetry_speed = '0.75s';
     } elseif ($total_critical_beds > 0 && ($available_critical_beds === 0 || $critical_occupancy_rate >= 90)) {
         $telemetry_bpm = '124 BPM';
         $telemetry_class = 'telemetry-critical';
         $telemetry_label = 'CODE SURGE';
+        $telemetry_sublabel = 'CRITICAL LOAD';
         $telemetry_speed = '0.7s';
     } elseif ($critical_occupancy_rate >= 70) {
         $telemetry_bpm = '98 BPM';
         $telemetry_class = 'telemetry-warning';
         $telemetry_label = 'HIGH LOAD';
+        $telemetry_sublabel = 'ELEVATED OCCUPANCY';
         $telemetry_speed = '1.2s';
     } else {
         $telemetry_bpm = '72 BPM';
         $telemetry_class = 'telemetry-normal';
-        $telemetry_label = 'STABLE';
+        $telemetry_label = 'NORMAL OPERATIONS';
+        $telemetry_sublabel = 'OPTIMAL CAPACITY';
         $telemetry_speed = '2s';
     }
+
+    // When Disaster Mode is OFF (Normal Hospital Mode), BEDS IN SURGE HOLD evaluates to 0
+    $displayEmergencyHoldBeds = $isDisasterActive ? $totalEmergencyHoldBeds : 0;
 
     // Dynamic Distinct Floors for this branch hospital
     $floorStmt = $pdo->prepare("
@@ -877,7 +922,7 @@ if (!function_exists('getDoctorPastelBadgeClass')) {
               <path class="ecg-wave-bg" d="M 0 9 L 10 9 L 13 6.5 L 16 9 L 20 9 L 22 11 L 25 2 L 28 16 L 31 9 L 35 9 L 40 5.5 L 45 9 L 60 9" pathLength="100"></path>
               <path class="ecg-wave-active" d="M 0 9 L 10 9 L 13 6.5 L 16 9 L 20 9 L 22 11 L 25 2 L 28 16 L 31 9 L 35 9 L 40 5.5 L 45 9 L 60 9" pathLength="100"></path>
             </svg>
-            <span class="ecg-label"><span class="ecg-bpm-dot"></span><?= htmlspecialchars($telemetry_bpm) ?> &bull; <?= htmlspecialchars($telemetry_label) ?> &bull; <?= htmlspecialchars((string)$total_active_beds) ?> BEDS ACTIVE</span>
+            <span class="ecg-label"><span class="ecg-bpm-dot"></span><?= htmlspecialchars($telemetry_bpm) ?> &bull; <?= htmlspecialchars($telemetry_label) ?> &bull; <?= htmlspecialchars($telemetry_sublabel) ?></span>
           </div>
         </h1>
         <p>Real-time inpatient occupancy, emergency admission allocations, intensive care load, and rapid triage routing for <?= htmlspecialchars($currentHospital['name']) ?>.</p>
@@ -961,7 +1006,7 @@ if (!function_exists('getDoctorPastelBadgeClass')) {
           <?php endif; ?>
         </div>
         <!-- Stand-Down button — always visible -->
-        <a href="<?= htmlspecialchars($_SERVER['REQUEST_URI'], ENT_QUOTES, 'UTF-8') ?>" onclick="event.preventDefault(); if(window.MedPulseDialog && MedPulseDialog.confirm) { MedPulseDialog.confirm({ title: 'Stand Down Protocol', message: 'Confirm: restore all Emergency Hold beds to Available status and cancel all active disaster protocols for this branch?', confirmText: 'Stand Down', cancelText: 'Cancel', type: 'danger', onConfirm: function() { window.location.href = '?action=stand_down_branch'; } }); }" style="display: inline-flex; align-items: center; gap: 7px; padding: 7px 16px; background: #fff; color: #991b1b; border-radius: 10px; font-size: 0.8rem; font-weight: 800; text-decoration: none; white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,0.18); transition: background 0.15s; cursor: pointer;" onmouseover="this.style.background='#fee2e2'" onmouseout="this.style.background='#fff'">
+        <a href="<?= htmlspecialchars($_SERVER['REQUEST_URI'] ?? 'live_census.php', ENT_QUOTES, 'UTF-8') ?>" onclick="event.preventDefault(); if(window.MedPulseDialog && MedPulseDialog.confirm) { MedPulseDialog.confirm({ title: 'Stand Down Protocol', message: 'Confirm: restore all Emergency Hold beds to Available status and cancel all active disaster protocols for this branch?', confirmText: 'Stand Down', cancelText: 'Cancel', type: 'danger', onConfirm: function() { window.location.href = '?action=stand_down_branch'; } }); }" style="display: inline-flex; align-items: center; gap: 7px; padding: 7px 16px; background: #fff; color: #991b1b; border-radius: 10px; font-size: 0.8rem; font-weight: 800; text-decoration: none; white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,0.18); transition: background 0.15s; cursor: pointer;" onmouseover="this.style.background='#fee2e2'" onmouseout="this.style.background='#fff'">
           ⚡ Stand Down / Restore Operations
         </a>
       </div>
@@ -1046,24 +1091,22 @@ if (!function_exists('getDoctorPastelBadgeClass')) {
         </div>
       </div>
 
-      <?php if ($branchActiveCount > 0 || $totalEmergencyHoldBeds > 0): ?>
-      <!-- Metric 6: Beds in Surge Hold (Interactive Filter) -->
-      <div class="census-metric-card" id="surgeHoldMetricCard" onclick="toggleSurgeHoldFilter()" style="cursor: pointer; border: 1.5px solid rgba(244, 63, 94, 0.5); background: linear-gradient(135deg, rgba(255, 241, 242, 0.6) 0%, #fff 100%); transition: all 0.2s ease;" title="Click to isolate surge hold beds on floor grid">
+      <!-- Metric 6: Beds in Surge Hold -->
+      <div class="census-metric-card" id="surgeHoldMetricCard" <?= $isDisasterActive ? 'onclick="toggleSurgeHoldFilter()"' : '' ?> style="cursor: <?= $isDisasterActive ? 'pointer' : 'default' ?>; border: 1.5px solid <?= $isDisasterActive ? 'rgba(244, 63, 94, 0.5)' : '#e2e8f0' ?>; background: <?= $isDisasterActive ? 'linear-gradient(135deg, rgba(255, 241, 242, 0.6) 0%, #fff 100%)' : '#ffffff' ?>; transition: all 0.2s ease;" title="<?= $isDisasterActive ? 'Click to isolate surge hold beds on floor grid' : 'Standard Hospital Operations Active' ?>">
         <div class="census-card-top">
-          <span class="census-card-label" style="color: #9f1239; font-weight: 700;">Beds in Surge Hold</span>
-          <div class="census-card-icon" style="background: #ffe4e6; color: #e11d48;">
+          <span class="census-card-label" style="color: <?= $isDisasterActive ? '#9f1239' : '#64748b' ?>; font-weight: 700;">Beds in Surge Hold</span>
+          <div class="census-card-icon" style="background: <?= $isDisasterActive ? '#ffe4e6' : '#f1f5f9' ?>; color: <?= $isDisasterActive ? '#e11d48' : '#64748b' ?>;">
             <svg class="ui-ico" viewBox="0 0 24 24"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>
           </div>
         </div>
-        <div class="census-card-value" style="color: #e11d48; display: flex; align-items: baseline; gap: 8px;">
-          <span><?= number_format($totalEmergencyHoldBeds) ?></span>
+        <div class="census-card-value" id="surgeHoldCardValue" style="color: <?= $isDisasterActive ? '#e11d48' : '#334155' ?>; display: flex; align-items: baseline; gap: 8px;">
+          <span id="surgeHoldCounter"><?= number_format($displayEmergencyHoldBeds) ?></span>
           <span id="surgeFilterBadge" style="display: none; font-size: 0.65rem; background: #e11d48; color: #fff; padding: 2px 6px; border-radius: 4px; font-weight: 800;">FILTER ACTIVE</span>
         </div>
-        <div class="census-card-badge" style="background: #ffe4e6; color: #9f1239;">
-          <span>⚡ Click to isolate surge beds</span>
+        <div class="census-card-badge" id="surgeHoldCardBadge" style="background: <?= $isDisasterActive ? '#ffe4e6' : '#f1f5f9' ?>; color: <?= $isDisasterActive ? '#9f1239' : '#64748b' ?>;">
+          <span><?= $isDisasterActive ? '⚡ Click to isolate surge beds' : 'Normal Operations &bull; All Units Stable' ?></span>
         </div>
       </div>
-      <?php endif; ?>
     </div>
 
     <!-- Ward Floor Filter Bar -->
