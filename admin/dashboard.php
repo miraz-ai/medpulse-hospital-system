@@ -185,13 +185,36 @@ try {
         ];
     }
 
-    // 5. Live Event Telemetry Ticker (Latest 5 Events from audit_logs)
-    $tickerLogs = $pdo->query("
-        SELECT log_id, action, description, category, ip_address, created_at 
-        FROM audit_logs 
-        ORDER BY created_at DESC 
-        LIMIT 5
-    ")->fetchAll(PDO::FETCH_ASSOC);
+    // 5. Live Event Telemetry Ticker (Latest 5 Events from audit_logs scoped to this branch)
+    $isSuperAdmin = TenantScope::isSuperAdmin();
+    if ($isSuperAdmin) {
+        $tickerLogs = $pdo->query("
+            SELECT a.log_id, a.action, a.description, a.category, a.ip_address, a.created_at 
+            FROM audit_logs a
+            ORDER BY a.created_at DESC 
+            LIMIT 5
+        ")->fetchAll(PDO::FETCH_ASSOC);
+    } else {
+        $tickerStmt = $pdo->prepare("
+            SELECT a.log_id, a.action, a.description, a.category, a.ip_address, a.created_at 
+            FROM audit_logs a
+            LEFT JOIN users u ON a.actor_id = u.user_id
+            WHERE a.target_hospital_id = :h1 
+               OR u.hospital_id = :h2 
+               OR a.target_entity LIKE :h3 
+               OR a.description LIKE :h4
+               OR (a.target_hospital_id IS NULL AND u.hospital_id IS NULL)
+            ORDER BY a.created_at DESC 
+            LIMIT 5
+        ");
+        $tickerStmt->execute([
+            ':h1' => $adminHospitalId,
+            ':h2' => $adminHospitalId,
+            ':h3' => "%Hospital #{$adminHospitalId}%",
+            ':h4' => "%Hospital #{$adminHospitalId}%"
+        ]);
+        $tickerLogs = $tickerStmt->fetchAll(PDO::FETCH_ASSOC);
+    }
 
     // Relative timestamp helper
     if (!function_exists('getTelemetryRelativeTime')) {

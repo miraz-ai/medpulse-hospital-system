@@ -125,7 +125,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $admCheck = $pdo->prepare("SELECT admission_id FROM admissions WHERE bed_id = ? AND patient_id = ? AND status = 'Admitted' LIMIT 1");
                 $admCheck->execute([$bedId, $patientId]);
                 if (!$admCheck->fetchColumn()) {
-                    $docStmt = $pdo->query("SELECT user_id FROM users WHERE role = 'Doctor' AND status = 'active' ORDER BY user_id ASC LIMIT 1");
+                    $docStmt = $pdo->prepare("
+                        SELECT u.user_id 
+                        FROM users u 
+                        LEFT JOIN doctors d ON u.user_id = d.user_id 
+                        WHERE u.role = 'Doctor' AND u.status = 'active' 
+                          AND COALESCE(d.hospital_id, u.hospital_id) = ? 
+                        ORDER BY u.user_id ASC LIMIT 1
+                    ");
+                    $docStmt->execute([$sessionHospitalId]);
                     $defDocId = (int)$docStmt->fetchColumn() ?: 1;
 
                     $patUidStmt = $pdo->prepare("SELECT patient_uid FROM patients WHERE user_id = ? OR id = ? LIMIT 1");

@@ -904,10 +904,10 @@ if ($hour >= 5 && $hour < 12) {
         <p>Your electronic medical record, consultations, and diagnostic tests are fully synced.</p>
       </div>
       <div class="banner-actions">
-        <button class="btn-action-telemed">
+        <!-- <button class="btn-action-telemed">
           <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
           Virtual Room
-        </button>
+        </button> -->
         <a href="specialists.php" class="btn-action-gradient" style="text-decoration: none;">
           <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24" style="stroke: white;"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
           New OPD Booking

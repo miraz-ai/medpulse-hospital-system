@@ -125,17 +125,53 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || (isset($_GET['_action']) && in_arra
     // -------------------------------------------------------------------------
     if ($action === 'get_dropdowns') {
         try {
-            $patients = $pdo->query("
-                SELECT user_id, full_name FROM users
-                WHERE role = 'patient'
-                ORDER BY full_name ASC
-            ")->fetchAll(PDO::FETCH_ASSOC);
+            $isSuperAdmin = TenantScope::isSuperAdmin();
 
-            $doctors = $pdo->query("
-                SELECT user_id, full_name FROM users
-                WHERE role = 'doctor' AND status = 'active'
-                ORDER BY full_name ASC
-            ")->fetchAll(PDO::FETCH_ASSOC);
+            if ($isSuperAdmin) {
+                $patients = $pdo->query("
+                    SELECT user_id, full_name FROM users
+                    WHERE role = 'patient'
+                    ORDER BY full_name ASC
+                ")->fetchAll(PDO::FETCH_ASSOC);
+
+                $doctors = $pdo->query("
+                    SELECT user_id, full_name FROM users
+                    WHERE role = 'doctor' AND status = 'active'
+                    ORDER BY full_name ASC
+                ")->fetchAll(PDO::FETCH_ASSOC);
+            } else {
+                $patStmt = $pdo->prepare("
+                    SELECT u.user_id, u.full_name 
+                    FROM users u
+                    WHERE u.role = 'patient'
+                      AND (
+                          u.hospital_id = :h1 
+                          OR u.hospital_id IS NULL 
+                          OR EXISTS (SELECT 1 FROM appointments a WHERE a.patient_id = u.user_id AND a.hospital_id = :h2)
+                          OR EXISTS (SELECT 1 FROM admissions adm WHERE adm.patient_id = u.user_id AND adm.hospital_id = :h3)
+                          OR EXISTS (SELECT 1 FROM invoices inv WHERE inv.patient_id = u.user_id AND inv.hospital_id = :h4)
+                      )
+                    ORDER BY u.full_name ASC
+                ");
+                $patStmt->execute([
+                    ':h1' => $adminHospitalId,
+                    ':h2' => $adminHospitalId,
+                    ':h3' => $adminHospitalId,
+                    ':h4' => $adminHospitalId
+                ]);
+                $patients = $patStmt->fetchAll(PDO::FETCH_ASSOC);
+
+                $docStmt = $pdo->prepare("
+                    SELECT u.user_id, u.full_name 
+                    FROM users u
+                    LEFT JOIN doctors d ON u.user_id = d.user_id
+                    WHERE u.role = 'doctor' AND u.status = 'active'
+                      AND COALESCE(d.hospital_id, u.hospital_id) = :hid
+                    ORDER BY u.full_name ASC
+                ");
+                $docStmt->execute([':hid' => $adminHospitalId]);
+                $doctors = $docStmt->fetchAll(PDO::FETCH_ASSOC);
+            }
 
             echo json_encode(['success' => true, 'patients' => $patients, 'doctors' => $doctors]);
         } catch (Throwable $e) {

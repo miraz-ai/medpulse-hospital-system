@@ -16,6 +16,7 @@ if (session_status() === PHP_SESSION_NONE) {
 header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../../config/db.php';
+require_once __DIR__ . '/../../config/tenant_scope.php';
 
 // RBAC Guard
 if (!isset($_SESSION['user_id']) || empty($_SESSION['role'])) {
@@ -24,24 +25,46 @@ if (!isset($_SESSION['user_id']) || empty($_SESSION['role'])) {
     exit;
 }
 
+$isSuperAdmin = TenantScope::isSuperAdmin();
+$hospitalId = TenantScope::getHospitalId();
 $wardFilter = trim((string)($_GET['ward'] ?? ''));
 
 try {
-    if ($wardFilter !== '' && $wardFilter !== 'all') {
-        $stmt = $pdo->prepare("
-            SELECT bed_id, bed_number, ward_type, floor_number, daily_rate, status
-            FROM hospital_beds
-            WHERE status = 'Available' AND ward_type = :ward
-            ORDER BY floor_number ASC, bed_number ASC
-        ");
-        $stmt->execute([':ward' => $wardFilter]);
+    if ($isSuperAdmin) {
+        if ($wardFilter !== '' && $wardFilter !== 'all') {
+            $stmt = $pdo->prepare("
+                SELECT bed_id, bed_number, ward_type, floor_number, daily_rate, status, hospital_id
+                FROM hospital_beds
+                WHERE status = 'Available' AND ward_type = :ward
+                ORDER BY floor_number ASC, bed_number ASC
+            ");
+            $stmt->execute([':ward' => $wardFilter]);
+        } else {
+            $stmt = $pdo->query("
+                SELECT bed_id, bed_number, ward_type, floor_number, daily_rate, status, hospital_id
+                FROM hospital_beds
+                WHERE status = 'Available'
+                ORDER BY ward_type ASC, floor_number ASC, bed_number ASC
+            ");
+        }
     } else {
-        $stmt = $pdo->query("
-            SELECT bed_id, bed_number, ward_type, floor_number, daily_rate, status
-            FROM hospital_beds
-            WHERE status = 'Available'
-            ORDER BY ward_type ASC, floor_number ASC, bed_number ASC
-        ");
+        if ($wardFilter !== '' && $wardFilter !== 'all') {
+            $stmt = $pdo->prepare("
+                SELECT bed_id, bed_number, ward_type, floor_number, daily_rate, status, hospital_id
+                FROM hospital_beds
+                WHERE status = 'Available' AND hospital_id = :hid AND ward_type = :ward
+                ORDER BY floor_number ASC, bed_number ASC
+            ");
+            $stmt->execute([':hid' => $hospitalId, ':ward' => $wardFilter]);
+        } else {
+            $stmt = $pdo->prepare("
+                SELECT bed_id, bed_number, ward_type, floor_number, daily_rate, status, hospital_id
+                FROM hospital_beds
+                WHERE status = 'Available' AND hospital_id = :hid
+                ORDER BY ward_type ASC, floor_number ASC, bed_number ASC
+            ");
+            $stmt->execute([':hid' => $hospitalId]);
+        }
     }
 
     $beds = $stmt->fetchAll(PDO::FETCH_ASSOC);

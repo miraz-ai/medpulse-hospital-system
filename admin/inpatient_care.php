@@ -29,15 +29,40 @@ function getDoctorPastelBadgeClass(?string $specialty, int $doctorId = 0): strin
     return $variants[abs($doctorId) % 5];
 }
 
-try {
-    // 1. Fetch Inpatient Vital Metrics
-    $totalInpatients = (int)$pdo->query("SELECT COUNT(*) FROM bed_allocations WHERE status = 'Active'")->fetchColumn();
-    $availableBeds   = (int)$pdo->query("SELECT COUNT(*) FROM hospital_beds WHERE status = 'Available'")->fetchColumn();
-    $occupiedBeds    = (int)$pdo->query("SELECT COUNT(*) FROM hospital_beds WHERE status = 'Occupied'")->fetchColumn();
-    $activePhysicians = (int)$pdo->query("SELECT COUNT(DISTINCT doctor_id) FROM patient_doctor_assignments WHERE status = 'Active'")->fetchColumn();
+// Enforce strict Multi-Tenant Branch Isolation
+$isSuperAdmin = TenantScope::isSuperAdmin();
+$adminHospitalId = (int)($_SESSION['hospital_id'] ?? 1);
 
-    // 2. Fetch Admitted Patients
-    $patientsStmt = $pdo->query("
+try {
+    // 1. Fetch Inpatient Vital Metrics (Scoped to authenticated branch)
+    if ($isSuperAdmin) {
+        $totalInpatients = (int)$pdo->query("SELECT COUNT(*) FROM bed_allocations WHERE status = 'Active'")->fetchColumn();
+        $availableBeds   = (int)$pdo->query("SELECT COUNT(*) FROM hospital_beds WHERE status = 'Available'")->fetchColumn();
+        $occupiedBeds    = (int)$pdo->query("SELECT COUNT(*) FROM hospital_beds WHERE status = 'Occupied'")->fetchColumn();
+        $activePhysicians = (int)$pdo->query("SELECT COUNT(DISTINCT doctor_id) FROM patient_doctor_assignments WHERE status = 'Active'")->fetchColumn();
+    } else {
+        $mStmt = $pdo->prepare("
+            SELECT 
+                (SELECT COUNT(*) FROM bed_allocations ba JOIN hospital_beds b ON ba.bed_id = b.bed_id WHERE ba.status = 'Active' AND b.hospital_id = :h1) AS total_inpatients,
+                (SELECT COUNT(*) FROM hospital_beds WHERE status = 'Available' AND hospital_id = :h2) AS available_beds,
+                (SELECT COUNT(*) FROM hospital_beds WHERE status = 'Occupied' AND hospital_id = :h3) AS occupied_beds,
+                (SELECT COUNT(DISTINCT pda.doctor_id) 
+                 FROM patient_doctor_assignments pda 
+                 JOIN bed_allocations ba ON pda.patient_id = ba.patient_id 
+                 JOIN hospital_beds b ON ba.bed_id = b.bed_id 
+                 WHERE pda.status = 'Active' AND ba.status = 'Active' AND b.hospital_id = :h4) AS active_physicians
+        ");
+        $mStmt->execute([':h1' => $adminHospitalId, ':h2' => $adminHospitalId, ':h3' => $adminHospitalId, ':h4' => $adminHospitalId]);
+        $mRow = $mStmt->fetch(PDO::FETCH_ASSOC);
+
+        $totalInpatients = (int)($mRow['total_inpatients'] ?? 0);
+        $availableBeds   = (int)($mRow['available_beds'] ?? 0);
+        $occupiedBeds    = (int)($mRow['occupied_beds'] ?? 0);
+        $activePhysicians = (int)($mRow['active_physicians'] ?? 0);
+    }
+
+    // 2. Fetch Admitted Patients (Scoped to authenticated branch)
+    $queryInpatients = "
         SELECT 
             ba.allocation_id,
             ba.admitted_at,
@@ -69,12 +94,22 @@ try {
         LEFT JOIN staff adm_stf ON adm_stf.staff_id = adm.admitting_staff_id
         LEFT JOIN users adm_u ON (adm_u.user_id = adm_stf.user_id OR adm_u.user_id = adm.admitting_staff_id)
         WHERE ba.status = 'Active'
-        ORDER BY ba.admitted_at DESC
-    ");
+    ";
+    if (!$isSuperAdmin) {
+        $queryInpatients .= " AND b.hospital_id = :hosp_id";
+    }
+    $queryInpatients .= " ORDER BY ba.admitted_at DESC";
+
+    $patientsStmt = $pdo->prepare($queryInpatients);
+    if (!$isSuperAdmin) {
+        $patientsStmt->execute([':hosp_id' => $adminHospitalId]);
+    } else {
+        $patientsStmt->execute();
+    }
     $inpatients = $patientsStmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // 3. Fetch Doctor Assignments for Inpatients
-    $docAssignStmt = $pdo->query("
+    // 3. Fetch Doctor Assignments for Inpatients (Scoped to authenticated branch)
+    $queryDocAssign = "
         SELECT 
             pda.assignment_id,
             pda.patient_id,
@@ -86,8 +121,22 @@ try {
         JOIN users doc ON pda.doctor_id = doc.user_id
         LEFT JOIN doctor_profiles dp ON doc.user_id = dp.user_id
         WHERE pda.status = 'Active'
-        ORDER BY pda.is_primary DESC, doc.full_name ASC
-    ");
+    ";
+    if (!$isSuperAdmin) {
+        $queryDocAssign .= " AND EXISTS (
+            SELECT 1 FROM bed_allocations ba 
+            JOIN hospital_beds b ON ba.bed_id = b.bed_id 
+            WHERE ba.patient_id = pda.patient_id AND ba.status = 'Active' AND b.hospital_id = :hosp_id
+        )";
+    }
+    $queryDocAssign .= " ORDER BY pda.is_primary DESC, doc.full_name ASC";
+
+    $docAssignStmt = $pdo->prepare($queryDocAssign);
+    if (!$isSuperAdmin) {
+        $docAssignStmt->execute([':hosp_id' => $adminHospitalId]);
+    } else {
+        $docAssignStmt->execute();
+    }
     $assignments = $docAssignStmt->fetchAll(PDO::FETCH_ASSOC);
 
     $patientDoctors = [];
@@ -99,8 +148,8 @@ try {
         $patientDoctors[$pid][] = $a;
     }
 
-    // 4. Fetch All Active & Available Doctors for Care Teams
-    $allDoctorsStmt = $pdo->query("
+    // 4. Fetch All Active & Available Doctors for Care Teams (Scoped to authenticated branch)
+    $queryAllDocs = "
         SELECT 
             u.user_id,
             u.full_name,
@@ -112,17 +161,33 @@ try {
             u.status
         FROM users u
         LEFT JOIN doctor_profiles dp ON u.user_id = dp.user_id
+        LEFT JOIN doctors d ON u.user_id = d.user_id
         WHERE u.role = 'Doctor' AND u.status IN ('active', 'suspended')
-        ORDER BY (u.status = 'active') DESC, u.full_name ASC
-    ");
+    ";
+    if (!$isSuperAdmin) {
+        $queryAllDocs .= " AND COALESCE(d.hospital_id, u.hospital_id) = :hosp_id";
+    }
+    $queryAllDocs .= " ORDER BY (u.status = 'active') DESC, u.full_name ASC";
+
+    $allDoctorsStmt = $pdo->prepare($queryAllDocs);
+    if (!$isSuperAdmin) {
+        $allDoctorsStmt->execute([':hosp_id' => $adminHospitalId]);
+    } else {
+        $allDoctorsStmt->execute();
+    }
     $activeDoctors = $allDoctorsStmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // 5. Unique Ward Types for Filter
-    $wardTypesStmt = $pdo->query("SELECT DISTINCT ward_type FROM hospital_beds ORDER BY ward_type ASC");
+    // 5. Unique Ward Types for Filter (Scoped to authenticated branch)
+    if ($isSuperAdmin) {
+        $wardTypesStmt = $pdo->query("SELECT DISTINCT ward_type FROM hospital_beds ORDER BY ward_type ASC");
+    } else {
+        $wardTypesStmt = $pdo->prepare("SELECT DISTINCT ward_type FROM hospital_beds WHERE hospital_id = ? ORDER BY ward_type ASC");
+        $wardTypesStmt->execute([$adminHospitalId]);
+    }
     $wardTypes = $wardTypesStmt->fetchAll(PDO::FETCH_COLUMN);
 
-    // 6. Fetch Registered Non-Admitted Patients for Quick Admission Modal
-    $unadmittedPatientsStmt = $pdo->query("
+    // 6. Fetch Registered Non-Admitted Patients for Quick Admission Modal (Scoped to authenticated branch)
+    $queryEligible = "
         SELECT u.user_id, u.full_name, u.email, u.phone, u.gender,
                COALESCE(TIMESTAMPDIFF(YEAR, pat.dob, CURDATE()), u.age, 0) AS age,
                COALESCE(pat.blood_group, u.blood_group, 'Unknown') AS blood_group,
@@ -133,8 +198,29 @@ try {
           AND u.user_id NOT IN (
               SELECT patient_id FROM bed_allocations WHERE status = 'Active'
           )
-        ORDER BY u.full_name ASC
-    ");
+    ";
+    if (!$isSuperAdmin) {
+        $queryEligible .= " AND (
+            u.hospital_id = :h1 
+            OR u.hospital_id IS NULL 
+            OR EXISTS (SELECT 1 FROM appointments a WHERE a.patient_id = u.user_id AND a.hospital_id = :h2)
+            OR EXISTS (SELECT 1 FROM admissions adm WHERE adm.patient_id = u.user_id AND adm.hospital_id = :h3)
+            OR EXISTS (SELECT 1 FROM invoices inv WHERE inv.patient_id = u.user_id AND inv.hospital_id = :h4)
+        )";
+    }
+    $queryEligible .= " ORDER BY u.full_name ASC";
+
+    $unadmittedPatientsStmt = $pdo->prepare($queryEligible);
+    if (!$isSuperAdmin) {
+        $unadmittedPatientsStmt->execute([
+            ':h1' => $adminHospitalId,
+            ':h2' => $adminHospitalId,
+            ':h3' => $adminHospitalId,
+            ':h4' => $adminHospitalId
+        ]);
+    } else {
+        $unadmittedPatientsStmt->execute();
+    }
     $eligiblePatients = $unadmittedPatientsStmt->fetchAll(PDO::FETCH_ASSOC);
 
 } catch (Throwable $e) {

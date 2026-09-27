@@ -7,20 +7,46 @@
 require_once __DIR__ . '/../includes/admin_auth.php';
 require_once __DIR__ . '/../includes/doctor_helpers.php';
 
+// Enforce strict Multi-Tenant Branch Isolation
+$isSuperAdmin = TenantScope::isSuperAdmin();
+$adminHospitalId = (int)($_SESSION['hospital_id'] ?? 1);
+
 try {
-    // Query pending applicants (Doctors & Staff) where status is pending or doctor approval_status is pending
-    $pendingStmt = $pdo->prepare("
-        SELECT u.user_id, u.full_name, u.email, u.phone, u.gender, u.role, u.status, u.created_at,
-               COALESCE(dp.bmdc_reg_number, dp.bmdc_license_number, u.license_id, 'BMDC-PENDING') AS bmdc_number,
-               COALESCE(dp.specialty, u.department, 'General Clinical Practice') AS specialty_display,
-               dp.designation, dp.military_rank, dp.qualifications, dp.approval_status
-        FROM users u 
-        LEFT JOIN doctor_profiles dp ON u.user_id = dp.user_id
-        WHERE (u.status = 'pending' OR (u.role = 'Doctor' AND dp.approval_status = 'pending'))
-          AND u.role IN ('Doctor', 'Staff') 
-        ORDER BY u.created_at DESC
-    ");
-    $pendingStmt->execute();
+    // Query pending applicants (Doctors & Staff) scoped to the branch hospital
+    if ($isSuperAdmin) {
+        $pendingStmt = $pdo->prepare("
+            SELECT u.user_id, u.full_name, u.email, u.phone, u.gender, u.role, u.status, u.created_at,
+                   COALESCE(dp.bmdc_reg_number, dp.bmdc_license_number, u.license_id, 'BMDC-PENDING') AS bmdc_number,
+                   COALESCE(dp.specialty, u.department, 'General Clinical Practice') AS specialty_display,
+                   dp.designation, dp.military_rank, dp.qualifications, dp.approval_status,
+                   COALESCE(d.hospital_id, s.hospital_id, u.hospital_id) AS hospital_id
+            FROM users u 
+            LEFT JOIN doctor_profiles dp ON u.user_id = dp.user_id
+            LEFT JOIN doctors d ON u.user_id = d.user_id
+            LEFT JOIN staff s ON u.user_id = s.user_id
+            WHERE (u.status = 'pending' OR (u.role = 'Doctor' AND dp.approval_status = 'pending'))
+              AND u.role IN ('Doctor', 'Staff') 
+            ORDER BY u.created_at DESC
+        ");
+        $pendingStmt->execute();
+    } else {
+        $pendingStmt = $pdo->prepare("
+            SELECT u.user_id, u.full_name, u.email, u.phone, u.gender, u.role, u.status, u.created_at,
+                   COALESCE(dp.bmdc_reg_number, dp.bmdc_license_number, u.license_id, 'BMDC-PENDING') AS bmdc_number,
+                   COALESCE(dp.specialty, u.department, 'General Clinical Practice') AS specialty_display,
+                   dp.designation, dp.military_rank, dp.qualifications, dp.approval_status,
+                   COALESCE(d.hospital_id, s.hospital_id, u.hospital_id) AS hospital_id
+            FROM users u 
+            LEFT JOIN doctor_profiles dp ON u.user_id = dp.user_id
+            LEFT JOIN doctors d ON u.user_id = d.user_id
+            LEFT JOIN staff s ON u.user_id = s.user_id
+            WHERE (u.status = 'pending' OR (u.role = 'Doctor' AND dp.approval_status = 'pending'))
+              AND u.role IN ('Doctor', 'Staff') 
+              AND COALESCE(d.hospital_id, s.hospital_id, u.hospital_id) = :hosp_id
+            ORDER BY u.created_at DESC
+        ");
+        $pendingStmt->execute([':hosp_id' => $adminHospitalId]);
+    }
     $pendingUsers = $pendingStmt->fetchAll(PDO::FETCH_ASSOC);
     $pendingCount = count($pendingUsers);
 

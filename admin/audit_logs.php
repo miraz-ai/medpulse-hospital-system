@@ -23,18 +23,66 @@ if (!function_exists('getTelemetryRelativeTime')) {
     }
 }
 
-try {
-    // 1. Metric Chips Aggregations from Database
-    $totalEvents = (int)$pdo->query("SELECT COUNT(*) FROM audit_logs")->fetchColumn();
-    $securityEvents = (int)$pdo->query("SELECT COUNT(*) FROM audit_logs WHERE category = 'SECURITY'")->fetchColumn();
-    $verificationEvents = (int)$pdo->query("SELECT COUNT(*) FROM audit_logs WHERE category = 'VERIFICATION'")->fetchColumn();
-    $admissionEvents = (int)$pdo->query("SELECT COUNT(*) FROM audit_logs WHERE category = 'ADMISSION'")->fetchColumn();
-    $pharmacyEvents = (int)$pdo->query("SELECT COUNT(*) FROM audit_logs WHERE category = 'PHARMACY'")->fetchColumn();
-    $systemEvents = (int)$pdo->query("SELECT COUNT(*) FROM audit_logs WHERE category = 'SYSTEM'")->fetchColumn();
+// Enforce strict Multi-Tenant Branch Isolation
+$isSuperAdmin = TenantScope::isSuperAdmin();
+$sessionHospitalId = (int)($_SESSION['hospital_id'] ?? 1);
 
-    // Pending Doctor/Staff queue count
-    $pendingStmt = $pdo->query("SELECT COUNT(*) FROM users WHERE status = 'pending' AND role IN ('Doctor', 'Staff')");
-    $pendingCount = (int)$pendingStmt->fetchColumn();
+try {
+    // 1. Metric Chips Aggregations from Database (Scoped to authenticated branch)
+    if ($isSuperAdmin) {
+        $totalEvents = (int)$pdo->query("SELECT COUNT(*) FROM audit_logs")->fetchColumn();
+        $securityEvents = (int)$pdo->query("SELECT COUNT(*) FROM audit_logs WHERE category = 'SECURITY'")->fetchColumn();
+        $verificationEvents = (int)$pdo->query("SELECT COUNT(*) FROM audit_logs WHERE category = 'VERIFICATION'")->fetchColumn();
+        $admissionEvents = (int)$pdo->query("SELECT COUNT(*) FROM audit_logs WHERE category = 'ADMISSION'")->fetchColumn();
+        $pharmacyEvents = (int)$pdo->query("SELECT COUNT(*) FROM audit_logs WHERE category = 'PHARMACY'")->fetchColumn();
+        $systemEvents = (int)$pdo->query("SELECT COUNT(*) FROM audit_logs WHERE category = 'SYSTEM'")->fetchColumn();
+
+        $pendingStmt = $pdo->query("SELECT COUNT(*) FROM users WHERE status = 'pending' AND role IN ('Doctor', 'Staff')");
+        $pendingCount = (int)$pendingStmt->fetchColumn();
+    } else {
+        $scopeAuditSql = "
+            SELECT 
+                COUNT(*) AS total_events,
+                SUM(a.category = 'SECURITY')     AS security_events,
+                SUM(a.category = 'VERIFICATION') AS verification_events,
+                SUM(a.category = 'ADMISSION')    AS admission_events,
+                SUM(a.category = 'PHARMACY')     AS pharmacy_events,
+                SUM(a.category = 'SYSTEM')       AS system_events
+            FROM audit_logs a
+            LEFT JOIN users u ON COALESCE(a.user_id, a.actor_id) = u.user_id
+            WHERE a.target_hospital_id = :h1 
+               OR u.hospital_id = :h2 
+               OR a.target_entity LIKE :h3 
+               OR a.description LIKE :h4
+               OR (a.target_hospital_id IS NULL AND u.hospital_id IS NULL)
+        ";
+        $auditKpiStmt = $pdo->prepare($scopeAuditSql);
+        $auditKpiStmt->execute([
+            ':h1' => $sessionHospitalId,
+            ':h2' => $sessionHospitalId,
+            ':h3' => "%Hospital #{$sessionHospitalId}%",
+            ':h4' => "%Hospital #{$sessionHospitalId}%"
+        ]);
+        $akRow = $auditKpiStmt->fetch(PDO::FETCH_ASSOC);
+
+        $totalEvents        = (int)($akRow['total_events'] ?? 0);
+        $securityEvents     = (int)($akRow['security_events'] ?? 0);
+        $verificationEvents = (int)($akRow['verification_events'] ?? 0);
+        $admissionEvents    = (int)($akRow['admission_events'] ?? 0);
+        $pharmacyEvents     = (int)($akRow['pharmacy_events'] ?? 0);
+        $systemEvents       = (int)($akRow['system_events'] ?? 0);
+
+        $pendingStmt = $pdo->prepare("
+            SELECT COUNT(*) 
+            FROM users u 
+            LEFT JOIN doctors d ON u.user_id = d.user_id 
+            LEFT JOIN staff s ON u.user_id = s.user_id 
+            WHERE u.status = 'pending' AND u.role IN ('Doctor', 'Staff')
+              AND COALESCE(d.hospital_id, s.hospital_id, u.hospital_id) = ?
+        ");
+        $pendingStmt->execute([$sessionHospitalId]);
+        $pendingCount = (int)$pendingStmt->fetchColumn();
+    }
 
 } catch (Throwable $e) {
     error_log("Audit Logs Aggregations Error: " . $e->getMessage());
@@ -56,6 +104,19 @@ $perPage = 15;
 
 $whereClauses = [];
 $params = [];
+
+// Branch boundary for audit logs table
+if (!$isSuperAdmin) {
+    $whereClauses[] = "(a.target_hospital_id = :branch_hid 
+        OR u.hospital_id = :branch_hid2 
+        OR a.target_entity LIKE :branch_hid_str 
+        OR a.description LIKE :branch_hid_str2
+        OR (a.target_hospital_id IS NULL AND u.hospital_id IS NULL))";
+    $params[':branch_hid'] = $sessionHospitalId;
+    $params[':branch_hid2'] = $sessionHospitalId;
+    $params[':branch_hid_str'] = "%Hospital #{$sessionHospitalId}%";
+    $params[':branch_hid_str2'] = "%Hospital #{$sessionHospitalId}%";
+}
 
 // Category filter
 if ($selectedCategory === 'admission' || $selectedCategory === 'clinical') {

@@ -91,7 +91,7 @@ try {
     $secondBedId = max($fromBedId, $toBedId);
 
     $bedLockStmt = $pdo->prepare("
-        SELECT bed_id, bed_number, ward_type, floor_number, daily_rate, status
+        SELECT bed_id, hospital_id, bed_number, ward_type, floor_number, daily_rate, status
         FROM hospital_beds
         WHERE bed_id IN (:b1, :b2)
         ORDER BY bed_id ASC
@@ -114,6 +114,18 @@ try {
 
     $fromBed = $bedsById[$fromBedId];
     $toBed   = $bedsById[$toBedId];
+
+    // Strict Tenant Isolation Guard
+    require_once __DIR__ . '/../../config/tenant_scope.php';
+    if (!TenantScope::isSuperAdmin()) {
+        $sessionHospitalId = TenantScope::getHospitalId();
+        if ((int)($fromBed['hospital_id'] ?? 0) !== $sessionHospitalId || (int)($toBed['hospital_id'] ?? 0) !== $sessionHospitalId) {
+            $pdo->rollBack();
+            http_response_code(403);
+            echo json_encode(['success' => false, 'message' => '403 Forbidden: Cannot transfer beds belonging to another hospital facility.']);
+            exit;
+        }
+    }
 
     // Verify source bed is occupied
     if ($fromBed['status'] !== 'Occupied') {

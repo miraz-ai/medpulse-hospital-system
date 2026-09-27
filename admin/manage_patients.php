@@ -6,51 +6,122 @@
 
 require_once __DIR__ . '/../includes/admin_auth.php';
 
+// Enforce strict Multi-Tenant Branch Isolation
+$isSuperAdmin = TenantScope::isSuperAdmin();
+$adminHospitalId = (int)($_SESSION['hospital_id'] ?? 1);
+
 try {
     // Fetch registered patients joined with patients table and active inpatient admissions
-    $patientsStmt = $pdo->prepare("
-        SELECT 
-            u.user_id, 
-            u.full_name, 
-            u.email, 
-            u.phone, 
-            u.gender, 
-            u.role, 
-            u.status, 
-            COALESCE(p.blood_group, u.blood_group, 'Unknown') AS blood_group, 
-            COALESCE(p.dob, u.date_of_birth) AS dob,
-            p.patient_uid,
-            u.created_at,
-            act_adm.admission_id,
-            act_adm.admission_number,
-            act_adm.bed_number,
-            act_adm.ward_type,
-            act_adm.floor_number,
-            act_adm.primary_diagnosis,
-            act_adm.doctor_name,
-            act_adm.doctor_specialty,
-            act_adm.staff_name,
-            act_adm.staff_designation
-        FROM users u 
-        LEFT JOIN patients p ON u.user_id = p.user_id
-        LEFT JOIN (
-            SELECT a.patient_id, a.admission_id, a.admission_number, a.primary_diagnosis,
-                   b.bed_number, b.ward_type, b.floor_number,
-                   doc.full_name AS doctor_name, COALESCE(dp.specialty, doc.department, 'General Medicine') AS doctor_specialty,
-                   COALESCE(su.full_name, 'Admission Desk Officer') AS staff_name,
-                   COALESCE(stf.role_title, 'Frontdesk Registrar') AS staff_designation
-            FROM admissions a
-            JOIN hospital_beds b ON a.bed_id = b.bed_id
-            LEFT JOIN users doc ON a.attending_doctor_id = doc.user_id
-            LEFT JOIN doctor_profiles dp ON doc.user_id = dp.user_id
-            LEFT JOIN staff stf ON a.admitting_staff_id = stf.staff_id
-            LEFT JOIN users su ON stf.user_id = su.user_id
-            WHERE a.status = 'Admitted'
-        ) act_adm ON act_adm.patient_id = u.user_id
-        WHERE u.role = 'Patient' 
-        ORDER BY u.created_at DESC
-    ");
-    $patientsStmt->execute();
+    if ($isSuperAdmin) {
+        $patientsStmt = $pdo->prepare("
+            SELECT 
+                u.user_id, 
+                u.full_name, 
+                u.email, 
+                u.phone, 
+                u.gender, 
+                u.role, 
+                u.status, 
+                COALESCE(p.blood_group, u.blood_group, 'Unknown') AS blood_group, 
+                COALESCE(p.dob, u.date_of_birth) AS dob,
+                p.patient_uid,
+                u.created_at,
+                act_adm.admission_id,
+                act_adm.admission_number,
+                act_adm.bed_number,
+                act_adm.ward_type,
+                act_adm.floor_number,
+                act_adm.primary_diagnosis,
+                act_adm.doctor_name,
+                act_adm.doctor_specialty,
+                act_adm.staff_name,
+                act_adm.staff_designation
+            FROM users u 
+            LEFT JOIN patients p ON u.user_id = p.user_id
+            LEFT JOIN (
+                SELECT a.patient_id, a.admission_id, a.admission_number, a.primary_diagnosis,
+                       b.bed_number, b.ward_type, b.floor_number,
+                       doc.full_name AS doctor_name, COALESCE(dp.specialty, doc.department, 'General Medicine') AS doctor_specialty,
+                       COALESCE(su.full_name, 'Admission Desk Officer') AS staff_name,
+                       COALESCE(stf.role_title, 'Frontdesk Registrar') AS staff_designation
+                FROM admissions a
+                JOIN hospital_beds b ON a.bed_id = b.bed_id
+                LEFT JOIN users doc ON a.attending_doctor_id = doc.user_id
+                LEFT JOIN doctor_profiles dp ON doc.user_id = dp.user_id
+                LEFT JOIN staff stf ON a.admitting_staff_id = stf.staff_id
+                LEFT JOIN users su ON stf.user_id = su.user_id
+                WHERE a.status = 'Admitted'
+            ) act_adm ON act_adm.patient_id = u.user_id
+            WHERE u.role = 'Patient' 
+            ORDER BY u.created_at DESC
+        ");
+        $patientsStmt->execute();
+    } else {
+        $patientsStmt = $pdo->prepare("
+            SELECT 
+                u.user_id, 
+                u.full_name, 
+                u.email, 
+                u.phone, 
+                u.gender, 
+                u.role, 
+                u.status, 
+                COALESCE(p.blood_group, u.blood_group, 'Unknown') AS blood_group, 
+                COALESCE(p.dob, u.date_of_birth) AS dob,
+                p.patient_uid,
+                u.created_at,
+                act_adm.admission_id,
+                act_adm.admission_number,
+                act_adm.bed_number,
+                act_adm.ward_type,
+                act_adm.floor_number,
+                act_adm.primary_diagnosis,
+                act_adm.doctor_name,
+                act_adm.doctor_specialty,
+                act_adm.staff_name,
+                act_adm.staff_designation
+            FROM users u 
+            LEFT JOIN patients p ON u.user_id = p.user_id
+            LEFT JOIN (
+                SELECT a.patient_id, a.admission_id, a.admission_number, a.primary_diagnosis,
+                       b.bed_number, b.ward_type, b.floor_number,
+                       doc.full_name AS doctor_name, COALESCE(dp.specialty, doc.department, 'General Medicine') AS doctor_specialty,
+                       COALESCE(su.full_name, 'Admission Desk Officer') AS staff_name,
+                       COALESCE(stf.role_title, 'Frontdesk Registrar') AS staff_designation
+                FROM admissions a
+                JOIN hospital_beds b ON a.bed_id = b.bed_id
+                LEFT JOIN users doc ON a.attending_doctor_id = doc.user_id
+                LEFT JOIN doctor_profiles dp ON doc.user_id = dp.user_id
+                LEFT JOIN staff stf ON a.admitting_staff_id = stf.staff_id
+                LEFT JOIN users su ON stf.user_id = su.user_id
+                WHERE a.status = 'Admitted' AND a.hospital_id = :h1
+            ) act_adm ON act_adm.patient_id = u.user_id
+            WHERE u.role = 'Patient' 
+              AND (
+                  u.hospital_id = :h2
+                  OR EXISTS (SELECT 1 FROM appointments a WHERE a.patient_id = u.user_id AND a.hospital_id = :h3)
+                  OR EXISTS (SELECT 1 FROM admissions adm WHERE adm.patient_id = u.user_id AND adm.hospital_id = :h4)
+                  OR EXISTS (SELECT 1 FROM invoices inv WHERE inv.patient_id = u.user_id AND inv.hospital_id = :h5)
+                  OR (
+                      u.hospital_id IS NULL
+                      AND NOT EXISTS (SELECT 1 FROM appointments a2 WHERE a2.patient_id = u.user_id AND a2.hospital_id != :h6)
+                      AND NOT EXISTS (SELECT 1 FROM admissions adm2 WHERE adm2.patient_id = u.user_id AND adm2.hospital_id != :h7)
+                      AND NOT EXISTS (SELECT 1 FROM invoices inv2 WHERE inv2.patient_id = u.user_id AND inv2.hospital_id != :h8)
+                  )
+              )
+            ORDER BY u.created_at DESC
+        ");
+        $patientsStmt->execute([
+            ':h1' => $adminHospitalId,
+            ':h2' => $adminHospitalId,
+            ':h3' => $adminHospitalId,
+            ':h4' => $adminHospitalId,
+            ':h5' => $adminHospitalId,
+            ':h6' => $adminHospitalId,
+            ':h7' => $adminHospitalId,
+            ':h8' => $adminHospitalId
+        ]);
+    }
     $patientsRegistry = $patientsStmt->fetchAll(PDO::FETCH_ASSOC);
 
     $totalPatients = count($patientsRegistry);

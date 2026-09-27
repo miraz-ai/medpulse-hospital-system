@@ -100,18 +100,31 @@ try {
         exit;
     }
 
-    // Verify all requested doctors exist and are active
+    // Verify all requested doctors exist, are active, and belong to this facility
     if (!empty($newDoctorIds)) {
+        require_once __DIR__ . '/../../config/tenant_scope.php';
         $placeholders = implode(',', array_fill(0, count($newDoctorIds), '?'));
-        $docCheck = $pdo->prepare("SELECT user_id FROM users WHERE user_id IN ($placeholders) AND role = 'Doctor' AND status = 'active'");
-        $docCheck->execute($newDoctorIds);
+        if (!TenantScope::isSuperAdmin()) {
+            $sessHosp = TenantScope::getHospitalId();
+            $docCheck = $pdo->prepare("
+                SELECT u.user_id 
+                FROM users u 
+                LEFT JOIN doctors d ON u.user_id = d.user_id 
+                WHERE u.user_id IN ($placeholders) AND u.role = 'Doctor' AND u.status = 'active'
+                  AND COALESCE(d.hospital_id, u.hospital_id) = ?
+            ");
+            $docCheck->execute(array_merge($newDoctorIds, [$sessHosp]));
+        } else {
+            $docCheck = $pdo->prepare("SELECT user_id FROM users WHERE user_id IN ($placeholders) AND role = 'Doctor' AND status = 'active'");
+            $docCheck->execute($newDoctorIds);
+        }
         $validFoundDoctorIds = $docCheck->fetchAll(PDO::FETCH_COLUMN);
         $validFoundDoctorIds = array_map('intval', $validFoundDoctorIds);
 
         if (count($validFoundDoctorIds) !== count($newDoctorIds)) {
             $pdo->rollBack();
             http_response_code(422);
-            echo json_encode(['success' => false, 'message' => 'One or more designated doctors are invalid or inactive.']);
+            echo json_encode(['success' => false, 'message' => 'One or more designated doctors are invalid, inactive, or belong to another facility.']);
             exit;
         }
     }

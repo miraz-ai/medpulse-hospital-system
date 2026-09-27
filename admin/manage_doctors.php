@@ -6,15 +6,34 @@
 
 require_once __DIR__ . '/../includes/admin_auth.php';
 
+// Enforce strict Multi-Tenant Branch Isolation
+$isSuperAdmin = TenantScope::isSuperAdmin();
+$adminHospitalId = (int)($_SESSION['hospital_id'] ?? 1);
+
 try {
-    // Fetch active and suspended doctors
-    $doctorsStmt = $pdo->prepare("
-        SELECT user_id, full_name, email, phone, gender, role, status, license_id, department, created_at 
-        FROM users 
-        WHERE role = 'Doctor' AND status IN ('active', 'suspended') 
-        ORDER BY status ASC, full_name ASC
-    ");
-    $doctorsStmt->execute();
+    // Fetch active and suspended doctors scoped strictly to the authenticated hospital
+    if ($isSuperAdmin) {
+        $doctorsStmt = $pdo->prepare("
+            SELECT u.user_id, u.full_name, u.email, u.phone, u.gender, u.role, u.status, u.license_id, u.department, u.created_at,
+                   COALESCE(d.hospital_id, u.hospital_id) AS hospital_id
+            FROM users u
+            LEFT JOIN doctors d ON u.user_id = d.user_id
+            WHERE u.role = 'Doctor' AND u.status IN ('active', 'suspended') 
+            ORDER BY u.status ASC, u.full_name ASC
+        ");
+        $doctorsStmt->execute();
+    } else {
+        $doctorsStmt = $pdo->prepare("
+            SELECT u.user_id, u.full_name, u.email, u.phone, u.gender, u.role, u.status, u.license_id, u.department, u.created_at,
+                   COALESCE(d.hospital_id, u.hospital_id) AS hospital_id
+            FROM users u
+            LEFT JOIN doctors d ON u.user_id = d.user_id
+            WHERE u.role = 'Doctor' AND u.status IN ('active', 'suspended') 
+              AND COALESCE(d.hospital_id, u.hospital_id) = :hosp_id
+            ORDER BY u.status ASC, u.full_name ASC
+        ");
+        $doctorsStmt->execute([':hosp_id' => $adminHospitalId]);
+    }
     $doctorsRoster = $doctorsStmt->fetchAll(PDO::FETCH_ASSOC);
 
     $totalDoctors     = count($doctorsRoster);
