@@ -1019,7 +1019,7 @@ if ($hour >= 5 && $hour < 12) {
               </div>
             </div>
 
-            <form method="POST" onsubmit="return confirm('Cancel this bed hold and release it back to the hospital vacancy?');" style="margin: 0;">
+            <form method="POST" onsubmit="event.preventDefault(); const form = this; if (window.MedPulseDialog && window.MedPulseDialog.confirm) { MedPulseDialog.confirm({ title: 'Cancel Bed Reservation', message: 'Cancel this bed hold and release it back to the hospital vacancy?', type: 'danger', confirmText: 'Release Hold', cancelText: 'Keep Bed Hold' }).then(c => { if(c) { form.setAttribute('data-mp-confirmed', 'true'); form.submit(); } }); } else { form.submit(); }" style="margin: 0;">
               <input type="hidden" name="action" value="cancel_bed_hold">
               <input type="hidden" name="reservation_id" value="<?= (int)$activeBedHold['reservation_id'] ?>">
               <button type="submit" class="btn-teal-action" style="background: rgba(239, 68, 68, 0.25); color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.3); padding: 0.55rem 1rem; font-size: 0.8rem; font-weight: 700; border-radius: 8px; cursor: pointer;">
@@ -2177,7 +2177,7 @@ if ($hour >= 5 && $hour < 12) {
                 </div>
               </div>
 
-              <form method="POST" onsubmit="return confirm('Cancel this bed hold and release it back to the hospital vacancy?');" style="margin: 0;">
+              <form method="POST" onsubmit="event.preventDefault(); const form = this; if (window.MedPulseDialog && window.MedPulseDialog.confirm) { MedPulseDialog.confirm({ title: 'Cancel Bed Reservation', message: 'Cancel this bed hold and release it back to the hospital vacancy?', type: 'danger', confirmText: 'Release Hold', cancelText: 'Keep Bed Hold' }).then(c => { if(c) { form.setAttribute('data-mp-confirmed', 'true'); form.submit(); } }); } else { form.submit(); }" style="margin: 0;">
                 <input type="hidden" name="action" value="cancel_bed_hold">
                 <input type="hidden" name="reservation_id" value="${parseInt(hold.reservation_id, 10)}">
                 <button type="submit" class="btn-teal-action" style="background: rgba(239, 68, 68, 0.25); color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.3); padding: 0.55rem 1rem; font-size: 0.8rem; font-weight: 700; border-radius: 8px; cursor: pointer;">

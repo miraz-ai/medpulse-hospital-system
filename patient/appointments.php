@@ -21,8 +21,17 @@ $flashError   = null;
 
 // ── Handle Appointment Cancellation ──────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'cancel_appointment') {
+    $isAjax = (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest')
+              || (isset($_POST['format']) && $_POST['format'] === 'json')
+              || (isset($_SERVER['HTTP_ACCEPT']) && strpos($_SERVER['HTTP_ACCEPT'], 'application/json') !== false);
+
     if (!hash_equals($_SESSION['csrf_token'] ?? '', $_POST['csrf_token'] ?? '')) {
         $flashError = 'Security validation failed. Please refresh the page.';
+        if ($isAjax) {
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'message' => $flashError]);
+            exit;
+        }
     } else {
         $cancelId = (int)($_POST['appointment_id'] ?? 0);
 
@@ -37,10 +46,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
         if (!$targetApp) {
             $flashError = 'Appointment record not found or access unauthorized.';
+            if ($isAjax) {
+                header('Content-Type: application/json');
+                echo json_encode(['success' => false, 'message' => $flashError]);
+                exit;
+            }
         } elseif (in_array($targetApp['status'], ['completed', 'cancelled'], true) || in_array($targetApp['queue_status'], ['completed', 'cancelled'], true)) {
             $flashError = 'This consultation is already marked as ' . htmlspecialchars($targetApp['status']) . '.';
+            if ($isAjax) {
+                header('Content-Type: application/json');
+                echo json_encode(['success' => false, 'message' => $flashError]);
+                exit;
+            }
         } elseif ($targetApp['status'] === 'in_consultation' || $targetApp['queue_status'] === 'serving') {
             $flashError = 'Cannot cancel an appointment that is currently serving inside the chamber.';
+            if ($isAjax) {
+                header('Content-Type: application/json');
+                echo json_encode(['success' => false, 'message' => $flashError]);
+                exit;
+            }
         } else {
             $upd = $pdo->prepare("
                 UPDATE appointments 
@@ -48,7 +72,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 WHERE id = ? AND patient_id = ?
             ");
             $upd->execute([$cancelId, $patientId]);
-            $flashSuccess = "Appointment #{$cancelId} (Serial Token #{$targetApp['token_number']}) scheduled for {$targetApp['appointment_date']} was successfully cancelled.";
+            $flashSuccess = "Appointment #{$cancelId} (Token #{$targetApp['token_number']}) scheduled for {$targetApp['appointment_date']} was successfully cancelled. This slot has been released back to the queue.";
+            if ($isAjax) {
+                header('Content-Type: application/json');
+                echo json_encode([
+                    'success' => true,
+                    'message' => $flashSuccess,
+                    'appointment_id' => $cancelId,
+                    'token_number' => (int)$targetApp['token_number'],
+                    'doctor_id' => (int)$targetApp['doctor_id'],
+                    'appointment_date' => $targetApp['appointment_date']
+                ]);
+                exit;
+            }
         }
     }
 }
@@ -116,6 +152,7 @@ foreach ($appointments as $a) {
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../assets/css/patient_dashboard.css">
+  <link rel="stylesheet" href="../assets/css/medpulse_dialog.css">
   
   <style>
     /* Scoped Styles for Consultations Page */
@@ -488,6 +525,151 @@ foreach ($appointments as $a) {
         border: none;
       }
     }
+
+    /* ── Live Queue Sync Panel ──────────────────────────────────────────────── */
+    .live-queue-panel {
+      background: linear-gradient(135deg, #0f172a 0%, #0d1f35 60%, #0f2d40 100%);
+      border: 1px solid rgba(56, 189, 248, 0.2);
+      border-radius: 18px;
+      padding: 1.5rem 1.75rem;
+      margin-bottom: 1.75rem;
+      position: relative;
+      overflow: hidden;
+    }
+    .live-queue-panel::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse at top right, rgba(56, 189, 248, 0.07) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .lq-header {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      margin-bottom: 1.15rem;
+    }
+    .lq-live-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: #10b981;
+      box-shadow: 0 0 10px #10b981;
+      animation: lqPulse 1.6s infinite ease-in-out;
+      flex-shrink: 0;
+    }
+    @keyframes lqPulse {
+      0%, 100% { transform: scale(0.9); opacity: 0.75; }
+      50%       { transform: scale(1.4); opacity: 1;    }
+    }
+    .lq-title {
+      font-size: 0.78rem;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      color: #38bdf8;
+    }
+    .lq-sub {
+      font-size: 0.72rem;
+      color: rgba(148, 163, 184, 0.8);
+      margin-left: auto;
+    }
+    .lq-cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 1rem;
+    }
+    .lq-card {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 14px;
+      padding: 1.1rem 1.25rem;
+      transition: border-color 0.3s ease;
+    }
+    .lq-card.active-now {
+      border-color: rgba(16, 185, 129, 0.45);
+      background: rgba(16, 185, 129, 0.07);
+    }
+    .lq-card-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.85rem;
+    }
+    .lq-doctor-name {
+      font-size: 0.84rem;
+      font-weight: 800;
+      color: #e2e8f0;
+    }
+    .lq-shift-badge {
+      font-size: 0.68rem;
+      font-weight: 700;
+      padding: 0.2rem 0.55rem;
+      border-radius: 6px;
+      background: rgba(56, 189, 248, 0.12);
+      color: #38bdf8;
+      border: 1px solid rgba(56, 189, 248, 0.25);
+    }
+    .lq-metrics-row {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .lq-metric {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.15rem;
+      min-width: 70px;
+    }
+    .lq-metric-val {
+      font-size: 1.75rem;
+      font-weight: 800;
+      line-height: 1;
+    }
+    .lq-metric-label {
+      font-size: 0.64rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      color: rgba(148, 163, 184, 0.7);
+    }
+    .lq-metric.serving  .lq-metric-val { color: #34d399; }
+    .lq-metric.my-token .lq-metric-val { color: #38bdf8; }
+    .lq-metric.position .lq-metric-val { color: #fbbf24; }
+    .lq-metric.wait     .lq-metric-val { color: #f87171; }
+    .lq-divider {
+      width: 1px;
+      height: 40px;
+      background: rgba(255,255,255,0.1);
+      align-self: center;
+    }
+    .lq-status-msg {
+      margin-top: 0.75rem;
+      font-size: 0.78rem;
+      color: rgba(148,163,184,0.8);
+      line-height: 1.4;
+    }
+    .lq-status-msg.calling {
+      color: #34d399;
+      font-weight: 700;
+    }
+    .lq-status-msg.done {
+      color: #94a3b8;
+    }
+    .lq-empty {
+      text-align: center;
+      padding: 1.5rem;
+      color: rgba(148, 163, 184, 0.6);
+      font-size: 0.85rem;
+    }
+    .lq-last-updated {
+      font-size: 0.68rem;
+      color: rgba(148,163,184,0.45);
+      text-align: right;
+      margin-top: 0.65rem;
+    }
   </style>
 </head>
 <body>
@@ -542,7 +724,7 @@ foreach ($appointments as $a) {
             <svg class="ui-ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
           </div>
           <div>
-            <div class="kpi-val"><?= $activeCount ?></div>
+            <div class="kpi-val" id="kpiActiveCount"><?= $activeCount ?></div>
             <div class="kpi-label">Active / Scheduled Visits</div>
           </div>
         </div>
@@ -552,7 +734,7 @@ foreach ($appointments as $a) {
             <svg class="ui-ico" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
           </div>
           <div>
-            <div class="kpi-val"><?= $completedCount ?></div>
+            <div class="kpi-val" id="kpiCompletedCount"><?= $completedCount ?></div>
             <div class="kpi-label">Completed Consultations</div>
           </div>
         </div>
@@ -562,7 +744,7 @@ foreach ($appointments as $a) {
             <svg class="ui-ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
           </div>
           <div>
-            <div class="kpi-val"><?= $cancelledCount ?></div>
+            <div class="kpi-val" id="kpiCancelledCount"><?= $cancelledCount ?></div>
             <div class="kpi-label">Cancelled Visits</div>
           </div>
         </div>
@@ -572,16 +754,16 @@ foreach ($appointments as $a) {
       <div class="tab-nav-row">
         <div class="tab-pills">
           <button type="button" class="tab-btn active" data-filter="all">
-            All Records <span class="tab-badge"><?= $totalCount ?></span>
+            All Records <span class="tab-badge" id="tabAllBadge"><?= $totalCount ?></span>
           </button>
           <button type="button" class="tab-btn" data-filter="active">
-            Active &amp; Scheduled <span class="tab-badge"><?= $activeCount ?></span>
+            Active &amp; Scheduled <span class="tab-badge" id="tabActiveBadge"><?= $activeCount ?></span>
           </button>
           <button type="button" class="tab-btn" data-filter="completed">
-            Completed <span class="tab-badge"><?= $completedCount ?></span>
+            Completed <span class="tab-badge" id="tabCompletedBadge"><?= $completedCount ?></span>
           </button>
           <button type="button" class="tab-btn" data-filter="cancelled">
-            Cancelled <span class="tab-badge"><?= $cancelledCount ?></span>
+            Cancelled <span class="tab-badge" id="tabCancelledBadge"><?= $cancelledCount ?></span>
           </button>
         </div>
 
@@ -589,6 +771,61 @@ foreach ($appointments as $a) {
           Strict 25-Patient Quality Policy Enforced
         </div>
       </div>
+
+      <input type="hidden" id="pageCsrfToken" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '', ENT_QUOTES, 'UTF-8') ?>">
+
+      <!-- Live Queue Status Panel (for today's active appointments) -->
+      <?php
+        $todayActiveAppts = array_filter($appointments, function($a) {
+          $s = strtolower($a['status'] ?? '');
+          $q = strtolower($a['queue_status'] ?? '');
+          $isToday = ($a['appointment_date'] === date('Y-m-d'));
+          $notDone = !in_array($s, ['cancelled', 'completed']) && !in_array($q, ['cancelled', 'completed']);
+          return $isToday && $notDone;
+        });
+      ?>
+      <?php if (!empty($todayActiveAppts)): ?>
+      <div class="live-queue-panel" id="liveQueuePanel">
+        <div class="lq-header">
+          <span class="lq-live-dot"></span>
+          <span class="lq-title">Today's Live Queue Status</span>
+          <span class="lq-sub" id="lqLastUpdated">Syncing…</span>
+        </div>
+        <div class="lq-cards-grid" id="lqCardsGrid">
+          <?php foreach ($todayActiveAppts as $ta): ?>
+          <div class="lq-card" id="lq-card-<?= (int)$ta['id'] ?>" data-appointment-id="<?= (int)$ta['id'] ?>">
+            <div class="lq-card-top">
+              <span class="lq-doctor-name"><?= htmlspecialchars($ta['doctor_name'] ?? 'Doctor') ?></span>
+              <span class="lq-shift-badge"><?= htmlspecialchars($ta['time_slot'] ?? 'Morning') ?> Shift</span>
+            </div>
+            <div class="lq-metrics-row">
+              <div class="lq-metric serving">
+                <span class="lq-metric-val" id="lq-serving-<?= (int)$ta['id'] ?>">—</span>
+                <span class="lq-metric-label">Now Serving</span>
+              </div>
+              <div class="lq-divider"></div>
+              <div class="lq-metric my-token">
+                <span class="lq-metric-val">#<?= (int)$ta['token_number'] ?></span>
+                <span class="lq-metric-label">My Token</span>
+              </div>
+              <div class="lq-divider"></div>
+              <div class="lq-metric position">
+                <span class="lq-metric-val" id="lq-pos-<?= (int)$ta['id'] ?>">—</span>
+                <span class="lq-metric-label">Queue Pos.</span>
+              </div>
+              <div class="lq-divider"></div>
+              <div class="lq-metric wait">
+                <span class="lq-metric-val" id="lq-wait-<?= (int)$ta['id'] ?>">—</span>
+                <span class="lq-metric-label">Est. Wait</span>
+              </div>
+            </div>
+            <div class="lq-status-msg" id="lq-msg-<?= (int)$ta['id'] ?>">Loading queue status…</div>
+          </div>
+          <?php endforeach; ?>
+        </div>
+        <div class="lq-last-updated" id="lqTimestamp">Last synced: just now</div>
+      </div>
+      <?php endif; ?>
 
       <!-- Consultations Table / Cards -->
       <div class="consultations-container">
@@ -636,7 +873,7 @@ foreach ($appointments as $a) {
                       $symptomsText = trim((string)($app['reason_for_visit'] ?? ''));
                   }
                 ?>
-                <tr class="app-row" data-category="<?= $rowCategory ?>">
+                <tr class="app-row" data-category="<?= $rowCategory ?>" data-appointment-id="<?= (int)$app['id'] ?>" data-is-today="<?= $isToday ? '1' : '0' ?>">
                   
                   <!-- 1. Date & Shift -->
                   <td>
@@ -683,7 +920,7 @@ foreach ($appointments as $a) {
                   </td>
 
                   <!-- 5. Status Badge -->
-                  <td>
+                  <td data-role="status-badge">
                     <?php if ($isCancelled): ?>
                       <span class="badge-status badge-cancelled">
                         <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
@@ -719,16 +956,17 @@ foreach ($appointments as $a) {
                           </a>
                         <?php endif; ?>
 
-                        <!-- Active Cancel Button -->
-                        <form action="appointments.php" method="POST" onsubmit="return confirm('Are you sure you want to cancel this appointment (Token #<?= (int)$app['token_number'] ?>)?');" style="margin: 0;">
-                          <input type="hidden" name="action" value="cancel_appointment">
-                          <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
-                          <input type="hidden" name="appointment_id" value="<?= (int)$app['id'] ?>">
-                          <button type="submit" class="btn-cancel-app" title="Cancel this consultation booking">
-                            <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                            Cancel Appointment
-                          </button>
-                        </form>
+                        <!-- Active Cancel Button (Modern UI Modal Trigger) -->
+                        <button type="button" 
+                                class="btn-cancel-app js-cancel-appointment-btn" 
+                                data-appointment-id="<?= (int)$app['id'] ?>"
+                                data-token-number="<?= (int)$app['token_number'] ?>"
+                                data-doctor-id="<?= (int)$app['doctor_id'] ?>"
+                                data-doctor-name="<?= htmlspecialchars($app['doctor_name'], ENT_QUOTES, 'UTF-8') ?>"
+                                title="Cancel this consultation booking">
+                          <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                          Cancel Appointment
+                        </button>
 
                       <?php elseif ($isCompleted): ?>
                         <a href="specialists.php?book_doctor_id=<?= (int)$app['doctor_id'] ?>" class="btn-rebook">
@@ -760,8 +998,9 @@ foreach ($appointments as $a) {
     </div>
   </main>
 
-  <!-- ── Tab Filter Javascript ─────────────────────────────────────────── -->
+  <!-- ── Tab Filter + Live Queue Sync Javascript ─────────────────────── -->
   <script>
+    // ── Tab Filter ────────────────────────────────────────────────────────────
     document.addEventListener('DOMContentLoaded', function() {
       const tabButtons    = document.querySelectorAll('.tab-btn');
       const tableRows     = document.querySelectorAll('.app-row');
@@ -789,6 +1028,272 @@ foreach ($appointments as $a) {
             noFilteredMsg.style.display = (visibleRows === 0) ? 'block' : 'none';
           }
         });
+      });
+    });
+
+    // ── Live Queue Polling (3.5-second tick) ──────────────────────────────────
+    (function initLiveQueueSync() {
+      const panel = document.getElementById('liveQueuePanel');
+      if (!panel) return; // No active today appointments — nothing to sync
+
+      let _lqTimer = null;
+      let _prevSnapshot = {}; // appointment_id -> { serving_token, queue_position }
+
+      async function lqTick() {
+        try {
+          const res  = await fetch('api/opd_live_sync.php', { credentials: 'same-origin', cache: 'no-store' });
+          if (!res.ok) return;
+          const json = await res.json();
+          if (json.status !== 'success') return;
+
+          const appts = json.appointments || [];
+          appts.forEach(appt => {
+            const id   = appt.appointment_id;
+            const prev = _prevSnapshot[id] || {};
+
+            // Detect if anything changed for this appointment
+            const changed = (
+              prev.serving_token  !== appt.serving_token  ||
+              prev.queue_position !== appt.queue_position ||
+              prev.my_status      !== appt.my_status
+            );
+
+            _prevSnapshot[id] = {
+              serving_token:  appt.serving_token,
+              queue_position: appt.queue_position,
+              my_status:      appt.my_status,
+            };
+
+            if (!changed) return; // Skip DOM update if nothing changed
+
+            // ── Update LQ Panel Card ────────────────────────────────────────
+            const card      = document.getElementById(`lq-card-${id}`);
+            const srvEl     = document.getElementById(`lq-serving-${id}`);
+            const posEl     = document.getElementById(`lq-pos-${id}`);
+            const waitEl    = document.getElementById(`lq-wait-${id}`);
+            const msgEl     = document.getElementById(`lq-msg-${id}`);
+
+            if (srvEl) srvEl.textContent = appt.serving_token > 0 ? `#${appt.serving_token}` : '—';
+
+            const s = (appt.my_status || '').toLowerCase();
+            if (s === 'in_consultation') {
+              if (posEl)  posEl.textContent  = '🔔';
+              if (waitEl) waitEl.textContent  = '0m';
+              if (msgEl)  { msgEl.textContent = '✔ Your turn! Please proceed to the chamber.'; msgEl.className = 'lq-status-msg calling'; }
+              if (card)   card.classList.add('active-now');
+            } else if (s === 'completed') {
+              if (posEl)  posEl.textContent  = '✓';
+              if (waitEl) waitEl.textContent  = 'Done';
+              if (msgEl)  { msgEl.textContent = 'Consultation completed. Thank you!'; msgEl.className = 'lq-status-msg done'; }
+              if (card)   card.classList.remove('active-now');
+            } else {
+              const pos  = appt.queue_position || '—';
+              const wait = appt.estimated_wait_min > 0 ? `~${appt.estimated_wait_min}m` : '< 5m';
+              if (posEl)  posEl.textContent  = typeof pos === 'number' ? `#${pos}` : pos;
+              if (waitEl) waitEl.textContent  = wait;
+              if (card)   card.classList.remove('active-now');
+
+              let msg = '';
+              const ahead = appt.patients_ahead ?? 0;
+              if (ahead === 0) {
+                msg = 'You are next in line. Please be ready near the chamber.';
+              } else {
+                msg = `${ahead} patient${ahead !== 1 ? 's' : ''} ahead of you. Estimated wait: ${wait}.`;
+              }
+              if (msgEl) { msgEl.textContent = msg; msgEl.className = 'lq-status-msg'; }
+            }
+
+            // ── Also update the status badge in the main table row ──────────
+            const tableRow = document.querySelector(`.app-row[data-appointment-id="${id}"]`);
+            if (tableRow) {
+              const statusCell = tableRow.querySelector('[data-role="status-badge"]');
+              if (statusCell) {
+                const ns = (appt.my_status || '').toLowerCase();
+                if (ns === 'in_consultation') {
+                  statusCell.innerHTML = `<span class="badge-status badge-serving"><span style="width:7px;height:7px;border-radius:50%;background:var(--brand-teal);"></span>Serving in Chamber</span>`;
+                } else if (ns === 'completed') {
+                  statusCell.innerHTML = `<span class="badge-status badge-completed"><svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>Completed</span>`;
+                }
+              }
+            }
+          });
+
+          // Update timestamp
+          const tsEl = document.getElementById('lqTimestamp');
+          if (tsEl) {
+            const now = new Date();
+            tsEl.textContent = `Last synced: ${now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
+          }
+          const subEl = document.getElementById('lqLastUpdated');
+          if (subEl) subEl.textContent = 'Live ● syncing every 3.5s';
+
+        } catch (e) {
+          // Silent fail
+        }
+      }
+
+      // Run immediately then start interval
+      lqTick();
+      _lqTimer = setInterval(lqTick, 3500);
+
+      // Memory leak prevention
+      window.addEventListener('pagehide',      () => { if (_lqTimer) clearInterval(_lqTimer); });
+      window.addEventListener('beforeunload',  () => { if (_lqTimer) clearInterval(_lqTimer); });
+    })();
+  </script>
+
+  <!-- MedPulse Dialog & Async Cancellation Engine -->
+  <script src="../assets/js/medpulse_dialog.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      document.addEventListener('click', async function(e) {
+        const btn = e.target.closest('.js-cancel-appointment-btn');
+        if (!btn) return;
+
+        const apptId = btn.getAttribute('data-appointment-id');
+        const tokenNo = btn.getAttribute('data-token-number');
+        const doctorId = btn.getAttribute('data-doctor-id');
+        const doctorName = btn.getAttribute('data-doctor-name') || 'Specialist';
+        const csrfToken = document.getElementById('pageCsrfToken')?.value || '';
+
+        // Trigger custom UI modal matching MedPulse design system
+        const confirmed = await MedPulseDialog.confirm({
+          title: 'Cancel Scheduled Consultation',
+          message: `Are you sure you want to cancel your appointment (Token #${tokenNo})? This slot will be released back to the queue.`,
+          subtitle: `Dr. ${doctorName} • Queue Token #${tokenNo}`,
+          type: 'danger',
+          cancelText: 'Keep Appointment',
+          confirmText: 'Confirm Cancellation'
+        });
+
+        if (!confirmed) return;
+
+        // Loading state
+        const origHtml = btn.innerHTML;
+        btn.disabled = true;
+        btn.style.opacity = '0.7';
+        btn.innerHTML = `<span class="mp-spinner" style="width:12px;height:12px;border-width:1.8px;"></span> <span>Cancelling…</span>`;
+
+        try {
+          const formData = new FormData();
+          formData.append('action', 'cancel_appointment');
+          formData.append('appointment_id', apptId);
+          formData.append('csrf_token', csrfToken);
+          formData.append('format', 'json');
+
+          const resp = await fetch('appointments.php', {
+            method: 'POST',
+            body: formData,
+            headers: {
+              'X-Requested-With': 'XMLHttpRequest',
+              'Accept': 'application/json'
+            }
+          });
+
+          const data = await resp.json();
+
+          if (data && data.success) {
+            // 1. In-app toast notification matching MedPulse design system
+            MedPulseDialog.toast({
+              title: 'Consultation Cancelled',
+              message: data.message || `Appointment (Token #${tokenNo}) cancelled successfully.`,
+              type: 'warning',
+              duration: 4500
+            });
+
+            // 2. Dynamically update main table row without page reload
+            const row = document.querySelector(`.app-row[data-appointment-id="${apptId}"]`);
+            if (row) {
+              row.setAttribute('data-category', 'cancelled');
+
+              // Update status badge
+              const statusCell = row.querySelector('[data-role="status-badge"]');
+              if (statusCell) {
+                statusCell.innerHTML = `
+                  <span class="badge-status badge-cancelled">
+                    <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
+                    Cancelled
+                  </span>
+                `;
+              }
+
+              // Update action cell to "Re-Book Doctor" button
+              const actionsCell = row.querySelector('.actions-cell');
+              if (actionsCell) {
+                actionsCell.innerHTML = `
+                  <a href="specialists.php?book_doctor_id=${encodeURIComponent(doctorId)}" class="btn-rebook">
+                    <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                    Re-Book Doctor
+                  </a>
+                `;
+              }
+
+              // If tab filter is currently active, hide the row
+              const activeTab = document.querySelector('.tab-btn.active');
+              if (activeTab && activeTab.getAttribute('data-filter') === 'active') {
+                row.style.display = 'none';
+              }
+            }
+
+            // 3. Remove / fade out today's live queue card if present
+            const lqCard = document.getElementById(`lq-card-${apptId}`);
+            if (lqCard) {
+              lqCard.style.transition = 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)';
+              lqCard.style.opacity = '0';
+              lqCard.style.transform = 'scale(0.95)';
+              setTimeout(() => {
+                lqCard.remove();
+                const remainingLqCards = document.querySelectorAll('.lq-card');
+                if (remainingLqCards.length === 0) {
+                  const lqPanel = document.getElementById('liveQueuePanel');
+                  if (lqPanel) lqPanel.style.display = 'none';
+                }
+              }, 300);
+            }
+
+            // 4. Update KPI stat count cards dynamically
+            const kpiActive = document.getElementById('kpiActiveCount');
+            if (kpiActive) {
+              kpiActive.textContent = Math.max(0, parseInt(kpiActive.textContent || '0', 10) - 1);
+            }
+            const kpiCancelled = document.getElementById('kpiCancelledCount');
+            if (kpiCancelled) {
+              kpiCancelled.textContent = parseInt(kpiCancelled.textContent || '0', 10) + 1;
+            }
+
+            // 5. Update Tab Badge counters dynamically
+            const tabActive = document.getElementById('tabActiveBadge');
+            if (tabActive) {
+              tabActive.textContent = Math.max(0, parseInt(tabActive.textContent || '0', 10) - 1);
+            }
+            const tabCancelled = document.getElementById('tabCancelledBadge');
+            if (tabCancelled) {
+              tabCancelled.textContent = parseInt(tabCancelled.textContent || '0', 10) + 1;
+            }
+
+          } else {
+            MedPulseDialog.toast({
+              title: 'Cancellation Notice',
+              message: (data && data.message) ? data.message : 'Unable to cancel appointment.',
+              type: 'error',
+              duration: 4500
+            });
+            btn.disabled = false;
+            btn.style.opacity = '1';
+            btn.innerHTML = origHtml;
+          }
+        } catch (err) {
+          console.error('Cancellation error:', err);
+          MedPulseDialog.toast({
+            title: 'Connection Error',
+            message: 'Network error connecting to appointment service.',
+            type: 'error',
+            duration: 4500
+          });
+          btn.disabled = false;
+          btn.style.opacity = '1';
+          btn.innerHTML = origHtml;
+        }
       });
     });
   </script>

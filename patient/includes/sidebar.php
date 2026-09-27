@@ -448,11 +448,19 @@ if (isset($pdo) && !empty($_SESSION['user_id'])) {
           }
         }
       } else {
-        alert(data.message || 'Failed to dispatch ambulance. Please dial 999 immediately.');
+        if (window.MedPulseDialog && window.MedPulseDialog.alert) {
+          MedPulseDialog.alert(data.message || 'Failed to dispatch ambulance. Please dial 999 immediately.', 'Emergency Dispatch Alert');
+        } else {
+          alert(data.message || 'Failed to dispatch ambulance. Please dial 999 immediately.');
+        }
       }
     } catch (err) {
       console.error(err);
-      alert('Network error connecting to fleet dispatch. Please dial 999 directly.');
+      if (window.MedPulseDialog && window.MedPulseDialog.alert) {
+        MedPulseDialog.alert('Network error connecting to fleet dispatch. Please dial 999 directly.', 'Emergency Dispatch Alert');
+      } else {
+        alert('Network error connecting to fleet dispatch. Please dial 999 directly.');
+      }
     } finally {
       btn.disabled = false;
       btn.style.opacity = '1';
@@ -460,3 +468,8 @@ if (isset($pdo) && !empty($_SESSION['user_id'])) {
     }
   };
 </script>
+
+<!-- MedPulse Custom Enterprise Dialog & Toast Engine CSS/JS -->
+<link rel="stylesheet" href="../assets/css/medpulse_dialog.css">
+<script src="../assets/js/medpulse_dialog.js"></script>
+

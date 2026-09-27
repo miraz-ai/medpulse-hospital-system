@@ -222,3 +222,8 @@ if (isset($pdo) && isset($_SESSION['user_id'])) {
     }
   });
 </script>
+
+<!-- MedPulse Enterprise Custom Dialog & Toast Engine CSS/JS -->
+<link rel="stylesheet" href="../assets/css/medpulse_dialog.css">
+<script src="../assets/js/medpulse_dialog.js"></script>
+

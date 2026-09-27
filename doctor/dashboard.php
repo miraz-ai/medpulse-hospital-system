@@ -1030,6 +1030,8 @@ try {
             } else {
               if (typeof showToast === 'function') {
                 showToast(json.message || 'No more patients waiting in queue.', 'error');
+              } else if (window.MedPulseDialog && window.MedPulseDialog.alert) {
+                MedPulseDialog.alert(json.message || 'No more patients waiting in queue.', 'Chamber Queue Notice');
               } else {
                 alert(json.message || 'No more patients waiting in queue.');
               }

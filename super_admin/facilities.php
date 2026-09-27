@@ -628,7 +628,7 @@ $allHospitalsList = $pdo->query("SELECT hospital_id, name FROM hospitals ORDER B
                     <?php endif; ?>
 
                     <?php if ($stfStatus !== 'suspended'): ?>
-                      <form method="POST" style="display: inline;" onsubmit="return confirm('Revoke and suspend this user credential across network?');">
+                      <form method="POST" style="display: inline;" onsubmit="event.preventDefault(); const form = this; if (window.MedPulseDialog && window.MedPulseDialog.confirm) { MedPulseDialog.confirm({ title: 'Revoke Credentials', message: 'Revoke and suspend this user credential across the hospital network?', type: 'danger', confirmText: 'Revoke & Suspend', cancelText: 'Cancel' }).then(c => { if(c) { form.setAttribute('data-mp-confirmed', 'true'); form.submit(); } }); } else if (confirm('Revoke and suspend this user credential across network?')) { form.submit(); }">
                         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
                         <input type="hidden" name="action" value="override_staff">
                         <input type="hidden" name="target_user_id" value="<?= $uId ?>">
@@ -720,15 +720,33 @@ $allHospitalsList = $pdo->query("SELECT hospital_id, name FROM hospitals ORDER B
 
   <script>
     function confirmDiversionToggle(e, hospitalId, hospitalName, newStatus) {
-      const msg = (newStatus === 'Ambulance Divert')
-        ? `⚠️ EMERGENCY DIVERSION ALERT ⚠️\n\nAre you sure you want to put ${hospitalName} on AMBULANCE DIVERT?\n\nThis will trigger public alerts on patient portals warning of high trauma surge and diversion.`
-        : `Restore ${hospitalName} to OPERATIONAL status?\n\nThis will clear the ambulance diversion warning.`;
-      
-      if (!confirm(msg)) {
-        e.preventDefault();
-        return false;
+      const form = e.target.closest('form');
+      if (form && form.getAttribute('data-mp-confirmed') === 'true') {
+        return true;
       }
-      return true;
+      e.preventDefault();
+      const isDivert = (newStatus === 'Ambulance Divert');
+      const msg = isDivert
+        ? `Are you sure you want to put ${hospitalName} on AMBULANCE DIVERT? This will trigger public alerts on patient portals warning of high trauma surge and diversion.`
+        : `Restore ${hospitalName} to OPERATIONAL status? This will clear the ambulance diversion warning.`;
+
+      if (window.MedPulseDialog && window.MedPulseDialog.confirm) {
+        MedPulseDialog.confirm({
+          title: isDivert ? 'Emergency Divert Directive' : 'Restore Operational Status',
+          message: msg,
+          type: isDivert ? 'danger' : 'primary',
+          confirmText: isDivert ? 'Divert Ambulance ER' : 'Restore Operational',
+          cancelText: 'Cancel'
+        }).then(confirmed => {
+          if (confirmed && form) {
+            form.setAttribute('data-mp-confirmed', 'true');
+            form.submit();
+          }
+        });
+      } else if (confirm(msg)) {
+        if (form) form.submit();
+      }
+      return false;
     }
   </script>
 </body>

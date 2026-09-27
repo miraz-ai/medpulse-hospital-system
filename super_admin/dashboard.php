@@ -2475,8 +2475,7 @@ if (!function_exists('getHospitalCrest')) {
               </td>
               <td style="text-align:right; white-space:nowrap;" onclick="event.stopPropagation();">
                 <div style="display:flex; align-items:center; justify-content:flex-end; gap:6px;">
-                  <!-- Emergency Diversion Toggle Form -->
-                  <form method="POST" action="dashboard.php" style="margin:0; display:inline;" onsubmit="return confirm('<?= $isDivert ? "Restore {$row['name']} to Operational status?" : "Trigger AMBULANCE DIVERSION for {$row['name']}?\\n\\nPatient dashboard will display:\\nWarning: High Trauma Surge - Walk-in & Critical Diversion in Effect" ?>');">
+                  <form method="POST" action="dashboard.php" style="margin:0; display:inline;" onsubmit="event.preventDefault(); const form = this; if (window.MedPulseDialog && window.MedPulseDialog.confirm) { MedPulseDialog.confirm({ title: '<?= $isDivert ? "Restore Operational Status" : "Trigger Emergency Diversion" ?>', message: '<?= $isDivert ? "Restore {$row['name']} to Operational status?" : "Trigger AMBULANCE DIVERSION for {$row['name']}? Patient dashboard will display emergency warning." ?>', type: '<?= $isDivert ? "primary" : "danger" ?>', confirmText: '<?= $isDivert ? "Restore" : "Trigger Diversion" ?>', cancelText: 'Cancel' }).then(c => { if(c) { form.setAttribute('data-mp-confirmed', 'true'); form.submit(); } }); } else if (confirm('<?= $isDivert ? "Restore {$row['name']} to Operational status?" : "Trigger AMBULANCE DIVERSION for {$row['name']}?" ?>')) { form.submit(); }">
                     <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '', ENT_QUOTES, 'UTF-8') ?>">
                     <input type="hidden" name="action" value="toggle_diversion">
                     <input type="hidden" name="hospital_id" value="<?= $hospId ?>">
@@ -2645,7 +2644,7 @@ if (!function_exists('getHospitalCrest')) {
                 </span>
               </td>
               <td style="text-align:right; white-space:nowrap;">
-                <form method="POST" action="dashboard.php#globalStaffSection" style="display:inline-flex; gap:6px; margin:0;" onsubmit="return confirm('Confirm credential modification for <?= htmlspecialchars(addslashes($st['name'])) ?>?');">
+                <form method="POST" action="dashboard.php#globalStaffSection" style="display:inline-flex; gap:6px; margin:0;" onsubmit="event.preventDefault(); const form = this; if (window.MedPulseDialog && window.MedPulseDialog.confirm) { MedPulseDialog.confirm({ title: 'Modify Staff Credential', message: 'Confirm credential modification for <?= htmlspecialchars(addslashes($st['name'])) ?>?', type: 'warning', confirmText: 'Confirm Modification', cancelText: 'Cancel' }).then(c => { if(c) { form.setAttribute('data-mp-confirmed', 'true'); form.submit(); } }); } else if (confirm('Confirm credential modification for <?= htmlspecialchars(addslashes($st['name'])) ?>?')) { form.submit(); }">
                   <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '', ENT_QUOTES, 'UTF-8') ?>">
                   <input type="hidden" name="action" value="override_staff">
                   <input type="hidden" name="target_user_id" value="<?= (int)$st['id'] ?>">

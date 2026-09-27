@@ -614,11 +614,19 @@ $roomCode = $doctor['teleconsult_room_code'] ?: $defaultMeeting['room_code'];
         if (res && res.success) {
           await pollQueueData();
         } else {
-          alert(res.message || 'Unable to advance queue.');
+          if (window.MedPulseDialog && window.MedPulseDialog.alert) {
+            MedPulseDialog.alert(res.message || 'Unable to advance queue.', 'Queue Advance Notice');
+          } else {
+            alert(res.message || 'Unable to advance queue.');
+          }
         }
       } catch (e) {
         console.error(e);
-        alert('Network error calling next patient.');
+        if (window.MedPulseDialog && window.MedPulseDialog.alert) {
+          MedPulseDialog.alert('Network error calling next patient.', 'Connection Error');
+        } else {
+          alert('Network error calling next patient.');
+        }
       } finally {
         btn.disabled = false;
         btn.style.opacity = '1';
@@ -658,14 +666,26 @@ $roomCode = $doctor['teleconsult_room_code'] ?: $defaultMeeting['room_code'];
         const resp = await fetch('api/telemedicine_actions.php', { method: 'POST', body: formData });
         const res = await resp.json();
         if (res && res.success) {
-          alert('Consultation room meeting link updated!');
+          if (window.MedPulseDialog && window.MedPulseDialog.toast) {
+            MedPulseDialog.toast('Consultation room meeting link updated!', 'success');
+          } else {
+            alert('Consultation room meeting link updated!');
+          }
           const link = document.getElementById('inputMeetingLink').value;
           document.getElementById('btnLaunchHost').href = link;
         } else {
-          alert(res.message || 'Error updating link.');
+          if (window.MedPulseDialog && window.MedPulseDialog.alert) {
+            MedPulseDialog.alert(res.message || 'Error updating link.', 'Link Update Notice');
+          } else {
+            alert(res.message || 'Error updating link.');
+          }
         }
       } catch (e) {
-        alert('Failed to save meeting link.');
+        if (window.MedPulseDialog && window.MedPulseDialog.alert) {
+          MedPulseDialog.alert('Failed to save meeting link.', 'Connection Error');
+        } else {
+          alert('Failed to save meeting link.');
+        }
       } finally {
         btn.disabled = false;
         btn.textContent = 'Save Meeting Link';

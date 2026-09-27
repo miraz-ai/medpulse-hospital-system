@@ -468,7 +468,7 @@ foreach ($availableBeds as $bed) {
               </div>
             </div>
 
-            <form method="POST" onsubmit="return confirm('Cancel and release this bed back to network vacancy?');" style="margin: 0;">
+            <form method="POST" onsubmit="event.preventDefault(); const form = this; if (window.MedPulseDialog && window.MedPulseDialog.confirm) { MedPulseDialog.confirm({ title: 'Cancel Bed Reservation', message: 'Cancel and release this bed back to network vacancy?', type: 'danger', confirmText: 'Release Bed', cancelText: 'Keep Bed Hold' }).then(c => { if(c) { form.setAttribute('data-mp-confirmed', 'true'); form.submit(); } }); } else { form.submit(); }" style="margin: 0;">
               <input type="hidden" name="action" value="cancel_hold">
               <input type="hidden" name="reservation_id" value="<?= (int)$activeHold['reservation_id'] ?>">
               <input type="hidden" name="hospital_id" value="<?= (int)$activeHold['hospital_id'] ?>">
@@ -921,7 +921,7 @@ foreach ($availableBeds as $bed) {
                     </div>
                   </div>
 
-                  <form method="POST" onsubmit="return confirm('Cancel and release this bed back to network vacancy?');" style="margin: 0;">
+                  <form method="POST" onsubmit="event.preventDefault(); const form = this; if (window.MedPulseDialog && window.MedPulseDialog.confirm) { MedPulseDialog.confirm({ title: 'Cancel Bed Reservation', message: 'Cancel and release this bed back to network vacancy?', type: 'danger', confirmText: 'Release Bed', cancelText: 'Keep Bed Hold' }).then(c => { if(c) { form.setAttribute('data-mp-confirmed', 'true'); form.submit(); } }); } else { form.submit(); }" style="margin: 0;">
                     <input type="hidden" name="action" value="cancel_hold">
                     <input type="hidden" name="reservation_id" value="${hold.reservation_id}">
                     <input type="hidden" name="hospital_id" value="${hold.hospital_id}">

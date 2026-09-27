@@ -78,7 +78,7 @@ $sessionStatus = strtolower($doctor['session_status'] ?? 'idle');
 $accumulatedDelta = (int)($doctor['accumulated_delta_minutes'] ?? 0);
 $avgMins = (int)(($doctor['avg_consultation_time'] ?? 0) ?: 10);
 
-// ── Fetch Queue Data ────────────────────────────────────────────────────────
+// ── Fetch Today's Queue Data (for the Active Dossier / Right column) ─────────
 $queueData = AppointmentController::getDoctorTodayQueue($pdo, $doctorUserId);
 $todayQueue = $queueData['patients'] ?? [];
 
@@ -104,6 +104,34 @@ $upcomingThree = array_slice($waitingPatients, 0, 3);
 $waitingCount = count($waitingPatients);
 $totalBooked = count($todayQueue);
 $remainingCapacity = max(0, 25 - $totalBooked);
+
+// ── 4-Day Date Switcher: Compute Dates & Initial Capacity ────────────────────
+$today = new DateTime('today');
+$fourDays = [];
+for ($i = 0; $i < 4; $i++) {
+    $d = (clone $today)->modify("+{$i} days");
+    $fourDays[] = $d->format('Y-m-d');
+}
+$dayLabels = ['Today', 'Tomorrow', $today->format('l, M j'), $today->format('l, M j')];
+// Build proper human labels
+$dayTabLabels = [];
+foreach ($fourDays as $idx => $fd) {
+    if ($idx === 0)      { $dayTabLabels[$fd] = 'Today';    }
+    elseif ($idx === 1)  { $dayTabLabels[$fd] = 'Tomorrow'; }
+    else                 { $dayTabLabels[$fd] = (new DateTime($fd))->format('D, M j'); }
+}
+
+$capacityMap = AppointmentController::getDoctorDayCapacity($pdo, $doctorUserId, $fourDays);
+
+// Default view: Today + Morning (or current detected shift based on time)
+$nowHour = (int)date('H');
+$defaultShift = ($nowHour >= 14) ? 'Evening' : 'Morning';
+$initDate  = $fourDays[0];
+$initShift = $defaultShift;
+
+// Server-side initial render for the roster table (avoids flicker on first load)
+$initQueueData = AppointmentController::getDoctorQueueByDateShift($pdo, $doctorUserId, $initDate, $initShift);
+$initPatients  = $initQueueData['patients'] ?? [];
 
 // ── If Patient Active in Chamber: Fetch Medical Dossier Records ─────────────
 $patientPastReports = [];
@@ -759,6 +787,151 @@ if ($currentInChamber) {
     .modal-body {
       padding: 1.75rem;
     }
+
+    /* ── 4-Day Date Switcher Tabs ──────────────────────────────────────────── */
+    .date-switcher-wrap {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+      margin-bottom: 1.5rem;
+    }
+    .day-tabs-group {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      flex: 1;
+    }
+    .day-tab-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.2rem;
+      padding: 0.6rem 1.1rem;
+      border-radius: 12px;
+      border: 1.5px solid #e2e8f0;
+      background: #ffffff;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      min-width: 120px;
+      position: relative;
+    }
+    .day-tab-btn:hover {
+      border-color: #bae6fd;
+      background: #f0f9ff;
+    }
+    .day-tab-btn.active {
+      border-color: #0284c7;
+      background: linear-gradient(135deg, #e0f2fe 0%, #f0f9ff 100%);
+      box-shadow: 0 4px 12px rgba(2, 132, 199, 0.15);
+    }
+    .day-tab-label {
+      font-size: 0.78rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      color: #64748b;
+    }
+    .day-tab-btn.active .day-tab-label {
+      color: #0284c7;
+    }
+    .day-tab-date {
+      font-size: 0.7rem;
+      color: #94a3b8;
+      font-weight: 600;
+    }
+    .day-tab-btn.active .day-tab-date {
+      color: #38bdf8;
+    }
+    .day-cap-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      font-size: 0.68rem;
+      font-weight: 700;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      background: #f1f5f9;
+      color: #475569;
+      border: 1px solid #e2e8f0;
+      margin-top: 0.1rem;
+    }
+    .day-tab-btn.active .day-cap-badge {
+      background: rgba(2, 132, 199, 0.1);
+      color: #0284c7;
+      border-color: rgba(2, 132, 199, 0.25);
+    }
+    .day-cap-badge.full {
+      background: #fef2f2;
+      color: #dc2626;
+      border-color: #fecaca;
+    }
+    /* ── Shift Toggle Pills ─────────────────────────────────────────────────── */
+    .shift-toggle-group {
+      display: flex;
+      gap: 0;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 10px;
+      overflow: hidden;
+      background: #f8fafc;
+    }
+    .shift-toggle-btn {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.55rem 1.1rem;
+      font-size: 0.8rem;
+      font-weight: 700;
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      color: #64748b;
+      transition: all 0.18s ease;
+      white-space: nowrap;
+    }
+    .shift-toggle-btn:first-child {
+      border-right: 1.5px solid #e2e8f0;
+    }
+    .shift-toggle-btn.active {
+      background: #0284c7;
+      color: #ffffff;
+    }
+    .shift-toggle-btn.active.evening {
+      background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%);
+    }
+    /* ── Roster Table Wrapper ──────────────────────────────────────────────── */
+    .roster-loading-overlay {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem;
+      color: #94a3b8;
+      gap: 0.75rem;
+      font-size: 0.9rem;
+      font-weight: 600;
+    }
+    .roster-loading-overlay.show {
+      display: flex;
+    }
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to   { transform: rotate(360deg); }
+    }
+    .spin-icon {
+      display: inline-block;
+      animation: spin 0.8s linear infinite;
+      font-size: 1.25rem;
+    }
+    /* status chips inside roster */
+    .roster-status-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      padding: 0.25rem 0.6rem;
+      border-radius: 6px;
+      font-size: 0.74rem;
+      font-weight: 700;
+    }
   </style>
 </head>
 <body>
@@ -1139,101 +1312,164 @@ if ($currentInChamber) {
 
     </div>
 
-    <!-- OPD Sequential Session Queue Table (1 - 25 Sequential List) -->
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         OPD Session Queue — 4-Day Date Switcher + Shift Toggle
+    ═══════════════════════════════════════════════════════════════════════ -->
     <section class="admin-stack-card">
-      <div class="admin-stack-header" style="justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+      
+      <!-- Section Header -->
+      <div class="admin-stack-header" style="justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.25rem;">
         <div class="admin-stack-title-group">
           <h3>
             <svg class="ui-ico" style="stroke: var(--brand-primary); width: 22px; height: 22px;" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><polyline points="16 11 18 13 22 9"></polyline></svg>
-            Today's OPD Session Serial List (1 - 25 Sequential)
+            OPD Session Queue — Filtered by Date &amp; Shift
           </h3>
-          <p>Sorted strictly by assigned token number. Cap 25 per date and shift.</p>
+          <p>Select a day and shift to view that slot's patient roster. Max 25 per date/shift.</p>
         </div>
-
-        <div style="display: flex; gap: 0.75rem; align-items: center;">
-          <button onclick="window.location.reload()" class="btn-teal-action" style="padding: 0.48rem 0.85rem; font-size: 0.78rem; display: inline-flex; align-items: center; gap: 0.35rem;">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
-            Refresh Queue
-          </button>
-        </div>
+        <button onclick="refreshCurrentView()" class="btn-teal-action" style="padding: 0.48rem 0.85rem; font-size: 0.78rem; display: inline-flex; align-items: center; gap: 0.35rem;">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+          Refresh
+        </button>
       </div>
 
-      <div class="admin-table-wrap">
+      <!-- Date Switcher Tabs + Shift Toggle -->
+      <div class="date-switcher-wrap">
+
+        <!-- 4-Day Tabs -->
+        <div class="day-tabs-group" id="dayTabsGroup">
+          <?php foreach ($fourDays as $idx => $fd): 
+            $fdLabel  = $dayTabLabels[$fd];
+            $fdDisplay = date('M j, Y', strtotime($fd));
+            $mBooked  = $capacityMap[$fd . '|Morning']  ?? 0;
+            $eBooked  = $capacityMap[$fd . '|Evening']  ?? 0;
+            $totalCap = $mBooked + $eBooked;
+            $isActive = ($fd === $initDate);
+          ?>
+          <button type="button"
+                  class="day-tab-btn <?= $isActive ? 'active' : '' ?>"
+                  data-date="<?= $fd ?>"
+                  onclick="selectDay('<?= $fd ?>')"
+                  title="<?= $fdDisplay ?>">
+            <span class="day-tab-label"><?= $fdLabel ?></span>
+            <span class="day-tab-date"><?= $fdDisplay ?></span>
+            <span class="day-cap-badge <?= $totalCap >= 25 ? 'full' : '' ?>">
+              <?= $totalCap ?>/25 Booked
+              <?php if ($totalCap < 25): ?>
+                &bull; <?= 25 - $totalCap ?> Open
+              <?php endif; ?>
+            </span>
+          </button>
+          <?php endforeach; ?>
+        </div>
+
+        <!-- Shift Toggle -->
+        <div class="shift-toggle-group" id="shiftToggleGroup">
+          <button type="button"
+                  class="shift-toggle-btn <?= $initShift === 'Morning' ? 'active' : '' ?>"
+                  data-shift="Morning"
+                  onclick="selectShift('Morning')">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path></svg>
+            Morning
+          </button>
+          <button type="button"
+                  class="shift-toggle-btn evening <?= $initShift === 'Evening' ? 'active' : '' ?>"
+                  data-shift="Evening"
+                  onclick="selectShift('Evening')">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+            Evening
+          </button>
+        </div>
+
+      </div>
+
+      <!-- Active Filter Context Bar -->
+      <div id="rosterContextBar" style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem; padding: 0.65rem 1rem; background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 10px; flex-wrap: wrap;">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="#0284c7" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+        <span id="rosterContextLabel" style="font-size: 0.82rem; font-weight: 700; color: #0369a1;">Loading...</span>
+        <span style="margin-left: auto; display: flex; gap: 0.5rem;">
+          <span id="rosterWaitingBadge" style="display:none; font-size: 0.72rem; font-weight: 700; padding: 0.2rem 0.55rem; border-radius: 6px; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe;"></span>
+          <span id="rosterServingBadge" style="display:none; font-size: 0.72rem; font-weight: 700; padding: 0.2rem 0.55rem; border-radius: 6px; background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0;"></span>
+          <span id="rosterCompletedBadge" style="display:none; font-size: 0.72rem; font-weight: 700; padding: 0.2rem 0.55rem; border-radius: 6px; background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1;"></span>
+        </span>
+      </div>
+
+      <!-- Loading Overlay -->
+      <div class="roster-loading-overlay" id="rosterLoadingOverlay">
+        <span class="spin-icon">↻</span>
+        Loading roster…
+      </div>
+
+      <!-- Roster Table -->
+      <div class="admin-table-wrap" id="rosterTableWrap">
         <table class="admin-data-table" id="opdQueueTable">
           <thead>
             <tr>
-              <th style="width: 80px;">Token</th>
+              <th style="width: 72px;">Token</th>
               <th>Patient Name</th>
-              <th>Contact Phone</th>
-              <th>Shift Slot</th>
-              <th>Chief Complaint / Reason</th>
+              <th>Phone</th>
+              <th>Booked Slot</th>
+              <th>Chief Complaint</th>
               <th>Status</th>
               <th style="text-align: right;">Action</th>
             </tr>
           </thead>
-          <tbody>
-            <?php if (empty($todayQueue)): ?>
-              <tr>
+          <tbody id="rosterTbody">
+            <?php /* Initial SSR rows — replaced by JS on tab switch */ ?>
+            <?php if (empty($initPatients)): ?>
+              <tr id="rosterEmptyRow">
                 <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 3rem;">
-                  No patient appointments registered for today's session.
+                  <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#cbd5e1" stroke-width="1.5" style="display:block; margin: 0 auto 0.5rem;"><path d="m9 11 3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
+                  No appointments for <strong><?= htmlspecialchars($initShift, ENT_QUOTES, 'UTF-8') ?> shift</strong> on <?= date('D, M j, Y', strtotime($initDate)) ?>.
                 </td>
               </tr>
             <?php else: ?>
-              <?php foreach ($todayQueue as $pt): 
+              <?php foreach ($initPatients as $pt): 
                 $tNum = (int)$pt['token_number'];
                 $sVal = strtolower($pt['status'] ?? '');
-                $qVal = strtolower($pt['queue_status'] ?? '');
-                $isServing = ($sVal === 'in_consultation' || $qVal === 'serving');
-                $isCompleted = ($sVal === 'completed' || $qVal === 'completed');
+                $isServing   = ($sVal === 'in_consultation');
+                $isCompleted = ($sVal === 'completed');
                 $ptComplaint = !empty($pt['symptoms']) ? $pt['symptoms'] : ($pt['reason_for_visit'] ?? 'General Consultation');
               ?>
-                <tr id="queue-row-<?= $tNum ?>" style="<?= $isServing ? 'background: rgba(16, 185, 129, 0.08); font-weight: 600;' : '' ?>">
+                <tr id="queue-row-<?= $tNum ?>" style="<?= $isServing ? 'background: rgba(16,185,129,0.08); font-weight: 600;' : '' ?>">
                   <td>
-                    <span class="live-chip-sm" style="font-size: 0.95rem; font-weight: 800; padding: 4px 10px; background: <?= $isServing ? '#ecfdf5; color: #059669; border: 1px solid #a7f3d0;' : ($isCompleted ? '#f1f5f9; color: #64748b; border: 1px solid #cbd5e1;' : '#e0f2fe; color: #0284c7; border: 1px solid #bae6fd;') ?>">
+                    <span class="live-chip-sm" style="font-size: 0.93rem; font-weight: 800; padding: 4px 10px; background: <?= $isServing ? '#ecfdf5; color: #059669; border: 1px solid #a7f3d0;' : ($isCompleted ? '#f1f5f9; color: #64748b; border: 1px solid #cbd5e1;' : '#e0f2fe; color: #0284c7; border: 1px solid #bae6fd;') ?>">
                       #<?= $tNum ?>
                     </span>
                   </td>
                   <td>
-                    <strong style="font-size: 0.92rem; color: var(--text-heading);">
-                      <?= htmlspecialchars($pt['patient_name'], ENT_QUOTES, 'UTF-8') ?>
-                    </strong>
-                    <div style="font-size: 0.74rem; color: var(--text-muted);">
+                    <strong style="font-size: 0.91rem; color: var(--text-heading);"><?= htmlspecialchars($pt['patient_name'], ENT_QUOTES, 'UTF-8') ?></strong>
+                    <div style="font-size: 0.73rem; color: var(--text-muted);">
                       <?= !empty($pt['age']) ? ((int)$pt['age'] . ' yrs') : 'Adult' ?> &bull; <?= htmlspecialchars($pt['gender'] ?? 'N/A', ENT_QUOTES, 'UTF-8') ?>
                     </div>
                   </td>
-                  <td style="font-size: 0.84rem; color: var(--text-muted);"><?= htmlspecialchars($pt['phone'] ?? '—', ENT_QUOTES, 'UTF-8') ?></td>
+                  <td style="font-size: 0.83rem; color: var(--text-muted);"><?= htmlspecialchars($pt['phone'] ?? '—', ENT_QUOTES, 'UTF-8') ?></td>
                   <td>
-                    <strong style="font-size: 0.84rem; color: var(--brand-primary);"><?= htmlspecialchars($pt['time_slot'] ?? 'Morning', ENT_QUOTES, 'UTF-8') ?></strong>
-                    <div style="font-size: 0.72rem; color: var(--text-muted);"><?= !empty($pt['appointment_time']) ? date('h:i A', strtotime($pt['appointment_time'])) : 'Scheduled' ?></div>
+                    <strong style="font-size: 0.83rem; color: var(--brand-primary);"><?= htmlspecialchars($pt['time_slot'] ?? 'Morning', ENT_QUOTES, 'UTF-8') ?></strong>
+                    <div style="font-size: 0.71rem; color: var(--text-muted);"><?= !empty($pt['appointment_time']) ? date('h:i A', strtotime($pt['appointment_time'])) : 'Scheduled' ?></div>
                   </td>
-                  <td style="max-width: 260px;">
-                    <div style="font-size: 0.84rem; color: var(--text-body); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="<?= htmlspecialchars($ptComplaint, ENT_QUOTES, 'UTF-8') ?>">
+                  <td style="max-width: 240px;">
+                    <div style="font-size: 0.83rem; color: var(--text-body); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="<?= htmlspecialchars($ptComplaint, ENT_QUOTES, 'UTF-8') ?>">
                       <?= htmlspecialchars($ptComplaint, ENT_QUOTES, 'UTF-8') ?>
                     </div>
                   </td>
                   <td>
                     <?php if ($isServing): ?>
-                      <span class="live-chip-sm" style="background: #ecfdf5; color: #059669; border-color: #a7f3d0; font-weight: 800;">
-                        <span class="pulse-dot" style="width: 6px; height: 6px; margin-right: 4px;"></span>
-                        INSIDE CHAMBER
+                      <span class="live-chip-sm" style="background:#ecfdf5; color:#059669; border-color:#a7f3d0; font-weight:800;">
+                        <span class="pulse-dot" style="width:6px;height:6px;margin-right:4px;"></span>IN CHAMBER
                       </span>
                     <?php elseif ($isCompleted): ?>
-                      <span class="chip-disbursed" style="background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1;">Completed</span>
+                      <span class="chip-disbursed" style="background:#f1f5f9; color:#475569; border:1px solid #cbd5e1;">Completed</span>
                     <?php else: ?>
-                      <span class="chip-consult" style="background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe;">Waiting</span>
+                      <span class="chip-consult" style="background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe;">Waiting</span>
                     <?php endif; ?>
                   </td>
                   <td style="text-align: right;">
                     <?php if ($isServing): ?>
-                      <a href="prescriptions.php?patient_id=<?= (int)$pt['patient_id'] ?>&appointment_id=<?= (int)$pt['id'] ?>" class="btn-action-gradient" style="padding: 0.4rem 0.85rem; font-size: 0.76rem; text-decoration: none;">
-                        Prescribe Rx &rarr;
-                      </a>
+                      <a href="prescriptions.php?patient_id=<?= (int)$pt['patient_id'] ?>&appointment_id=<?= (int)$pt['id'] ?>" class="btn-action-gradient" style="padding:0.4rem 0.85rem; font-size:0.75rem; text-decoration:none;">Prescribe Rx &rarr;</a>
                     <?php elseif (!$isCompleted): ?>
-                      <button type="button" onclick="triggerCallNextWithDuration()" class="btn-teal-action" style="padding: 0.4rem 0.75rem; font-size: 0.76rem;">
-                        Call #<?= $tNum ?>
-                      </button>
+                      <button type="button" onclick="triggerCallNextWithDuration()" class="btn-teal-action" style="padding:0.4rem 0.75rem; font-size:0.75rem;">Call #<?= $tNum ?></button>
                     <?php else: ?>
-                      <span style="font-size: 0.76rem; color: #94a3b8;">Served</span>
+                      <span style="font-size:0.75rem; color:#94a3b8;">Served</span>
                     <?php endif; ?>
                   </td>
                 </tr>
@@ -1242,6 +1478,7 @@ if ($currentInChamber) {
           </tbody>
         </table>
       </div>
+
     </section>
 
   </main>
@@ -1444,24 +1681,54 @@ if ($currentInChamber) {
         if (json.status === 'success') {
           if (typeof showToast === 'function') {
             showToast(json.data.message || 'Action executed successfully.', 'success');
+          } else if (window.MedPulseDialog && window.MedPulseDialog.toast) {
+            MedPulseDialog.toast(json.data.message || 'Action executed successfully.', 'success');
           }
           setTimeout(() => window.location.reload(), 400);
         } else {
-          alert(json.data?.message || 'Action failed.');
+          if (window.MedPulseDialog && window.MedPulseDialog.alert) {
+            MedPulseDialog.alert(json.data?.message || 'Action failed.', 'Chamber Action Notice');
+          } else {
+            alert(json.data?.message || 'Action failed.');
+          }
         }
       } catch (err) {
         window.location.reload();
       }
     }
 
-    function confirmEndSession() {
-      if (confirm("End today's chamber session? Active consultation will be marked completed.")) {
+    async function confirmEndSession() {
+      let confirmed = false;
+      if (window.MedPulseDialog && window.MedPulseDialog.confirm) {
+        confirmed = await MedPulseDialog.confirm({
+          title: "End Chamber Session",
+          message: "End today's chamber session? Active consultation will be marked completed.",
+          type: "danger",
+          confirmText: "End Session",
+          cancelText: "Continue Session"
+        });
+      } else {
+        confirmed = confirm("End today's chamber session? Active consultation will be marked completed.");
+      }
+      if (confirmed) {
         triggerSessionAction('end_session');
       }
     }
 
     async function triggerHoldCurrentToken(appointmentId, tokenNumber) {
-      if (!confirm(`Place Token #${tokenNumber} on temporary hold and return to waiting queue?`)) {
+      let confirmed = false;
+      if (window.MedPulseDialog && window.MedPulseDialog.confirm) {
+        confirmed = await MedPulseDialog.confirm({
+          title: "Hold Token Serial",
+          message: `Place Token #${tokenNumber} on temporary hold and return to waiting queue?`,
+          type: "warning",
+          confirmText: "Place on Hold",
+          cancelText: "Keep Serving"
+        });
+      } else {
+        confirmed = confirm(`Place Token #${tokenNumber} on temporary hold and return to waiting queue?`);
+      }
+      if (!confirmed) {
         return;
       }
 
@@ -1480,10 +1747,16 @@ if ($currentInChamber) {
         if (json.status === 'success') {
           if (typeof showToast === 'function') {
             showToast(json.data.message || 'Token placed on hold.', 'success');
+          } else if (window.MedPulseDialog && window.MedPulseDialog.toast) {
+            MedPulseDialog.toast(json.data.message || 'Token placed on hold.', 'success');
           }
           setTimeout(() => window.location.reload(), 400);
         } else {
-          alert(json.data?.message || 'Error placing token on hold.');
+          if (window.MedPulseDialog && window.MedPulseDialog.alert) {
+            MedPulseDialog.alert(json.data?.message || 'Error placing token on hold.', 'Queue Hold Notice');
+          } else {
+            alert(json.data?.message || 'Error placing token on hold.');
+          }
         }
       } catch (e) {
         window.location.reload();
@@ -1522,11 +1795,15 @@ if ($currentInChamber) {
           playCallChime();
           if (typeof showToast === 'function') {
             showToast(json.data.message || 'Next patient called into chamber!', 'success');
+          } else if (window.MedPulseDialog && window.MedPulseDialog.toast) {
+            MedPulseDialog.toast(json.data.message || 'Next patient called into chamber!', 'success');
           }
           setTimeout(() => window.location.reload(), 450);
         } else {
           if (typeof showToast === 'function') {
             showToast(json.data?.message || 'No more patients waiting in queue.', 'error');
+          } else if (window.MedPulseDialog && window.MedPulseDialog.alert) {
+            MedPulseDialog.alert(json.data?.message || 'No more patients waiting in queue.', 'Chamber Queue Notice');
           } else {
             alert(json.data?.message || 'No more patients waiting in queue.');
           }
@@ -1540,21 +1817,295 @@ if ($currentInChamber) {
       }
     }
 
-    // Background Queue Polling every 15 seconds
-    setInterval(() => {
-      fetch('../backend/api/opd_queue.php?action=doctor_queue')
-        .then(r => r.json())
-        .then(res => {
-          if (res.status === 'success') {
-            const serverCount = res.data.queue ? res.data.queue.length : (res.data.patients ? res.data.patients.length : 0);
-            const currentRows = document.querySelectorAll('#opdQueueTable tbody tr[id^="queue-row-"]').length;
-            if (serverCount !== currentRows) {
-              window.location.reload();
-            }
+    // ── 4-Day Date Switcher State ─────────────────────────────────────────────
+    let _activeDate  = '<?= $initDate ?>';
+    let _activeShift = '<?= $initShift ?>';
+
+    const DAY_LABELS = <?= json_encode($dayTabLabels) ?>;
+
+    function selectDay(date) {
+      if (_activeDate === date) return;
+      _activeDate = date;
+      // Update tab visual state
+      document.querySelectorAll('.day-tab-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.date === date);
+      });
+      fetchRoster(_activeDate, _activeShift);
+    }
+
+    function selectShift(shift) {
+      if (_activeShift === shift) return;
+      _activeShift = shift;
+      // Update toggle visual state
+      document.querySelectorAll('.shift-toggle-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.shift === shift);
+      });
+      fetchRoster(_activeDate, _activeShift);
+    }
+
+    function refreshCurrentView() {
+      fetchRoster(_activeDate, _activeShift, true);
+    }
+
+    // ── AJAX Roster Fetch ─────────────────────────────────────────────────────
+    async function fetchRoster(date, shift, showSpin = true) {
+      const overlay = document.getElementById('rosterLoadingOverlay');
+      const tableWrap = document.getElementById('rosterTableWrap');
+
+      if (showSpin) {
+        if (overlay) { overlay.classList.add('show'); }
+        if (tableWrap) { tableWrap.style.opacity = '0.35'; tableWrap.style.pointerEvents = 'none'; }
+      }
+
+      try {
+        const url = `api/opd_queue_filter.php?date=${encodeURIComponent(date)}&shift=${encodeURIComponent(shift)}`;
+        const res  = await fetch(url, { credentials: 'same-origin' });
+        const json = await res.json();
+
+        if (json.status === 'success') {
+          renderRosterTable(json.data, date, shift);
+          updateContextBar(json.data, date, shift);
+        } else {
+          console.warn('Roster fetch error:', json.message);
+        }
+      } catch (err) {
+        console.error('fetchRoster error:', err);
+      } finally {
+        if (overlay) { overlay.classList.remove('show'); }
+        if (tableWrap) { tableWrap.style.opacity = '1'; tableWrap.style.pointerEvents = ''; }
+      }
+    }
+
+    // ── Render Fetched Queue Rows ─────────────────────────────────────────────
+    function renderRosterTable(data, date, shift) {
+      const tbody = document.getElementById('rosterTbody');
+      if (!tbody) return;
+
+      const patients = data.patients || [];
+
+      if (patients.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="7" style="text-align:center; color:var(--text-muted); padding: 3rem;">
+              <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#cbd5e1" stroke-width="1.5" style="display:block;margin:0 auto 0.5rem;"><path d="m9 11 3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
+              No appointments for <strong>${escHtml(shift)} shift</strong> on ${formatDateLabel(date)}.
+            </td>
+          </tr>`;
+        return;
+      }
+
+      const rows = patients.map(pt => {
+        const tNum      = parseInt(pt.token_number) || 0;
+        const status    = (pt.status || '').toLowerCase();
+        const isServing  = status === 'in_consultation';
+        const isDone     = status === 'completed';
+        const complaint  = pt.symptoms || pt.reason_for_visit || 'General Consultation';
+        const age        = pt.age ? `${parseInt(pt.age)} yrs` : 'Adult';
+        const gender     = pt.gender || 'N/A';
+        const phone      = pt.phone || '—';
+        const timeSlot   = pt.time_slot || shift;
+        const timeFmt    = pt.appointment_time_fmt || 'Scheduled';
+
+        // Token chip
+        const tokenStyle = isServing
+          ? '#ecfdf5; color:#059669; border:1px solid #a7f3d0;'
+          : isDone
+            ? '#f1f5f9; color:#64748b; border:1px solid #cbd5e1;'
+            : '#e0f2fe; color:#0284c7; border:1px solid #bae6fd;';
+
+        // Status chip
+        let statusHtml = '';
+        if (isServing) {
+          statusHtml = `<span class="live-chip-sm" style="background:#ecfdf5;color:#059669;border-color:#a7f3d0;font-weight:800;"><span class="pulse-dot" style="width:6px;height:6px;margin-right:4px;"></span>IN CHAMBER</span>`;
+        } else if (isDone) {
+          statusHtml = `<span class="chip-disbursed" style="background:#f1f5f9;color:#475569;border:1px solid #cbd5e1;">Completed</span>`;
+        } else {
+          statusHtml = `<span class="chip-consult" style="background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;">Waiting</span>`;
+        }
+
+        // Action button
+        let actionHtml = '';
+        if (isServing) {
+          actionHtml = `<a href="prescriptions.php?patient_id=${parseInt(pt.patient_id)}&appointment_id=${parseInt(pt.id)}" class="btn-action-gradient" style="padding:0.4rem 0.85rem;font-size:0.75rem;text-decoration:none;">Prescribe Rx &rarr;</a>`;
+        } else if (!isDone) {
+          actionHtml = `<button type="button" onclick="triggerCallNextWithDuration()" class="btn-teal-action" style="padding:0.4rem 0.75rem;font-size:0.75rem;">Call #${tNum}</button>`;
+        } else {
+          actionHtml = `<span style="font-size:0.75rem;color:#94a3b8;">Served</span>`;
+        }
+
+        return `
+          <tr id="queue-row-${tNum}" style="${isServing ? 'background:rgba(16,185,129,0.08);font-weight:600;' : ''}">
+            <td>
+              <span class="live-chip-sm" style="font-size:0.93rem;font-weight:800;padding:4px 10px;background:${tokenStyle}">#${tNum}</span>
+            </td>
+            <td>
+              <strong style="font-size:0.91rem;color:var(--text-heading);">${escHtml(pt.patient_name || '—')}</strong>
+              <div style="font-size:0.73rem;color:var(--text-muted);">${escHtml(age)} &bull; ${escHtml(gender)}</div>
+            </td>
+            <td style="font-size:0.83rem;color:var(--text-muted);">${escHtml(phone)}</td>
+            <td>
+              <strong style="font-size:0.83rem;color:var(--brand-primary);">${escHtml(timeSlot)}</strong>
+              <div style="font-size:0.71rem;color:var(--text-muted);">${escHtml(timeFmt)}</div>
+            </td>
+            <td style="max-width:240px;">
+              <div style="font-size:0.83rem;color:var(--text-body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escHtml(complaint)}">${escHtml(complaint)}</div>
+            </td>
+            <td>${statusHtml}</td>
+            <td style="text-align:right;">${actionHtml}</td>
+          </tr>`;
+      });
+
+      tbody.innerHTML = rows.join('');
+    }
+
+    // ── Update Context Bar Badges ─────────────────────────────────────────────
+    function updateContextBar(data, date, shift) {
+      const label   = document.getElementById('rosterContextLabel');
+      const waiting = document.getElementById('rosterWaitingBadge');
+      const serving = document.getElementById('rosterServingBadge');
+      const done    = document.getElementById('rosterCompletedBadge');
+
+      if (label) {
+        const dayName = DAY_LABELS[date] || formatDateLabel(date);
+        const icon = shift === 'Morning' ? '☀' : '🌙';
+        label.textContent = `${icon} Showing ${shift} shift roster for ${dayName} (${formatDateLabel(date)}) — ${data.total || 0} of 25 slots filled`;
+      }
+
+      if (waiting) {
+        const w = data.waiting || 0;
+        waiting.textContent = `${w} Waiting`;
+        waiting.style.display = w > 0 ? 'inline-flex' : 'none';
+      }
+      if (serving) {
+        const s = data.serving || 0;
+        serving.textContent = s > 0 ? '● In Chamber' : '';
+        serving.style.display = s > 0 ? 'inline-flex' : 'none';
+      }
+      if (done) {
+        const c = data.completed || 0;
+        done.textContent = `${c} Completed`;
+        done.style.display = c > 0 ? 'inline-flex' : 'none';
+      }
+    }
+
+    // ── Utility Helpers ───────────────────────────────────────────────────────
+    function escHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function formatDateLabel(dateStr) {
+      try {
+        // dateStr is 'YYYY-MM-DD'
+        const [y, m, d] = dateStr.split('-').map(Number);
+        const dt = new Date(y, m - 1, d);
+        return dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+      } catch(e) { return dateStr; }
+    }
+
+    // ── Initialise Context Bar on Page Load (SSR data already rendered) ───────
+    (function initContextBar() {
+      updateContextBar(
+        {
+          total:     <?= $initQueueData['total'] ?? 0 ?>,
+          waiting:   <?= $initQueueData['waiting'] ?? 0 ?>,
+          serving:   <?= $initQueueData['serving'] ?? 0 ?>,
+          completed: <?= $initQueueData['completed'] ?? 0 ?>,
+        },
+        _activeDate,
+        _activeShift
+      );
+    })();
+
+    // ── Smart Background Sync: 3-second diff poller ───────────────────────────
+    // Tracks last known state to avoid unnecessary re-renders
+    let _lastKnownTotal        = <?= $initQueueData['total'] ?? 0 ?>;
+    let _lastKnownServingToken = <?= $initQueueData['serving'] > 0 ? "/* non-zero serving */ 0" : "0" ?>;
+
+    let _bgSyncTimer = null;
+
+    async function bgSyncTick() {
+      try {
+        const url  = `api/opd_queue_filter.php?date=${encodeURIComponent(_activeDate)}&shift=${encodeURIComponent(_activeShift)}`;
+        const res  = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
+        if (!res.ok) return;
+        const json = await res.json();
+        if (json.status !== 'success') return;
+
+        const d = json.data;
+        const newTotal        = d.total ?? 0;
+        const newServingToken = d.serving_token ?? 0;
+
+        const hasChanged = (newTotal !== _lastKnownTotal) || (newServingToken !== _lastKnownServingToken);
+
+        if (hasChanged) {
+          _lastKnownTotal        = newTotal;
+          _lastKnownServingToken = newServingToken;
+
+          // Re-render roster rows
+          renderRosterTable(d, _activeDate, _activeShift);
+          updateContextBar(d, _activeDate, _activeShift);
+
+          // Update tab badge for the active day tab
+          updateTabBadge(_activeDate, _activeShift, d);
+
+          // Flash the context bar green briefly to signal a live update
+          const bar = document.getElementById('rosterContextBar');
+          if (bar) {
+            bar.style.transition = 'background 0.3s ease';
+            bar.style.background = 'rgba(16, 185, 129, 0.1)';
+            bar.style.borderColor = '#a7f3d0';
+            setTimeout(() => {
+              bar.style.background = '#f0f9ff';
+              bar.style.borderColor = '#bae6fd';
+            }, 900);
           }
-        })
-        .catch(() => {});
-    }, 15000);
+        }
+      } catch (e) {
+        // Silent fail — network blip should not crash the console
+      }
+    }
+
+    // Update the capacity badge on the tab for the currently active date
+    function updateTabBadge(date, shift, data) {
+      const tab = document.querySelector(`.day-tab-btn[data-date="${date}"]`);
+      if (!tab) return;
+      const badge = tab.querySelector('.day-cap-badge');
+      if (!badge) return;
+      // We only know the count for the current shift; update accordingly
+      const booked = data.total ?? 0;
+      const open   = Math.max(0, 25 - booked);
+      badge.textContent = `${booked}/25 Booked${open > 0 ? ' • ' + open + ' Open' : ''}`;
+      badge.classList.toggle('full', booked >= 25);
+    }
+
+    function startBgSync() {
+      if (_bgSyncTimer) clearInterval(_bgSyncTimer);
+      _bgSyncTimer = setInterval(bgSyncTick, 3500); // 3.5 second tick
+    }
+    function stopBgSync() {
+      if (_bgSyncTimer) { clearInterval(_bgSyncTimer); _bgSyncTimer = null; }
+    }
+
+    // Start immediately, stop on page unload to prevent memory leaks
+    startBgSync();
+    window.addEventListener('pagehide', stopBgSync);
+    window.addEventListener('beforeunload', stopBgSync);
+
+    // Restart sync when user changes date/shift (selectDay / selectShift already call fetchRoster;
+    // we reset the baseline so the next tick compares against the just-loaded data)
+    const _origFetchRoster = fetchRoster;
+    // Wrap fetchRoster to reset baseline after each manual switch
+    async function fetchRosterAndReset(date, shift, showSpin = true) {
+      await _origFetchRoster(date, shift, showSpin);
+      // baseline will be updated by the next bgSyncTick naturally
+    }
+
+
   </script>
 </body>
 </html>

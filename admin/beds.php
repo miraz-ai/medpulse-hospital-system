@@ -842,19 +842,53 @@ $wardTypes = $wardTypesStmt->fetchAll(PDO::FETCH_COLUMN);
     });
 
     function confirmAdmission(e, resId, patientName, bedNumber) {
-      if (!confirm(`Confirm physical admission for ${patientName} into Bed ${bedNumber}?\n\nThis will transition the reservation to 'admitted' and mark the bed as 'Occupied'.`)) {
-        e.preventDefault();
-        return false;
+      const form = e.target.closest('form');
+      if (form && form.getAttribute('data-mp-confirmed') === 'true') {
+        return true;
       }
-      return true;
+      e.preventDefault();
+      if (window.MedPulseDialog && window.MedPulseDialog.confirm) {
+        MedPulseDialog.confirm({
+          title: 'Confirm Inpatient Admission',
+          message: `Confirm physical admission for ${patientName} into Bed ${bedNumber}?\n\nThis will transition the reservation to 'admitted' and mark the bed as 'Occupied'.`,
+          type: 'primary',
+          confirmText: 'Confirm Admission',
+          cancelText: 'Cancel'
+        }).then(confirmed => {
+          if (confirmed && form) {
+            form.setAttribute('data-mp-confirmed', 'true');
+            form.submit();
+          }
+        });
+      } else if (confirm(`Confirm physical admission for ${patientName} into Bed ${bedNumber}?\n\nThis will transition the reservation to 'admitted' and mark the bed as 'Occupied'.`)) {
+        if (form) form.submit();
+      }
+      return false;
     }
 
     function confirmDischarge(e, bedId, bedNumber) {
-      if (!confirm(`Are you sure you want to manually discharge and free Bed ${bedNumber}?\n\nThis will transition the bed status to 'Available'.`)) {
-        e.preventDefault();
-        return false;
+      const form = e.target.closest('form');
+      if (form && form.getAttribute('data-mp-confirmed') === 'true') {
+        return true;
       }
-      return true;
+      e.preventDefault();
+      if (window.MedPulseDialog && window.MedPulseDialog.confirm) {
+        MedPulseDialog.confirm({
+          title: 'Confirm Bed Discharge',
+          message: `Are you sure you want to manually discharge and free Bed ${bedNumber}?\n\nThis will transition the bed status to 'Available'.`,
+          type: 'danger',
+          confirmText: 'Discharge Bed',
+          cancelText: 'Cancel'
+        }).then(confirmed => {
+          if (confirmed && form) {
+            form.setAttribute('data-mp-confirmed', 'true');
+            form.submit();
+          }
+        });
+      } else if (confirm(`Are you sure you want to manually discharge and free Bed ${bedNumber}?\n\nThis will transition the bed status to 'Available'.`)) {
+        if (form) form.submit();
+      }
+      return false;
     }
   </script>
 </body>

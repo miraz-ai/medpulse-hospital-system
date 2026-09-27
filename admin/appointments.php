@@ -464,7 +464,7 @@ $telemetry = $todayCountStmt->fetch(PDO::FETCH_ASSOC);
                     <?php endif; ?>
 
                     <?php if (in_array($st, ['booked', 'checked_in'], true)): ?>
-                      <form method="POST" style="display: inline;" onsubmit="return confirm('Cancel this appointment?');">
+                      <form method="POST" style="display: inline;" onsubmit="event.preventDefault(); const form = this; if (window.MedPulseDialog && window.MedPulseDialog.confirm) { MedPulseDialog.confirm({ title: 'Cancel Appointment', message: 'Are you sure you want to cancel this consultation booking?', type: 'danger', confirmText: 'Cancel Appointment', cancelText: 'Keep Appointment' }).then(c => { if (c) { form.setAttribute('data-mp-confirmed', 'true'); form.submit(); } }); } else if (confirm('Cancel this appointment?')) { form.submit(); }">
                         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
                         <input type="hidden" name="appointment_id" value="<?= $appId ?>">
                         <input type="hidden" name="new_status" value="cancelled">

@@ -35,28 +35,39 @@ class AppointmentController {
             $timeSlot = 'Morning';
         }
 
-        // Prevent duplicate bookings by the same patient for the same doctor on the same date
+        // ── Duplicate Booking Guard ───────────────────────────────────────────
+        // A booking is a duplicate ONLY when ALL four dimensions match simultaneously:
+        //   patient_id + doctor_id + appointment_date + time_slot (shift)
+        //   AND the existing record is still active (not cancelled, not completed).
+        //
+        // Different date → ALLOW
+        // Same date, different shift (Morning vs Evening) → ALLOW
+        // Same date + same shift but previous was cancelled/completed → ALLOW
+        // Same date + same shift + still active → BLOCK (true duplicate)
         $dupStmt = $pdo->prepare("
-            SELECT id, token_number 
-            FROM appointments 
-            WHERE patient_id = :patient_id 
-              AND doctor_id = :doctor_id 
-              AND appointment_date = :appointment_date 
-              AND status != 'cancelled'
+            SELECT id, token_number
+            FROM appointments
+            WHERE patient_id        = :patient_id
+              AND doctor_id         = :doctor_id
+              AND appointment_date  = :appointment_date
+              AND time_slot         = :time_slot
+              AND status            NOT IN ('cancelled', 'completed')
             LIMIT 1
         ");
         $dupStmt->execute([
-            ':patient_id'        => $patientId,
-            ':doctor_id'         => $doctorId,
-            ':appointment_date'  => $appointmentDate
+            ':patient_id'       => $patientId,
+            ':doctor_id'        => $doctorId,
+            ':appointment_date' => $appointmentDate,
+            ':time_slot'        => $timeSlot,
         ]);
         $existing = $dupStmt->fetch(PDO::FETCH_ASSOC);
         if ($existing) {
             return [
                 'success' => false,
-                'message' => "Duplicate booking: You already have an active appointment (Serial #{$existing['token_number']}) with this specialist on {$appointmentDate}."
+                'message' => "Duplicate booking: You already have an active appointment (Token #{$existing['token_number']}) with this specialist on {$appointmentDate} ({$timeSlot} shift). Please choose a different date or shift."
             ];
         }
+
 
         // Resolve affiliated hospital_id AND doctor schedule for ETA calculation
         $hospStmt = $pdo->prepare("
@@ -710,6 +721,114 @@ class AppointmentController {
         } catch (Throwable $e) {
             error_log("Error in getPatientLiveQueue: " . $e->getMessage());
             return null;
+        }
+    }
+
+    /**
+     * Get filtered queue for a specific date + shift (Morning|Evening).
+     * Used by the 4-day tab switcher on the OPD console.
+     */
+    public static function getDoctorQueueByDateShift(PDO $pdo, int $doctorId, string $date, string $shift): array {
+        try {
+            // Validate date format
+            $d = DateTime::createFromFormat('Y-m-d', $date);
+            if (!$d || $d->format('Y-m-d') !== $date) {
+                $date = date('Y-m-d'); // fallback to today
+            }
+            // Normalise shift
+            $shift = in_array(strtolower($shift), ['morning', 'evening'])
+                ? ucfirst(strtolower($shift))
+                : 'Morning';
+
+            $stmt = $pdo->prepare("
+                SELECT a.id, a.token_number, a.serial_number, a.time_slot, a.status, a.queue_status,
+                       a.reason_for_visit, a.symptoms, a.appointment_time, a.appointment_date,
+                       a.actual_start_time, a.actual_end_time,
+                       a.estimated_start_time, a.estimated_end_time,
+                       u.user_id AS patient_id, u.full_name AS patient_name, u.phone, u.gender,
+                       pat.patient_uid, pat.blood_group, pat.dob, pat.allergies, pat.baseline_vitals
+                FROM appointments a
+                JOIN users u ON a.patient_id = u.user_id
+                LEFT JOIN patients pat ON u.user_id = pat.user_id
+                WHERE a.doctor_id    = :doctor_id
+                  AND a.appointment_date = :appt_date
+                  AND a.time_slot    = :shift
+                  AND a.consultation_type = 'opd'
+                  AND a.status       NOT IN ('cancelled')
+                ORDER BY a.token_number ASC
+            ");
+            $stmt->execute([
+                ':doctor_id'  => $doctorId,
+                ':appt_date'  => $date,
+                ':shift'      => $shift,
+            ]);
+            $list = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Compute age
+            foreach ($list as &$item) {
+                if (!empty($item['dob'])) {
+                    try {
+                        $item['age'] = (new DateTime($item['dob']))->diff(new DateTime())->y;
+                    } catch (Throwable $e) {
+                        $item['age'] = null;
+                    }
+                } else {
+                    $item['age'] = null;
+                }
+            }
+            unset($item);
+
+            // Count summary buckets
+            $waiting   = 0; $serving = 0; $completed = 0;
+            foreach ($list as $row) {
+                $s = strtolower($row['status'] ?? '');
+                if ($s === 'in_consultation')                          { $serving++;   }
+                elseif ($s === 'completed')                            { $completed++; }
+                else                                                   { $waiting++;   }
+            }
+
+            return [
+                'patients'  => $list,
+                'total'     => count($list),
+                'waiting'   => $waiting,
+                'serving'   => $serving,
+                'completed' => $completed,
+            ];
+        } catch (Throwable $e) {
+            error_log("Error in getDoctorQueueByDateShift: " . $e->getMessage());
+            return ['patients' => [], 'total' => 0, 'waiting' => 0, 'serving' => 0, 'completed' => 0];
+        }
+    }
+
+    /**
+     * Returns booked count per day+shift for the 4-day capacity tab indicators.
+     * Returns array keyed by 'YYYY-MM-DD|Morning' / 'YYYY-MM-DD|Evening'.
+     */
+    public static function getDoctorDayCapacity(PDO $pdo, int $doctorId, array $dates): array {
+        if (empty($dates)) return [];
+        try {
+            $placeholders = implode(',', array_fill(0, count($dates), '?'));
+            $stmt = $pdo->prepare("
+                SELECT appointment_date, time_slot, COUNT(*) AS booked
+                FROM appointments
+                WHERE doctor_id        = ?
+                  AND appointment_date IN ($placeholders)
+                  AND consultation_type = 'opd'
+                  AND status           NOT IN ('cancelled')
+                GROUP BY appointment_date, time_slot
+            ");
+            $stmt->execute(array_merge([$doctorId], $dates));
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $result = [];
+            foreach ($rows as $r) {
+                $key = $r['appointment_date'] . '|' . $r['time_slot'];
+                $result[$key] = (int)$r['booked'];
+            }
+            return $result;
+        } catch (Throwable $e) {
+            error_log("Error in getDoctorDayCapacity: " . $e->getMessage());
+            return [];
         }
     }
 

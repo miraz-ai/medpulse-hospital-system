@@ -1688,11 +1688,19 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo, $initialHosp
               await executeZeroReloadSync();
             }
           } else {
-            alert(data.message || 'Unable to request consultation session.');
+            if (window.MedPulseDialog && window.MedPulseDialog.alert) {
+              MedPulseDialog.alert(data.message || 'Unable to request consultation session.', 'Consultation Request Notice');
+            } else {
+              alert(data.message || 'Unable to request consultation session.');
+            }
           }
         } catch (err) {
           console.error('Request session error:', err);
-          alert('Network error connecting to Virtual Care Suite.');
+          if (window.MedPulseDialog && window.MedPulseDialog.alert) {
+            MedPulseDialog.alert('Network error connecting to Virtual Care Suite.', 'Connection Error');
+          } else {
+            alert('Network error connecting to Virtual Care Suite.');
+          }
         } finally {
           if (btn) {
             btn.disabled = false;
@@ -1707,7 +1715,20 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo, $initialHosp
 
       // Global Action: Cancel Queue Request
       window.cancelActiveQueue = async function(appId) {
-        if (!confirm('Are you sure you want to cancel and exit your position in the consultation queue?')) {
+        let confirmed = false;
+        if (window.MedPulseDialog && window.MedPulseDialog.confirm) {
+          confirmed = await MedPulseDialog.confirm({
+            title: 'Cancel Virtual Consultation Queue',
+            message: 'Are you sure you want to cancel and exit your position in the consultation queue? Your spot will be released.',
+            type: 'danger',
+            cancelText: 'Stay in Queue',
+            confirmText: 'Exit Queue'
+          });
+        } else {
+          confirmed = confirm('Are you sure you want to cancel and exit your position in the consultation queue?');
+        }
+
+        if (!confirmed) {
           return;
         }
 
@@ -1727,15 +1748,30 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo, $initialHosp
           if (data && data.success) {
             stopTitleFlash();
             hasChimedForCurrentTurn = false;
+            if (window.MedPulseDialog && window.MedPulseDialog.toast) {
+              MedPulseDialog.toast({
+                title: 'Queue Exited',
+                message: 'You have exited the virtual consultation queue.',
+                type: 'warning'
+              });
+            }
             document.getElementById('viewWaitingRoom').style.display = 'none';
             document.getElementById('viewDoctorSelection').style.display = 'block';
             await executeZeroReloadSync();
           } else {
-            alert(data.message || 'Failed to cancel queue request.');
+            if (window.MedPulseDialog && window.MedPulseDialog.alert) {
+              MedPulseDialog.alert(data.message || 'Failed to cancel queue request.', 'Queue Notice');
+            } else {
+              alert(data.message || 'Failed to cancel queue request.');
+            }
           }
         } catch (e) {
           console.error(e);
-          alert('Error connecting to cancellation service.');
+          if (window.MedPulseDialog && window.MedPulseDialog.alert) {
+            MedPulseDialog.alert('Error connecting to cancellation service.', 'Connection Error');
+          } else {
+            alert('Error connecting to cancellation service.');
+          }
         }
       };
 

@@ -153,9 +153,13 @@ window.MedPulseDialog = (function() {
    * Generic Modern Confirm Dialog
    */
   function confirm(opts) {
+    if (typeof opts === 'string') {
+      opts = { message: opts };
+    }
+    opts = opts || {};
     return new Promise(resolve => {
       const title = opts.title || 'Confirm Action';
-      const message = opts.message || opts.text || 'Are you sure you want to proceed?';
+      const message = opts.context || opts.message || opts.text || 'Are you sure you want to proceed?';
       const type = opts.type || 'warning'; // 'danger', 'warning', 'primary', 'info'
       const confirmText = opts.confirmText || 'Confirm Action';
       const cancelText = opts.cancelText || 'Cancel';
@@ -165,7 +169,7 @@ window.MedPulseDialog = (function() {
       overlay.className = 'mp-dialog-overlay';
 
       const iconSvg = type === 'danger' ? ICONS.danger : type === 'warning' ? ICONS.warning : ICONS.info;
-      const confirmBtnClass = type === 'danger' ? 'mp-btn-confirm-danger' : type === 'warning' ? 'mp-btn-confirm-warning' : 'mp-btn-confirm-primary';
+      const confirmBtnClass = opts.confirmBtnClass || (type === 'danger' ? 'mp-btn-confirm-danger' : type === 'warning' ? 'mp-btn-confirm-warning' : 'mp-btn-confirm-primary');
 
       overlay.innerHTML = `
         <div class="mp-dialog-card" role="dialog" aria-modal="true">
@@ -209,6 +213,13 @@ window.MedPulseDialog = (function() {
         confirmBtn.disabled = true;
         cancelBtn.disabled = true;
         confirmBtn.innerHTML = `<span class="mp-spinner"></span> <span>Processing…</span>`;
+        if (typeof opts.onConfirm === 'function') {
+          try {
+            opts.onConfirm();
+          } catch (e) {
+            console.error('onConfirm error:', e);
+          }
+        }
         setTimeout(() => closeDialog(true), 150);
       });
 
@@ -364,3 +375,90 @@ window.MedPulseDialog = (function() {
     surgeConfirm
   };
 })();
+
+// ── MedPulse Global Browser Alert/Confirm Eliminator & Interceptors ─────────
+(function initMedPulseDialogOverrides() {
+  if (typeof window === 'undefined' || !window.MedPulseDialog) return;
+
+  // Override native window.alert with modern sleek dialog
+  window.alert = function(msg, title = 'Notice') {
+    return window.MedPulseDialog.alert(msg, title);
+  };
+
+  // Override native window.prompt
+  window.prompt = function(msg, defaultVal) {
+    window.MedPulseDialog.alert(msg, 'Information Notice');
+    return defaultVal !== undefined ? defaultVal : null;
+  };
+
+  // Intercept legacy form onsubmit="return confirm(...)"
+  document.addEventListener('submit', function(e) {
+    const form = e.target;
+    if (!form || form.getAttribute('data-mp-confirmed') === 'true') {
+      return;
+    }
+    const onsubmitStr = form.getAttribute('onsubmit') || '';
+    const match = onsubmitStr.match(/return\s+confirm\s*\(\s*(['"`])([\s\S]*?)\1\s*\)/i);
+    if (match) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      let msg = match[2];
+      try {
+        msg = msg.replace(/\\n/g, '<br>').replace(/\\'/g, "'").replace(/\\"/g, '"');
+      } catch (err) {}
+
+      const isDanger = /cancel|delete|discharge|revoke|divert|suspend|drop|remove/i.test(msg);
+      window.MedPulseDialog.confirm({
+        title: isDanger ? 'Confirm Destructive Action' : 'Action Confirmation',
+        message: msg,
+        type: isDanger ? 'danger' : 'warning',
+        confirmText: isDanger ? 'Confirm' : 'Proceed',
+        cancelText: 'Cancel'
+      }).then(isConfirmed => {
+        if (isConfirmed) {
+          form.setAttribute('data-mp-confirmed', 'true');
+          form.submit();
+        }
+      });
+      return false;
+    }
+  }, true);
+
+  // Intercept legacy element onclick="return confirm(...)"
+  document.addEventListener('click', function(e) {
+    const el = e.target.closest('a, button');
+    if (!el || el.getAttribute('data-mp-confirmed') === 'true') {
+      return;
+    }
+    const onclickStr = el.getAttribute('onclick') || '';
+    const match = onclickStr.match(/return\s+confirm\s*\(\s*(['"`])([\s\S]*?)\1\s*\)/i);
+    if (match) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      let msg = match[2];
+      try {
+        msg = msg.replace(/\\n/g, '<br>').replace(/\\'/g, "'").replace(/\\"/g, '"');
+      } catch (err) {}
+
+      const isDanger = /cancel|delete|discharge|revoke|divert|suspend|drop|remove/i.test(msg);
+      window.MedPulseDialog.confirm({
+        title: isDanger ? 'Confirm Action' : 'Action Confirmation',
+        message: msg,
+        type: isDanger ? 'danger' : 'warning',
+        confirmText: isDanger ? 'Confirm' : 'Proceed',
+        cancelText: 'Cancel'
+      }).then(isConfirmed => {
+        if (isConfirmed) {
+          el.setAttribute('data-mp-confirmed', 'true');
+          if (el.tagName === 'A' && el.href) {
+            window.location.href = el.href;
+          } else {
+            el.click();
+          }
+        }
+      });
+      return false;
+    }
+  }, true);
+})();
+
