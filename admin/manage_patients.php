@@ -167,16 +167,6 @@ try {
         </h1>
         <p>Central electronic medical records, verified clinical demographics, and patient account status</p>
       </div>
-      <div class="banner-actions">
-        <a href="admissions.php" class="btn-action-telemed" style="text-decoration: none;">
-          <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg>
-          Inpatient Registry
-        </a>
-        <button class="btn-action-gradient" onclick="window.location.href='../index.php'">
-          <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24" style="stroke: white;"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-          + Enroll Patient
-        </button>
-      </div>
     </div>
 
     <!-- Sub-Navigation Navigation Tabs -->

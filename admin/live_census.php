@@ -882,17 +882,6 @@ if (!function_exists('getDoctorPastelBadgeClass')) {
         </h1>
         <p>Real-time inpatient occupancy, emergency admission allocations, intensive care load, and rapid triage routing for <?= htmlspecialchars($currentHospital['name']) ?>.</p>
       </div>
-
-      <div class="banner-actions">
-        <button class="btn-action-telemed" onclick="showToast('Admissions dispatcher is actively routing.', 'success')">
-          <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><line x1="19" y1="8" x2="19" y2="14"></line><line x1="22" y1="11" x2="16" y2="11"></line></svg>
-          Direct Admission
-        </button>
-        <button class="btn-action-gradient" onclick="window.location.reload()">
-          <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24" style="stroke: white;"><polyline points="20 6 9 17 4 12"></polyline></svg>
-          Sync Telemetry
-        </button>
-      </div>
     </div>
 
     <!-- Error Fallback Banner if DB Issue Occurs -->
@@ -1344,7 +1333,7 @@ if (!function_exists('getDoctorPastelBadgeClass')) {
                 $surgeLabel = '';
             }
           ?>
-          <div class="bed-slot-card slot-<?= htmlspecialchars($rawStatus, ENT_QUOTES, 'UTF-8') ?> <?= $isPresidential ? 'slot-presidential' : '' ?>" data-status="<?= htmlspecialchars($rawStatus, ENT_QUOTES, 'UTF-8') ?>" data-reloc="<?= htmlspecialchars($slot['relocation_status'] ?? '', ENT_QUOTES, 'UTF-8') ?>" data-protocol="<?= htmlspecialchars($slot['ep_code'] ?? '', ENT_QUOTES, 'UTF-8') ?>">
+          <div class="bed-slot-card slot-<?= htmlspecialchars($rawStatus, ENT_QUOTES, 'UTF-8') ?> <?= $isPresidential ? 'slot-presidential' : '' ?>" id="bed-card-<?= (int)$slot['bed_id'] ?>" data-bed-id="<?= (int)$slot['bed_id'] ?>" data-bed-number="<?= htmlspecialchars($slot['bed_number'], ENT_QUOTES, 'UTF-8') ?>" data-status="<?= htmlspecialchars($rawStatus, ENT_QUOTES, 'UTF-8') ?>" data-daily-rate="<?= htmlspecialchars((string)$slot['daily_rate'], ENT_QUOTES, 'UTF-8') ?>" data-floor="<?= (int)$slot['floor_number'] ?>" data-ward="<?= htmlspecialchars($slot['ward_type'], ENT_QUOTES, 'UTF-8') ?>" data-is-presidential="<?= $isPresidential ? '1' : '0' ?>" data-reloc="<?= htmlspecialchars($slot['relocation_status'] ?? '', ENT_QUOTES, 'UTF-8') ?>" data-protocol="<?= htmlspecialchars($slot['ep_code'] ?? '', ENT_QUOTES, 'UTF-8') ?>">
             <div>
               <!-- Bed Card Header -->
               <div class="bed-card-header">
@@ -1508,17 +1497,11 @@ if (!function_exists('getDoctorPastelBadgeClass')) {
               <?php elseif ($rawStatus === 'occupied'): ?>
                 <button 
                   type="button" 
-                  class="btn-bed-action btn-bed-primary"
-                  onclick="censusToast('Vitals telemetry display coming soon for <?= htmlspecialchars($slot['bed_number'], ENT_QUOTES, 'UTF-8') ?>.', 'info')"
-                >
-                  <svg class="ui-ico ui-ico-sm" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
-                  Telemetry
-                </button>
-                <button 
-                  type="button" 
                   class="btn-bed-action btn-bed-secondary"
+                  style="width: 100%; justify-content: center;"
                   onclick="openDischargeConfirm(<?= (int)$slot['bed_id'] ?>, '<?= htmlspecialchars($slot['bed_number'], ENT_QUOTES, 'UTF-8') ?>', '<?= htmlspecialchars($patientDisplayName, ENT_QUOTES, 'UTF-8') ?>')"
                 >
+                  <svg class="ui-ico ui-ico-sm" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
                   Discharge
                 </button>
               <?php elseif ($rawStatus === 'sanitizing'): ?>
@@ -1682,7 +1665,7 @@ if (!function_exists('getDoctorPastelBadgeClass')) {
           </div>
           <div>
             <p class="census-discharge-patient" id="dischargePatientLabel"></p>
-            <p class="census-discharge-sub">Discharging this patient will transition the bed to <strong>UV-C Sanitization</strong> protocol before it can be reallocated.</p>
+            <p class="census-discharge-sub">Discharging this patient will finalize admission records and immediately release the bed back to <strong>AVAILABLE</strong> capacity.</p>
           </div>
         </div>
         <div class="census-modal-actions">

@@ -167,32 +167,70 @@
   };
 
   // ------------------------------------------------------------------
-  // DISCHARGE CONFIRM DIALOG
+  // DISCHARGE CONFIRM DIALOG & DYNAMIC DOM STATE MACHINE
   // ------------------------------------------------------------------
-  window.openDischargeConfirm = function (bedId, bedNumber, patientName) {
-    document.getElementById('dischargeBedId').value = bedId;
-    document.getElementById('dischargePatientLabel').textContent =
-      `Bed ${bedNumber} — ${patientName || 'Current Inpatient'}`;
+  window.openDischargeConfirm = async function (bedId, bedNumber, patientName) {
+    if (window.MedPulseDialog && typeof window.MedPulseDialog.confirm === 'function') {
+      const confirmed = await window.MedPulseDialog.confirm({
+        title: 'Confirm Inpatient Discharge',
+        message: `Are you sure you want to discharge ${patientName ? patientName : 'the patient'} from Bed ${bedNumber}? This will finalize admission records and immediately release the bed back to AVAILABLE.`,
+        confirmText: 'Confirm Discharge',
+        cancelText: 'Keep Admitted',
+        type: 'warning'
+      });
+      if (confirmed) {
+        await executeDischarge(bedId, bedNumber);
+      }
+      return;
+    }
+
+    // Fallback custom UI modal overlay
+    const bedIdInput = document.getElementById('dischargeBedId');
+    if (bedIdInput) bedIdInput.value = bedId;
+    const patientLbl = document.getElementById('dischargePatientLabel');
+    if (patientLbl) {
+      patientLbl.textContent = `Bed ${bedNumber} — ${patientName || 'Current Inpatient'}`;
+    }
     const overlay = document.getElementById('dischargeModalOverlay');
-    overlay.style.display = 'flex';
-    overlay.offsetHeight;
-    overlay.classList.add('census-modal-visible');
-    document.body.style.overflow = 'hidden';
+    if (overlay) {
+      overlay.setAttribute('data-bed-number', bedNumber || '');
+      overlay.style.display = 'flex';
+      overlay.offsetHeight;
+      overlay.classList.add('census-modal-visible');
+      document.body.style.overflow = 'hidden';
+    }
   };
 
   window.closeDischargeModal = function () {
     const overlay = document.getElementById('dischargeModalOverlay');
+    if (!overlay) return;
     overlay.classList.remove('census-modal-visible');
     setTimeout(() => { overlay.style.display = 'none'; }, 250);
     document.body.style.overflow = '';
   };
 
   window.submitDischarge = async function () {
-    const bedId = document.getElementById('dischargeBedId').value;
-    const btn   = document.getElementById('dischargeConfirmBtn');
-    btn.disabled    = true;
-    btn.textContent = 'Processing…';
+    const bedId = document.getElementById('dischargeBedId') ? document.getElementById('dischargeBedId').value : null;
+    const overlay = document.getElementById('dischargeModalOverlay');
+    const bedNumber = overlay ? overlay.getAttribute('data-bed-number') : '';
+    const btn = document.getElementById('dischargeConfirmBtn');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Processing…';
+    }
 
+    try {
+      await executeDischarge(bedId, bedNumber);
+      closeDischargeModal();
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Confirm Discharge';
+      }
+    }
+  };
+
+  async function executeDischarge(bedId, bedNumber) {
     const fd = new FormData();
     fd.append('_action',    'discharge_patient');
     fd.append('bed_id',     bedId);
@@ -201,21 +239,80 @@
     try {
       const res  = await fetch(PAGE_URL, { method: 'POST', body: fd, credentials: 'same-origin' });
       const resp = await res.json();
-      closeDischargeModal();
       if (resp.success) {
         censusToast(resp.message, 'success');
+        updateBedCardToAvailable(bedId, bedNumber, resp);
         refreshMetricChips();
-        setTimeout(() => window.location.reload(), 2800);
       } else {
         censusToast(resp.message || 'Discharge failed.', 'error');
       }
     } catch (err) {
       censusToast('Network error during discharge. Please retry.', 'error');
-    } finally {
-      btn.disabled    = false;
-      btn.textContent = 'Confirm Discharge';
     }
-  };
+  }
+
+  function updateBedCardToAvailable(bedId, bedNumber, resp) {
+    const card = document.getElementById('bed-card-' + bedId) 
+              || document.querySelector(`.bed-slot-card[data-bed-id="${bedId}"]`);
+    if (!card) return;
+
+    // 1. Flip card status styling classes
+    card.classList.remove('slot-occupied', 'slot-maintenance', 'slot-sanitizing', 'slot-emergency-hold');
+    card.classList.add('slot-available');
+    card.setAttribute('data-status', 'available');
+
+    const isPresidential = card.getAttribute('data-is-presidential') === '1' || card.classList.contains('slot-presidential');
+    const bedNum = bedNumber || card.getAttribute('data-bed-number') || (resp && resp.bed_number) || ('Bed #' + bedId);
+    const dailyRate = (resp && resp.daily_rate) || card.getAttribute('data-daily-rate') || '1200';
+    const floor = (resp && resp.floor_number) || card.getAttribute('data-floor') || '1';
+
+    // 2. Flip status badge from 'OCCUPIED' to 'AVAILABLE'
+    const statusPill = card.querySelector('.bed-status-pill');
+    if (statusPill) {
+      statusPill.className = `bed-status-pill status-available-pill ${isPresidential ? 'badge-presidential' : ''}`;
+      statusPill.textContent = isPresidential ? 'VIP Suite Ready' : 'Available';
+      statusPill.style.cssText = '';
+    }
+
+    // 3. Clear assigned patient identifier / physician details and present available bed state
+    const cardBody = card.querySelector('.bed-card-body');
+    if (cardBody) {
+      cardBody.innerHTML = `
+        <div class="bed-vacant-msg">
+          <svg class="ui-ico ui-ico-sm" style="stroke: #16a34a; width: 16px; height: 16px;" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          <span>Ready for immediate placement</span>
+        </div>
+        <div style="font-size: 0.74rem; color: #166534; opacity: 0.85; display: flex; justify-content: space-between;">
+          <span>Daily Rate: ৳ ${Number(dailyRate).toLocaleString()}</span>
+          <span>Floor ${escHtml(String(floor))}</span>
+        </div>
+      `;
+    }
+
+    // 4. Update card action button to "Allocate Patient"
+    const actionsBar = card.querySelector('.bed-actions-bar');
+    if (actionsBar) {
+      actionsBar.innerHTML = `
+        <button 
+          type="button" 
+          class="btn-bed-action btn-bed-primary"
+          onclick="openAllocateModal(${Number(bedId)}, '${escHtml(bedNum)}')"
+        >
+          <svg class="ui-ico ui-ico-sm" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          Allocate Patient
+        </button>
+      `;
+    }
+
+    // 5. Subtle glow highlight transition
+    card.style.transition = 'box-shadow 0.4s ease, border-color 0.4s ease';
+    card.style.boxShadow = '0 0 0 3px rgba(16, 185, 129, 0.4)';
+    card.style.borderColor = '#10b981';
+    setTimeout(() => {
+      card.style.boxShadow = '';
+      card.style.borderColor = '';
+    }, 1800);
+  }
 
   // ------------------------------------------------------------------
   // MARK BED READY (Sanitized & Available)

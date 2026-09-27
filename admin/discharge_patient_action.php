@@ -35,6 +35,7 @@ if (session_status() === PHP_SESSION_NONE) {
 header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../config/db.php';
+require_once __DIR__ . '/../config/tenant_scope.php';
 require_once __DIR__ . '/../includes/doctor_helpers.php';
 require_once __DIR__ . '/../backend/Services/EventDispatcher.php';
 
@@ -48,7 +49,8 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 // 2. Admin RBAC Guard
-if (!isset($_SESSION['user_id']) || empty($_SESSION['role']) || strtolower($_SESSION['role'] ?? '') !== 'admin') {
+$userRole = strtolower($_SESSION['role'] ?? '');
+if (!isset($_SESSION['user_id']) || empty($userRole) || !in_array($userRole, ['admin', 'super_admin', 'hospital_admin'], true)) {
     http_response_code(403);
     echo json_encode(['success' => false, 'message' => 'Access denied. Administrator privileges required.']);
     exit;
@@ -80,56 +82,131 @@ if (!$patientId && !$bedId && !$allocationId) {
 try {
     $pdo->beginTransaction();
 
-    // 5. Fetch Active Bed Allocation with Row-Lock FOR UPDATE
-    $query = "
+    // 5. Fetch Target Bed and Active Admission/Allocation with Row-Lock FOR UPDATE
+    $targetBed = null;
+    if ($bedId) {
+        $bedQ = "SELECT * FROM hospital_beds WHERE bed_id = :bid LIMIT 1 FOR UPDATE";
+        $bStmt = $pdo->prepare($bedQ);
+        $bStmt->execute([':bid' => $bedId]);
+        $targetBed = $bStmt->fetch(PDO::FETCH_ASSOC);
+    }
+
+    // Try finding active allocation in bed_allocations
+    $allocQuery = "
         SELECT ba.allocation_id, ba.bed_id, ba.patient_id, ba.attending_doctor_id, ba.admitted_at,
                b.hospital_id, b.bed_number, b.ward_type, b.floor_number, b.daily_rate, b.status AS bed_status,
                u.full_name AS patient_name, u.email AS patient_email, u.phone AS patient_phone
         FROM bed_allocations ba
         JOIN hospital_beds b ON ba.bed_id = b.bed_id
-        JOIN users u ON ba.patient_id = u.user_id
+        LEFT JOIN users u ON ba.patient_id = u.user_id
         WHERE ba.status = 'Active'
     ";
-    $params = [];
-
+    $allocParams = [];
     if ($allocationId) {
-        $query .= " AND ba.allocation_id = :aid";
-        $params[':aid'] = $allocationId;
+        $allocQuery .= " AND ba.allocation_id = :aid";
+        $allocParams[':aid'] = $allocationId;
     } elseif ($patientId) {
-        $query .= " AND ba.patient_id = :pid";
-        $params[':pid'] = $patientId;
+        $allocQuery .= " AND ba.patient_id = :pid";
+        $allocParams[':pid'] = $patientId;
     } elseif ($bedId) {
-        $query .= " AND ba.bed_id = :bid";
-        $params[':bid'] = $bedId;
+        $allocQuery .= " AND ba.bed_id = :bid";
+        $allocParams[':bid'] = $bedId;
     }
+    $allocQuery .= " ORDER BY ba.allocation_id DESC LIMIT 1 FOR UPDATE";
 
-    if (!empty($_SESSION['hospital_id'])) {
-        $query .= " AND b.hospital_id = :admin_hid";
-        $params[':admin_hid'] = (int)$_SESSION['hospital_id'];
-    }
-    $query .= " LIMIT 1 FOR UPDATE";
-
-    $allocStmt = $pdo->prepare($query);
-    $allocStmt->execute($params);
+    $allocStmt = $pdo->prepare($allocQuery);
+    $allocStmt->execute($allocParams);
     $activeAlloc = $allocStmt->fetch(PDO::FETCH_ASSOC);
 
+    // Try finding active admission in admissions table
+    $activeAdm = null;
     if (!$activeAlloc) {
+        $admQuery = "
+            SELECT a.admission_id, a.bed_id, a.patient_id, a.attending_doctor_id, a.admitted_at, a.daily_rate,
+                   b.hospital_id, b.bed_number, b.ward_type, b.floor_number, b.daily_rate AS bed_daily_rate, b.status AS bed_status,
+                   u.full_name AS patient_name, u.email AS patient_email, u.phone AS patient_phone
+            FROM admissions a
+            LEFT JOIN hospital_beds b ON a.bed_id = b.bed_id
+            LEFT JOIN users u ON a.patient_id = u.user_id
+            WHERE a.status = 'Admitted'
+        ";
+        $admParams = [];
+        if ($patientId) {
+            $admQuery .= " AND a.patient_id = :pid";
+            $admParams[':pid'] = $patientId;
+        } elseif ($bedId) {
+            $admQuery .= " AND (a.bed_id = :bid" . (!empty($targetBed['patient_id']) ? " OR a.patient_id = :bpid" : "") . ")";
+            $admParams[':bid'] = $bedId;
+            if (!empty($targetBed['patient_id'])) {
+                $admParams[':bpid'] = (int)$targetBed['patient_id'];
+            }
+        }
+        $admQuery .= " ORDER BY a.admission_id DESC LIMIT 1 FOR UPDATE";
+        $admStmt = $pdo->prepare($admQuery);
+        $admStmt->execute($admParams);
+        $activeAdm = $admStmt->fetch(PDO::FETCH_ASSOC);
+    }
+
+    if ($activeAlloc) {
+        $targetPatientId = (int)$activeAlloc['patient_id'];
+        $targetBedId     = (int)$activeAlloc['bed_id'];
+        $targetAllocId   = (int)$activeAlloc['allocation_id'];
+        $hospitalId      = (int)($activeAlloc['hospital_id'] ?? $_SESSION['hospital_id'] ?? 1);
+        $patientName     = $activeAlloc['patient_name'] ?? "Patient #{$targetPatientId}";
+        $bedNumber       = $activeAlloc['bed_number'];
+        $wardType        = $activeAlloc['ward_type'];
+        $floorNumber     = (int)($activeAlloc['floor_number'] ?? 1);
+        $admittedAt      = $activeAlloc['admitted_at'];
+        $bedDailyRate    = (float)$activeAlloc['daily_rate'];
+        $docUserId       = (int)($activeAlloc['attending_doctor_id'] ?? 0);
+    } elseif ($activeAdm) {
+        $targetPatientId = (int)$activeAdm['patient_id'];
+        $targetBedId     = (int)($activeAdm['bed_id'] ?? $bedId ?? ($targetBed['bed_id'] ?? 0));
+        $targetAllocId   = (int)$activeAdm['admission_id'];
+        $hospitalId      = (int)($activeAdm['hospital_id'] ?? $targetBed['hospital_id'] ?? $_SESSION['hospital_id'] ?? 1);
+        $patientName     = $activeAdm['patient_name'] ?? "Patient #{$targetPatientId}";
+        $bedNumber       = $activeAdm['bed_number'] ?? ($targetBed['bed_number'] ?? "Bed #{$targetBedId}");
+        $wardType        = $activeAdm['ward_type'] ?? ($targetBed['ward_type'] ?? 'General');
+        $floorNumber     = (int)($activeAdm['floor_number'] ?? $targetBed['floor_number'] ?? 1);
+        $admittedAt      = $activeAdm['admitted_at'];
+        $bedDailyRate    = (float)($activeAdm['daily_rate'] > 0 ? $activeAdm['daily_rate'] : ($activeAdm['bed_daily_rate'] ?? 1200.00));
+        $docUserId       = (int)($activeAdm['attending_doctor_id'] ?? 0);
+    } elseif ($targetBed) {
+        $patientUserId = (int)($targetBed['patient_id'] ?? $patientId ?? 0);
+        $patientInfo = null;
+        if ($patientUserId > 0) {
+            $uStmt = $pdo->prepare("SELECT user_id, full_name, email, phone FROM users WHERE user_id = ? LIMIT 1");
+            $uStmt->execute([$patientUserId]);
+            $patientInfo = $uStmt->fetch(PDO::FETCH_ASSOC);
+        }
+        $targetPatientId = $patientUserId;
+        $targetBedId     = (int)$targetBed['bed_id'];
+        $targetAllocId   = 0;
+        $hospitalId      = (int)($targetBed['hospital_id'] ?? $_SESSION['hospital_id'] ?? 1);
+        $patientName     = $patientInfo['full_name'] ?? ($patientUserId > 0 ? "Patient #{$patientUserId}" : "Inpatient");
+        $bedNumber       = $targetBed['bed_number'];
+        $wardType        = $targetBed['ward_type'];
+        $floorNumber     = (int)($targetBed['floor_number'] ?? 1);
+        $admittedAt      = $targetBed['updated_at'] ?? date('Y-m-d H:i:s', strtotime('-1 day'));
+        $bedDailyRate    = (float)($targetBed['daily_rate'] > 0 ? $targetBed['daily_rate'] : ($targetBed['price_per_day'] ?? 1200.00));
+        $docUserId       = 0;
+    } else {
         $pdo->rollBack();
         http_response_code(404);
-        echo json_encode(['success' => false, 'message' => 'No active inpatient admission found matching the specified parameters.']);
+        echo json_encode(['success' => false, 'message' => 'No active inpatient admission or bed entity found matching the specified parameters.']);
         exit;
     }
 
-    $targetPatientId = (int)$activeAlloc['patient_id'];
-    $targetBedId     = (int)$activeAlloc['bed_id'];
-    $targetAllocId   = (int)$activeAlloc['allocation_id'];
-    $hospitalId      = (int)($activeAlloc['hospital_id'] ?? $_SESSION['hospital_id'] ?? 1);
-    $patientName     = $activeAlloc['patient_name'];
-    $bedNumber       = $activeAlloc['bed_number'];
-    $wardType        = $activeAlloc['ward_type'];
+    // Verify hospital branch tenant isolation (unless super admin)
+    if (!TenantScope::isSuperAdmin() && !empty($_SESSION['hospital_id']) && $hospitalId !== (int)$_SESSION['hospital_id']) {
+        $pdo->rollBack();
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'Unauthorized: Cross-hospital admission action rejected.']);
+        exit;
+    }
 
     // 6. Calculate Stay Duration & Facility Bed Charges
-    $admittedAt = $activeAlloc['admitted_at'];
+    $admittedAt = !empty($admittedAt) ? $admittedAt : date('Y-m-d H:i:s', strtotime('-1 day'));
     $dischargedAt = date('Y-m-d H:i:s');
     $admitDt = new DateTime($admittedAt);
     $dischDt = new DateTime($dischargedAt);
@@ -138,7 +215,7 @@ try {
     // In hospital billing, inpatient care is calculated as minimum 1 night/day
     $nights = max(1, (int)ceil($diffSeconds / 86400));
     
-    $bedDailyRate = (float)$activeAlloc['daily_rate'];
+    $bedDailyRate = (float)$bedDailyRate;
     if ($bedDailyRate <= 0) {
         $wardRates = [
             'Emergency'           => 1500.00,
@@ -159,8 +236,7 @@ try {
     $totalBedCharge = round($nights * $bedDailyRate, 2);
 
     // 7. Resolve Primary Attending Physician & Consultation Fee
-    $docUserId = (int)($activeAlloc['attending_doctor_id'] ?? 0);
-    if ($docUserId <= 0) {
+    if (empty($docUserId) && $targetPatientId > 0) {
         $pdaStmt = $pdo->prepare("
             SELECT doctor_id 
             FROM patient_doctor_assignments 
@@ -201,198 +277,216 @@ try {
     }
 
     // 8. Financial Calculations & Invoice Record Generation
-    $subtotal = $totalBedCharge + ($hasDoctor ? $consultationFee : 0.00);
-    $vatPercentage = 5.00; // 5% standard tertiary healthcare VAT
-    $vatAmount = round($subtotal * ($vatPercentage / 100), 2);
+    $subtotal = 0.00;
+    $vatPercentage = 5.00;
+    $vatAmount = 0.00;
     $discount = 0.00;
-    $netPayable = round($subtotal + $vatAmount - $discount, 2);
-    $dueAmount = $netPayable;
+    $netPayable = 0.00;
+    $dueAmount = 0.00;
     $paidAmount = 0.00;
+    $invoiceNumber = null;
+    $newInvoiceId = null;
 
-    // Generate unique sequential invoice number format INV-2026-XXXX
-    $year = date('Y');
-    $maxStmt = $pdo->query("SELECT MAX(invoice_id) FROM invoices");
-    $nextId = ((int)$maxStmt->fetchColumn()) + 1;
-    do {
-        $invoiceNumber = sprintf('INV-%s-%04d', $year, $nextId);
-        $chkInv = $pdo->prepare("SELECT 1 FROM invoices WHERE invoice_number = ? LIMIT 1");
-        $chkInv->execute([$invoiceNumber]);
-        if ($chkInv->fetchColumn()) {
-            $nextId++;
-        } else {
-            break;
-        }
-    } while (true);
+    if ($targetPatientId > 0) {
+        $subtotal = $totalBedCharge + ($hasDoctor ? $consultationFee : 0.00);
+        $vatAmount = round($subtotal * ($vatPercentage / 100), 2);
+        $netPayable = round($subtotal + $vatAmount - $discount, 2);
+        $dueAmount = $netPayable;
 
-    // Insert Centralized Master Invoice with Strict Branch Hospital Scoping
-    $insInvoice = $pdo->prepare("
-        INSERT INTO invoices 
-            (invoice_number, hospital_id, patient_id, admission_id, generated_by, subtotal, vat_percentage, discount, net_payable, paid_amount, due_amount, payment_method, status, discharge_status, payment_status, created_at)
-        VALUES 
-            (:inv_num, :hid, :pid, :aid, :actor, :subtotal, :vat_pct, :discount, :net, 0.00, :due, 'Cash', 'Pending', 'discharged', 'unpaid', NOW())
-    ");
-    $insInvoice->execute([
-        ':inv_num'   => $invoiceNumber,
-        ':hid'       => $hospitalId,
-        ':pid'       => $targetPatientId,
-        ':aid'       => $targetAllocId,
-        ':actor'     => $actorId,
-        ':subtotal'  => $subtotal,
-        ':vat_pct'   => $vatPercentage,
-        ':discount'  => $discount,
-        ':net'       => $netPayable,
-        ':due'       => $dueAmount
-    ]);
-    $newInvoiceId = (int)$pdo->lastInsertId();
+        // Generate unique sequential invoice number format INV-2026-XXXX
+        $year = date('Y');
+        $maxStmt = $pdo->query("SELECT MAX(invoice_id) FROM invoices");
+        $nextId = ((int)$maxStmt->fetchColumn()) + 1;
+        do {
+            $invoiceNumber = sprintf('INV-%s-%04d', $year, $nextId);
+            $chkInv = $pdo->prepare("SELECT 1 FROM invoices WHERE invoice_number = ? LIMIT 1");
+            $chkInv->execute([$invoiceNumber]);
+            if ($chkInv->fetchColumn()) {
+                $nextId++;
+            } else {
+                break;
+            }
+        } while (true);
 
-    // 9. Populate Itemized Statements (invoice_items)
-    // Item 1: Facility Bed Stay Charge
-    $bedDescription = "{$bedNumber} ({$wardType}) [{$nights} Night(s) @ ৳" . number_format($bedDailyRate, 2) . "] Facility Stay";
-    $insItemBed = $pdo->prepare("
-        INSERT INTO invoice_items 
-            (invoice_id, doctor_id, item_type, description, unit_price, quantity, total_price, doctor_payout_status, doctor_payout_amount, created_at)
-        VALUES 
-            (:inv_id, NULL, 'Bed Charge', :bed_desc, :unit_rate, :nights, :total_bed, 'UNCLAIMED', 0.00, NOW())
-    ");
-    $insItemBed->execute([
-        ':inv_id'    => $newInvoiceId,
-        ':bed_desc'  => $bedDescription,
-        ':unit_rate' => $bedDailyRate,
-        ':nights'    => $nights,
-        ':total_bed' => $totalBedCharge
-    ]);
+        // Insert Centralized Master Invoice with Strict Branch Hospital Scoping
+        $insInvoice = $pdo->prepare("
+            INSERT INTO invoices 
+                (invoice_number, hospital_id, patient_id, admission_id, generated_by, subtotal, vat_percentage, discount, net_payable, paid_amount, due_amount, payment_method, status, discharge_status, payment_status, created_at)
+            VALUES 
+                (:inv_num, :hid, :pid, :aid, :actor, :subtotal, :vat_pct, :discount, :net, 0.00, :due, 'Cash', 'Pending', 'discharged', 'unpaid', NOW())
+        ");
+        $insInvoice->execute([
+            ':inv_num'   => $invoiceNumber,
+            ':hid'       => $hospitalId,
+            ':pid'       => $targetPatientId,
+            ':aid'       => ($targetAllocId > 0 ? $targetAllocId : null),
+            ':actor'     => $actorId,
+            ':subtotal'  => $subtotal,
+            ':vat_pct'   => $vatPercentage,
+            ':discount'  => $discount,
+            ':net'       => $netPayable,
+            ':due'       => $dueAmount
+        ]);
+        $newInvoiceId = (int)$pdo->lastInsertId();
 
-    // Item 2: Attending Doctor Clinical Round
-    if ($hasDoctor && $docUserId > 0) {
-        $doctorDescription = "Attending Doctor Inpatient Round & Care: {$docDisplayTitle}";
-        $insItemDoc = $pdo->prepare("
+        // 9. Populate Itemized Statements (invoice_items)
+        // Item 1: Facility Bed Stay Charge
+        $bedDescription = "{$bedNumber} ({$wardType}) [{$nights} Night(s) @ ৳" . number_format($bedDailyRate, 2) . "] Facility Stay";
+        $insItemBed = $pdo->prepare("
             INSERT INTO invoice_items 
                 (invoice_id, doctor_id, item_type, description, unit_price, quantity, total_price, doctor_payout_status, doctor_payout_amount, created_at)
             VALUES 
-                (:inv_id, :doc_id, 'Consultation', :doc_desc, :unit_price, 1, :total_price, 'PENDING_CLEARANCE', :payout_amt, NOW())
+                (:inv_id, NULL, 'Bed Charge', :bed_desc, :unit_rate, :nights, :total_bed, 'UNCLAIMED', 0.00, NOW())
         ");
-        $insItemDoc->execute([
-            ':inv_id'      => $newInvoiceId,
-            ':doc_id'      => $docUserId,
-            ':doc_desc'    => $doctorDescription,
-            ':unit_price'  => $consultationFee,
-            ':total_price' => $consultationFee,
-            ':payout_amt'  => $consultationFee
+        $insItemBed->execute([
+            ':inv_id'    => $newInvoiceId,
+            ':bed_desc'  => $bedDescription,
+            ':unit_rate' => $bedDailyRate,
+            ':nights'    => $nights,
+            ':total_bed' => $totalBedCharge
         ]);
 
-        // 10. Record Doctor Earnings in Ledger
-        $insDocEarn = $pdo->prepare("
-            INSERT INTO doctor_earnings 
-                (doctor_id, invoice_id, admission_id, patient_name, consultation_fee, disbursement_status, created_at)
-            VALUES 
-                (:doc_id, :inv_id, :aid, :pat_name, :fee, 'pending_hospital_collection', NOW())
-        ");
-        $insDocEarn->execute([
-            ':doc_id'   => $docUserId,
-            ':inv_id'   => $newInvoiceId,
-            ':aid'      => $targetAllocId,
-            ':pat_name' => $patientName,
-            ':fee'      => $consultationFee
-        ]);
+        // Item 2: Attending Doctor Clinical Round
+        if ($hasDoctor && $docUserId > 0) {
+            $doctorDescription = "Attending Doctor Inpatient Round & Care: {$docDisplayTitle}";
+            $insItemDoc = $pdo->prepare("
+                INSERT INTO invoice_items 
+                    (invoice_id, doctor_id, item_type, description, unit_price, quantity, total_price, doctor_payout_status, doctor_payout_amount, created_at)
+                VALUES 
+                    (:inv_id, :doc_id, 'Consultation', :doc_desc, :unit_price, 1, :total_price, 'PENDING_CLEARANCE', :payout_amt, NOW())
+            ");
+            $insItemDoc->execute([
+                ':inv_id'      => $newInvoiceId,
+                ':doc_id'      => $docUserId,
+                ':doc_desc'    => $doctorDescription,
+                ':unit_price'  => $consultationFee,
+                ':total_price' => $consultationFee,
+                ':payout_amt'  => $consultationFee
+            ]);
+
+            // 10. Record Doctor Earnings in Ledger
+            $insDocEarn = $pdo->prepare("
+                INSERT INTO doctor_earnings 
+                    (doctor_id, invoice_id, admission_id, patient_name, consultation_fee, disbursement_status, created_at)
+                VALUES 
+                    (:doc_id, :inv_id, :aid, :pat_name, :fee, 'pending_hospital_collection', NOW())
+            ");
+            $insDocEarn->execute([
+                ':doc_id'   => $docUserId,
+                ':inv_id'   => $newInvoiceId,
+                ':aid'      => ($targetAllocId > 0 ? $targetAllocId : null),
+                ':pat_name' => $patientName,
+                ':fee'      => $consultationFee
+            ]);
+        }
     }
 
-    // 11. Transition Bed to Sanitizing Status & Enqueue into Housekeeping Cycle
+    // 11. Immediately Release Corresponding Bed Entity back to AVAILABLE capacity
     $updBed = $pdo->prepare("
         UPDATE hospital_beds 
-        SET status = 'Sanitizing', patient_id = NULL, updated_at = NOW() 
-        WHERE bed_id = :bid AND hospital_id = :hid
+        SET status = 'Available', patient_id = NULL, relocation_status = 'NONE', updated_at = NOW() 
+        WHERE bed_id = :bid
     ");
-    $updBed->execute([':bid' => $targetBedId, ':hid' => $hospitalId]);
+    $updBed->execute([':bid' => $targetBedId]);
 
-    // Insert into Branch Housekeeping & Sanitization Queue
-    $insQueue = $pdo->prepare("
-        INSERT INTO bed_sanitization_queue 
-            (hospital_id, bed_id, discharged_at, cleaning_type, status, assigned_staff) 
-        VALUES 
-            (:hid, :bid, NOW(), 'UV/Chemical Cycle', 'in_progress', 'UV Decon Team')
-    ");
-    $insQueue->execute([':hid' => $hospitalId, ':bid' => $targetBedId]);
+    // Also sync the secondary beds table if present
+    try {
+        $updBeds = $pdo->prepare("
+            UPDATE beds 
+            SET status = 'Available', patient_id = NULL, relocation_status = 'NONE', updated_at = NOW() 
+            WHERE bed_id = :bid OR id = :bid2
+        ");
+        $updBeds->execute([':bid' => $targetBedId, ':bid2' => $targetBedId]);
+    } catch (Throwable $e) {}
 
-    $closeAlloc = $pdo->prepare("
-        UPDATE bed_allocations 
-        SET status = 'Discharged', discharged_at = NOW(), discharge_summary = :summary 
-        WHERE allocation_id = :aid
-    ");
-    $closeAlloc->execute([
-        ':aid'     => $targetAllocId,
-        ':summary' => $dischargeSummary
-    ]);
+    // Complete / clear any active housekeeping queue entries for this bed
+    try {
+        $cleanQueue = $pdo->prepare("
+            UPDATE bed_sanitization_queue 
+            SET status = 'completed', completed_at = NOW(), updated_at = NOW() 
+            WHERE bed_id = :bid AND status = 'in_progress'
+        ");
+        $cleanQueue->execute([':bid' => $targetBedId]);
+    } catch (Throwable $e) {}
 
-    // ── CRITICAL: Sync admissions table so patient polling detects discharge ──
-    // The live_inpatient_sync.php endpoint reads admissions.status to determine
-    // inpatient state. Without this update, patient dashboard stays stuck on admit.
-    $closeAdm = $pdo->prepare("
-        UPDATE admissions 
-        SET status = 'Discharged', discharged_at = NOW() 
-        WHERE patient_id = :pid 
-          AND status = 'Admitted'
-          AND bed_id = :bid
-    ");
-    $closeAdm->execute([
-        ':pid' => $targetPatientId,
-        ':bid' => $targetBedId
-    ]);
-    // Fallback: if bed_id wasn't matched (edge case), close by patient_id alone
-    if ($closeAdm->rowCount() === 0) {
-        $closeAdmFb = $pdo->prepare("
+    // Update inpatient allocation and admission records
+    if ($targetPatientId > 0) {
+        $closeAlloc = $pdo->prepare("
+            UPDATE bed_allocations 
+            SET status = 'Discharged', discharged_at = NOW(), discharge_summary = :summary 
+            WHERE (bed_id = :bid OR patient_id = :pid) AND status = 'Active'
+        ");
+        $closeAlloc->execute([
+            ':bid'     => $targetBedId,
+            ':pid'     => $targetPatientId,
+            ':summary' => $dischargeSummary
+        ]);
+
+        $closeAdm = $pdo->prepare("
             UPDATE admissions 
             SET status = 'Discharged', discharged_at = NOW() 
-            WHERE patient_id = :pid 
+            WHERE (bed_id = :bid OR patient_id = :pid)
               AND status = 'Admitted'
-            ORDER BY admitted_at DESC 
-            LIMIT 1
         ");
-        $closeAdmFb->execute([':pid' => $targetPatientId]);
+        $closeAdm->execute([
+            ':bid' => $targetBedId,
+            ':pid' => $targetPatientId
+        ]);
+    } else {
+        $closeAlloc = $pdo->prepare("
+            UPDATE bed_allocations 
+            SET status = 'Discharged', discharged_at = NOW(), discharge_summary = :summary 
+            WHERE bed_id = :bid AND status = 'Active'
+        ");
+        $closeAlloc->execute([
+            ':bid'     => $targetBedId,
+            ':summary' => $dischargeSummary
+        ]);
+
+        $closeAdm = $pdo->prepare("
+            UPDATE admissions 
+            SET status = 'Discharged', discharged_at = NOW() 
+            WHERE bed_id = :bid AND status = 'Admitted'
+        ");
+        $closeAdm->execute([':bid' => $targetBedId]);
     }
 
-    $endAssignments = $pdo->prepare("
-        UPDATE patient_doctor_assignments 
-        SET status = 'Inactive', ended_at = NOW() 
-        WHERE patient_id = :pid AND status = 'Active'
-    ");
-    $endAssignments->execute([':pid' => $targetPatientId]);
+    if ($targetPatientId > 0) {
+        $endAssignments = $pdo->prepare("
+            UPDATE patient_doctor_assignments 
+            SET status = 'Inactive', ended_at = NOW() 
+            WHERE patient_id = :pid AND status = 'Active'
+        ");
+        $endAssignments->execute([':pid' => $targetPatientId]);
+    }
 
     // 12. Multi-Channel Notifications & Central Audit Logs
     try {
-        $assignedDocIds = $hasDoctor ? [$docUserId] : [];
-        EventDispatcher::notifyDischarge(
-            $pdo,
-            $targetPatientId,
-            [
-                'bed_id'       => $targetBedId,
-                'bed_number'   => $bedNumber,
-                'ward_type'    => $wardType,
-                'floor_number' => $activeAlloc['floor_number'] ?? 1
-            ],
-            $assignedDocIds,
-            $actorId,
-            $dischargeSummary
-        );
+        $assignedDocIds = ($hasDoctor && $docUserId > 0) ? [$docUserId] : [];
+        if ($targetPatientId > 0) {
+            EventDispatcher::notifyDischarge(
+                $pdo,
+                $targetPatientId,
+                [
+                    'bed_id'       => $targetBedId,
+                    'bed_number'   => $bedNumber,
+                    'ward_type'    => $wardType,
+                    'floor_number' => $floorNumber
+                ],
+                $assignedDocIds,
+                $actorId,
+                $dischargeSummary
+            );
+        }
 
         EventDispatcher::pushAuditLog(
             $pdo,
             $actorId,
             'PATIENT_DISCHARGE_INVOICED',
-            "Patient {$patientName} discharged from Bed {$bedNumber} ({$wardType}). Central invoice {$invoiceNumber} generated (Total: ৳" . number_format($netPayable, 2) . ").",
+            "Patient {$patientName} discharged from Bed {$bedNumber} ({$wardType}). Bed released to AVAILABLE." . (!empty($invoiceNumber) ? " Central invoice {$invoiceNumber} generated (Total: ৳" . number_format($netPayable, 2) . ")." : ""),
             'CENTRAL_TREASURY',
             'Patient Discharge & Billing',
-            "Invoice {$invoiceNumber} (Patient #{$targetPatientId})",
-            $clientIp
-        );
-
-        EventDispatcher::pushAuditLog(
-            $pdo,
-            $actorId,
-            'BED_SANITIZATION_QUEUED',
-            "Bed {$bedNumber} ({$wardType}) placed in UV/Chemical Sanitization Queue following discharge of patient {$patientName}.",
-            'BRANCH_OPS',
-            'Housekeeping & Sanitization',
-            "Bed #{$targetBedId} ({$bedNumber})",
+            (!empty($invoiceNumber) ? "Invoice {$invoiceNumber} " : "") . "(Bed #{$targetBedId})",
             $clientIp
         );
     } catch (Throwable $notifErr) {
@@ -403,17 +497,26 @@ try {
     $pdo->commit();
 
     echo json_encode([
-        'success' => true,
-        'message' => "✓ Patient {$patientName} discharged successfully. Bed {$bedNumber} transitioned immediately to UV/Chemical Sanitization Queue. Central Invoice {$invoiceNumber} generated (৳" . number_format($netPayable, 2) . ").",
-        'data'    => [
-            'invoice_id'     => $newInvoiceId,
-            'invoice_number' => $invoiceNumber,
+        'success'        => true,
+        'message'        => "Patient {$patientName} discharged successfully. Bed {$bedNumber} released to AVAILABLE.",
+        'bed_id'         => $targetBedId,
+        'bed_number'     => $bedNumber,
+        'status'         => 'AVAILABLE',
+        'patient_id'     => $targetPatientId,
+        'patient_name'   => $patientName,
+        'floor_number'   => $floorNumber,
+        'ward_type'      => $wardType,
+        'daily_rate'     => $bedDailyRate,
+        'data'           => [
+            'invoice_id'     => $newInvoiceId ?? null,
+            'invoice_number' => $invoiceNumber ?? null,
             'patient_id'     => $targetPatientId,
             'patient_name'   => $patientName,
             'bed_id'         => $targetBedId,
             'bed_number'     => $bedNumber,
-            'bed_status'     => 'Sanitizing',
+            'bed_status'     => 'AVAILABLE',
             'ward_type'      => $wardType,
+            'floor_number'   => $floorNumber,
             'nights'         => $nights,
             'bed_rate'       => $bedDailyRate,
             'bed_charge'     => $totalBedCharge,
