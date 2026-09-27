@@ -270,6 +270,7 @@ try {
           <span class="pulse-dot"></span>
           Real-Time Telemetry Active
         </div>
+        <!-- Inpatient Header Action Group: Commented out per regulatory & UI workflow adjustments
         <a href="admissions.php" class="btn-ipc-action" style="background: #0284c7; color: #ffffff; text-decoration: none; padding: 7px 14px; font-size: 0.82rem; display: inline-flex; align-items: center; gap: 6px; border-radius: 8px; font-weight: 700; box-shadow: 0 2px 4px rgba(2,132,199,0.2);">
           <svg class="ui-ico ui-ico-sm" style="stroke: #ffffff; width: 15px; height: 15px;" viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg>
           Admissions Registry
@@ -278,6 +279,7 @@ try {
           <svg class="ui-ico ui-ico-sm" style="stroke: #ffffff; width: 15px; height: 15px;" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
           + Admit New Inpatient
         </button>
+        -->
         <button class="btn-refresh-telemetry" onclick="window.location.reload();">
           <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
           Refresh Data

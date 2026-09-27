@@ -169,7 +169,7 @@ try {
       </div>
     </div>
 
-    <!-- Sub-Navigation Navigation Tabs -->
+    <!-- Sub-Navigation Navigation Tabs: Commented out per UI workflow adjustments
     <div style="display: flex; gap: 10px; margin-bottom: 1.5rem; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px;">
       <a href="manage_patients.php" style="padding: 8px 18px; border-radius: 8px; font-weight: 700; font-size: 0.9rem; text-decoration: none; color: #ffffff; background: linear-gradient(135deg, #0284c7, #0d9488); display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25);">
         <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"></path></svg>
@@ -180,6 +180,7 @@ try {
         Inpatient Admissions Registry (Live Sync)
       </a>
     </div>
+    -->
 
     <!-- Quick Vital KPI Stats -->
     <div class="stat-cards-grid" style="margin-bottom: 1.75rem;">
@@ -207,7 +208,7 @@ try {
           <svg class="ui-ico" style="stroke: var(--brand-teal);" viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect></svg>
         </div>
         <div class="stat-card-number">Active</div>
-        <div class="stat-card-badge badge-blue">HIPAA Compliant</div>
+        <div class="stat-card-badge badge-blue">BMDC / DGHS Compliant</div>
       </div>
     </div>
 

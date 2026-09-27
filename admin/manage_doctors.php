@@ -151,6 +151,7 @@ try {
         </h1>
         <p>Comprehensive roster of clinical specialists, BMDC licensing records, and active consultation credentials</p>
       </div>
+      <!-- Action Group: Commented out per UI workflow adjustments
       <div class="banner-actions">
         <a href="dashboard.php#pendingApprovalSection" class="btn-action-telemed" style="text-decoration: none;">
           <svg class="ui-ico ui-ico-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
@@ -161,6 +162,7 @@ try {
           + Add Physician
         </button>
       </div>
+      -->
     </div>
 
     <!-- Quick Vital KPI Stats -->

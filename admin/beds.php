@@ -107,8 +107,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $updBed->execute([':pid' => $patientId, ':bid' => $bedId, ':bid2' => $bedId]);
 
                 // Sync hospital_beds if present
-                $updHb = $pdo->prepare("UPDATE hospital_beds SET status = 'Occupied', is_occupied = 1 WHERE bed_id = :bid");
-                $updHb->execute([':bid' => $bedId]);
+                $updHb = $pdo->prepare("UPDATE hospital_beds SET status = 'Occupied', patient_id = :pid, updated_at = NOW() WHERE bed_id = :bid");
+                $updHb->execute([':pid' => $patientId, ':bid' => $bedId]);
 
                 // 3. Register or update bed_allocations for clinical rounding
                 $allocCheck = $pdo->prepare("SELECT allocation_id FROM bed_allocations WHERE bed_id = ? AND patient_id = ? AND status = 'Active' LIMIT 1");
@@ -244,7 +244,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $updBed->execute([':bid' => $bedId, ':bid2' => $bedId]);
 
                 // Sync hospital_beds if present
-                $updHb = $pdo->prepare("UPDATE hospital_beds SET status = 'Available', is_occupied = 0 WHERE bed_id = :bid");
+                $updHb = $pdo->prepare("UPDATE hospital_beds SET status = 'Available', patient_id = NULL, relocation_status = 'NONE', updated_at = NOW() WHERE bed_id = :bid");
                 $updHb->execute([':bid' => $bedId]);
 
                 // 2. Mark active bed_allocations as Discharged
