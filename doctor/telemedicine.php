@@ -14,16 +14,20 @@ $doctorUserId = (int)$_SESSION['user_id'];
 // Ensure columns exist safely
 TelemedicineController::ensureSchema($pdo);
 
-// Fetch Doctor Profile
+// Fetch Doctor Profile with Affiliated Hospital Branch
 try {
     $docStmt = $pdo->prepare("
         SELECT u.full_name, u.email, u.phone,
                dp.specialty, dp.designation, dp.military_rank, dp.qualifications,
                dp.bmdc_license_number, dp.room_number, dp.teleconsult_link, dp.teleconsult_room_code,
                COALESCE(dp.session_status, 'idle') AS session_status,
-               COALESCE(dp.current_serving_token, 0) AS current_serving_token
+               COALESCE(dp.current_serving_token, 0) AS current_serving_token,
+               COALESCE(h.name, 'MedPulse Hospital & Specialty Care') AS hospital_name,
+               COALESCE(h.city, 'Dhaka') AS hospital_city
         FROM users u
         LEFT JOIN doctor_profiles dp ON u.user_id = dp.user_id
+        LEFT JOIN doctors d ON u.user_id = d.user_id
+        LEFT JOIN hospitals h ON (dp.hospital_id = h.hospital_id OR d.hospital_id = h.hospital_id OR u.hospital_id = h.hospital_id)
         WHERE u.user_id = ?
         LIMIT 1
     ");
@@ -36,6 +40,8 @@ try {
 $cleanName = cleanDoctorBaseName($doctor['full_name'] ?? 'Doctor');
 $displayName = formatDoctorTitle($cleanName, $doctor['designation'] ?? null, $doctor['military_rank'] ?? null);
 $specialty = htmlspecialchars($doctor['specialty'] ?? 'General Medicine & Critical Care', ENT_QUOTES, 'UTF-8');
+$hospitalName = htmlspecialchars($doctor['hospital_name'] ?? 'MedPulse Hospital & Specialty Care', ENT_QUOTES, 'UTF-8');
+$hospitalCity = htmlspecialchars($doctor['hospital_city'] ?? 'Dhaka', ENT_QUOTES, 'UTF-8');
 
 $defaultMeeting = TelemedicineController::buildDefaultMeetingUrl($doctorUserId);
 $meetingLink = $doctor['teleconsult_link'] ?: $defaultMeeting['url'];
@@ -207,8 +213,14 @@ $roomCode = $doctor['teleconsult_room_code'] ?: $defaultMeeting['room_code'];
           Host encrypted HD video consultations for <?= htmlspecialchars($displayName) ?>. Call queued patients sequentially and advance tokens with zero-reload synchronization.
         </p>
 
-        <!-- Room Telemetry Strip -->
-        <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 1.5rem;">
+          <div style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.15); border-radius: 12px; padding: 0.6rem 1rem; display: flex; align-items: center; gap: 8px;">
+            <svg style="width: 18px; height: 18px; stroke: #38bdf8;" fill="none" viewBox="0 0 24 24"><path d="M3 21h18M9 8h1M9 12h1M9 16h1M14 8h1M14 12h1M14 16h1M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16"/></svg>
+            <div>
+              <span style="font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.8; display: block;">Branch Facility</span>
+              <strong style="font-size: 0.82rem;"><?= htmlspecialchars($hospitalName) ?></strong>
+            </div>
+          </div>
+
           <div style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.15); border-radius: 12px; padding: 0.6rem 1rem; display: flex; align-items: center; gap: 8px;">
             <svg style="width: 18px; height: 18px; stroke: #38bdf8;" fill="none" viewBox="0 0 24 24"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
             <div>
@@ -302,7 +314,7 @@ $roomCode = $doctor['teleconsult_room_code'] ?: $defaultMeeting['room_code'];
                 <th>Token</th>
                 <th>Patient Details</th>
                 <th>Chief Complaint</th>
-                <th>Wait Time</th>
+                <th>Queue Position</th>
                 <th>Status</th>
               </tr>
             </thead>
@@ -436,7 +448,7 @@ $roomCode = $doctor['teleconsult_room_code'] ?: $defaultMeeting['room_code'];
             </td>
             <td>
               <span style="color: #64748b; font-size: 0.78rem;">
-                ${idx === 0 ? 'Next in Line' : (idx * 8) + ' mins wait'}
+                ${idx === 0 ? '<strong style="color: #059669;">Next in Line</strong>' : (idx + 1) + ' in Queue'}
               </span>
             </td>
             <td>

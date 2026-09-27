@@ -5,7 +5,9 @@
  * High-speed JSON telemetry polling endpoint (every 3-4s):
  * - Real-time queue progression
  * - Dynamic token tracking
+ * - Strictly isolates doctors to selected hospital branch
  * - Privacy lock enforcement: zoom_link is ONLY revealed if patient token is actively called!
+ * - Zero fake countdown timers: Driven solely by sequential tokens
  */
 declare(strict_types=1);
 
@@ -39,36 +41,51 @@ if (empty($_SESSION['user_id']) || strtolower($_SESSION['role'] ?? '') !== 'pati
 }
 
 $patientId = (int)$_SESSION['user_id'];
+$requestedHospitalId = isset($_GET['hospital_id']) ? (int)$_GET['hospital_id'] : 1;
+if ($requestedHospitalId <= 0) $requestedHospitalId = 1;
 
 try {
-    // 1. Fetch current patient's active live tele-consultation session
+    // 1. Fetch current patient's active live tele-consultation session (if any)
     $activeSession = TelemedicineController::getPatientLiveSession($pdo, $patientId);
 
-    // 2. Fetch live duty doctors status
-    $dutyDoctors = TelemedicineController::getOnCallDutyDoctors($pdo);
+    // If patient is in an active session, use that session's hospital
+    $effectiveHospitalId = ($activeSession && !empty($activeSession['hospital_id']))
+        ? (int)$activeSession['hospital_id']
+        : $requestedHospitalId;
 
-    // Filter sensitive fields from doctors list
+    // 2. Fetch all active network hospital branches
+    $hospitals = TelemedicineController::getNetworkHospitals($pdo);
+
+    // 3. Fetch verified 24/7 on-call duty doctors strictly for this hospital branch
+    $dutyDoctors = TelemedicineController::getOnCallDutyDoctors($pdo, $effectiveHospitalId);
+
+    // Format clean doctor objects
     $cleanDoctors = array_map(function($d) {
         return [
             'user_id'               => (int)$d['user_id'],
             'full_name'             => $d['full_name'],
             'specialty'             => $d['specialty'],
             'designation'           => $d['designation'],
+            'hospital_id'           => (int)$d['hospital_id'],
             'hospital_name'         => $d['hospital_name'],
+            'hospital_city'         => $d['hospital_city'],
             'room_code'             => $d['teleconsult_room_code'],
             'session_status'        => $d['session_status'],
             'current_serving_token' => (int)$d['current_serving_token'],
             'waiting_count'         => (int)$d['waiting_count'],
-            'next_waiting_token'    => (int)$d['next_waiting_token']
+            'queue_load_label'      => $d['queue_load_label'],
+            'active_patient_name'   => $d['active_patient_name']
         ];
     }, $dutyDoctors);
 
     echo json_encode([
-        'success'            => true,
-        'timestamp'          => time(),
-        'has_active_session' => ($activeSession !== null),
-        'session'            => $activeSession,
-        'on_call_doctors'    => $cleanDoctors
+        'success'              => true,
+        'timestamp'            => time(),
+        'has_active_session'   => ($activeSession !== null),
+        'session'              => $activeSession,
+        'selected_hospital_id' => $effectiveHospitalId,
+        'hospitals'            => $hospitals,
+        'on_call_doctors'      => $cleanDoctors
     ], JSON_UNESCAPED_SLASHES);
 
 } catch (Throwable $e) {

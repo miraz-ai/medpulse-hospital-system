@@ -56,6 +56,16 @@ PREPARE stmt_m_link FROM @sql_m_link;
 EXECUTE stmt_m_link;
 DEALLOCATE PREPARE stmt_m_link;
 
+-- 5b. Ensure `teleconsult_dismissed` column in appointments
+SET @col_tc_dismiss := (SELECT COUNT(*) FROM information_schema.columns 
+                        WHERE table_schema = DATABASE() AND table_name = 'appointments' AND column_name = 'teleconsult_dismissed');
+SET @sql_tc_dismiss := IF(@col_tc_dismiss = 0, 
+    'ALTER TABLE `appointments` ADD COLUMN `teleconsult_dismissed` TINYINT(1) NOT NULL DEFAULT 0 AFTER `meeting_link`', 
+    'SELECT 1');
+PREPARE stmt_tc_dismiss FROM @sql_tc_dismiss;
+EXECUTE stmt_tc_dismiss;
+DEALLOCATE PREPARE stmt_tc_dismiss;
+
 -- 6. Populate default authentic Zoom meeting links & room codes for active duty specialists
 UPDATE `doctor_profiles`
 SET `teleconsult_room_code` = CONCAT('MP-VC-', LPAD(user_id, 3, '0')),
@@ -64,3 +74,24 @@ SET `teleconsult_room_code` = CONCAT('MP-VC-', LPAD(user_id, 3, '0')),
         CONCAT('https://zoom.us/j/', 9800000000 + (user_id * 179424673 % 899999999), '?pwd=mp', SUBSTRING(SHA2(CONCAT('medpulse_telecare_', user_id), 256), 1, 6))
     )
 WHERE `user_id` IN (SELECT `user_id` FROM `users` WHERE `role` = 'Doctor');
+
+-- 7. Multi-Branch Facility Alignment & Isolation
+-- Ensure doctors are assigned to verified hospital branches across the 6-hospital network
+UPDATE `doctor_profiles` SET `hospital_id` = 1 WHERE `user_id` = 8;  -- Dr. Rafiqul Islam -> Hospital 1 (MedPulse Dhanmondi)
+UPDATE `doctor_profiles` SET `hospital_id` = 1 WHERE `user_id` = 29; -- Dr. Afzal Hossain Miraz -> Hospital 1 (MedPulse Dhanmondi)
+UPDATE `doctor_profiles` SET `hospital_id` = 2 WHERE `user_id` = 20; -- Dr. Mikasa Ackerman -> Hospital 2 (Square Hospital)
+UPDATE `doctor_profiles` SET `hospital_id` = 3 WHERE `user_id` = 21; -- Dr. Satoru Gojo -> Hospital 3 (United Hospital)
+UPDATE `doctor_profiles` SET `hospital_id` = 4 WHERE `user_id` = 13; -- Dr. Miftahul Sheikh -> Hospital 4 (United Medical College)
+UPDATE `doctor_profiles` SET `hospital_id` = 5 WHERE `user_id` = 14; -- Dr. Mitsuha -> Hospital 5 (Evercare Hospital)
+
+-- Ensure doctors table maintains multi-hospital approved linkage
+INSERT INTO `doctors` (`user_id`, `hospital_id`, `status`)
+VALUES 
+  (8,  1, 'approved'),
+  (29, 1, 'approved'),
+  (20, 2, 'approved'),
+  (21, 3, 'approved'),
+  (13, 4, 'approved'),
+  (14, 5, 'approved'),
+  (20, 6, 'approved')  -- Dr. Mikasa also provides Emergency Trauma coverage for Hospital 6 (NIBPS)
+ON DUPLICATE KEY UPDATE `status` = 'approved';

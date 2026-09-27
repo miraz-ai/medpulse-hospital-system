@@ -53,6 +53,7 @@ if (!empty($_SESSION['csrf_token']) && !hash_equals($_SESSION['csrf_token'], $su
 }
 
 $doctorId = (int)($_POST['doctor_id'] ?? 0);
+$hospitalId = (int)($_POST['hospital_id'] ?? 0);
 $reason = trim($_POST['reason'] ?? '');
 $symptoms = trim($_POST['symptoms'] ?? '');
 
@@ -66,7 +67,7 @@ if ($doctorId <= 0) {
 }
 
 try {
-    $res = TelemedicineController::requestLiveSession($pdo, $patientId, $doctorId, $reason, $symptoms);
+    $res = TelemedicineController::requestLiveSession($pdo, $patientId, $doctorId, $hospitalId, $reason, $symptoms);
     
     if ($res['success']) {
         // Also fetch the full immediate session telemetry

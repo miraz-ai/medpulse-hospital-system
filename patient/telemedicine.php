@@ -1,7 +1,15 @@
 <?php
 /**
  * MedPulse Enterprise HMS — Virtual Care Suite (24/7 Live Tele-Consultation Room)
- * Real-Time Zero-Reload Synchronized Chamber Queue & Locked Video Consultation Bridge
+ * 100% Dynamic, Multi-Branch, Real-Time Synchronized Queue System
+ * 
+ * Strict Operational Workflow:
+ * - Multi-Branch Facility Discovery & Strict Isolation
+ * - Verified 24/7 On-Duty Emergency Specialist Allocation
+ * - Dynamic Sequential Token Generation Driven Solely by Real Database State
+ * - Zero Fake Timers / Clocks (Pure Sequential Token Tracking)
+ * - Zero-Reload Real-Time Synchronization (3.5s background polling)
+ * - Privacy-Locked Video Gate with Instant Turn Reveal
  */
 declare(strict_types=1);
 
@@ -11,14 +19,25 @@ require_once __DIR__ . '/../controllers/TelemedicineController.php';
 $patientId   = (int)$_SESSION['user_id'];
 $patientName = $_SESSION['user_name'] ?? 'Patient';
 
-// Ensure required tele-consultation schema is ready
+// Ensure schema and multi-branch affiliations
 TelemedicineController::ensureSchema($pdo);
 
-// 1. Fetch Current Patient's Active Tele-Consultation Session
+// 1. Fetch Current Patient's Active Session (if any)
 $currentSession = TelemedicineController::getPatientLiveSession($pdo, $patientId);
 
-// 2. Fetch Available 24/7 On-Call Duty Specialists
-$onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo);
+// 2. Fetch All Active Network Hospital Branches
+$networkHospitals = TelemedicineController::getNetworkHospitals($pdo);
+
+// Determine initial selected hospital ID
+$initialHospitalId = 1;
+if ($currentSession && !empty($currentSession['hospital_id'])) {
+    $initialHospitalId = (int)$currentSession['hospital_id'];
+} elseif (isset($_GET['hospital_id']) && (int)$_GET['hospital_id'] > 0) {
+    $initialHospitalId = (int)$_GET['hospital_id'];
+}
+
+// 3. Fetch Verified 24/7 On-Duty Doctors for Initial Hospital
+$onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo, $initialHospitalId);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -97,9 +116,9 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo);
       justify-content: space-between;
       background: #f8fafc;
       border: 1px solid #e2e8f0;
-      border-radius: 12px;
-      padding: 0.75rem 1.25rem;
-      margin-bottom: 1.5rem;
+      border-radius: 14px;
+      padding: 0.85rem 1.25rem;
+      margin-bottom: 1.75rem;
       font-size: 0.82rem;
     }
     .vc-sync-indicator {
@@ -123,10 +142,80 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo);
       100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(2, 132, 199, 0); }
     }
 
+    /* Facility Selector Bar */
+    .facility-selector-container {
+      background: #ffffff;
+      border: 1px solid var(--surface-border);
+      border-radius: 18px;
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+      box-shadow: 0 4px 15px -3px rgba(0, 0, 0, 0.04);
+    }
+    .facility-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 0.85rem;
+      margin-top: 1rem;
+    }
+    .facility-card {
+      background: #f8fafc;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 1rem;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      text-align: left;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      user-select: none;
+    }
+    .facility-card:hover {
+      border-color: #93c5fd;
+      background: #f0f7ff;
+      transform: translateY(-2px);
+    }
+    .facility-card.is-active {
+      border-color: #0284c7;
+      background: linear-gradient(180deg, #f0f9ff 0%, #e0f2fe 100%);
+      box-shadow: 0 4px 14px rgba(2, 132, 199, 0.15);
+      border-width: 2px;
+    }
+    .facility-card-name {
+      font-size: 0.88rem;
+      font-weight: 800;
+      color: #0f172a;
+      line-height: 1.3;
+      margin-bottom: 4px;
+    }
+    .facility-card.is-active .facility-card-name {
+      color: #0369a1;
+    }
+    .facility-card-location {
+      font-size: 0.74rem;
+      color: #64748b;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .facility-doctor-pill {
+      font-size: 0.7rem;
+      font-weight: 800;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(16, 185, 129, 0.12);
+      color: #059669;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      width: fit-content;
+    }
+
     /* Virtual Waiting Room 2-Column Grid */
     .vc-waiting-grid {
       display: grid;
-      grid-template-columns: 1.1fr 1fr;
+      grid-template-columns: 1.15fr 1fr;
       gap: 1.5rem;
       margin-bottom: 2rem;
     }
@@ -149,7 +238,7 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo);
       position: relative;
     }
 
-    /* Big Token Display */
+    /* Big Token Showcase */
     .token-showcase {
       background: linear-gradient(135deg, #f0f7ff 0%, #e0f2fe 100%);
       border: 1.5px solid #bae6fd;
@@ -170,7 +259,7 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo);
       font-feature-settings: "tnum";
     }
 
-    /* Real-Time Queue Telemetry Grid */
+    /* Real-Time Queue Telemetry Grid (Driven purely by sequential tokens) */
     .queue-telemetry-row {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -288,7 +377,59 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo);
       pointer-events: none;
     }
 
-    /* On-Call Duty Doctors Grid (Selection State) */
+    /* Consultation Completed State */
+    .vc-bridge-completed {
+      background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+      border: 1.5px solid #cbd5e1;
+      border-radius: 20px;
+      padding: 2rem 1.75rem;
+      text-align: center;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05);
+    }
+    .btn-return-directory {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+      color: #ffffff !important;
+      text-decoration: none;
+      padding: 0.9rem 1.5rem;
+      font-size: 0.92rem;
+      font-weight: 800;
+      border-radius: 12px;
+      border: none;
+      cursor: pointer;
+      width: 100%;
+      box-shadow: 0 4px 14px rgba(2, 132, 199, 0.3);
+      transition: all 0.2s ease;
+    }
+    .btn-return-directory:hover {
+      background: linear-gradient(135deg, #0369a1 0%, #075985 100%);
+      transform: translateY(-1px);
+    }
+    .btn-view-records {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      background: #ffffff;
+      color: #334155 !important;
+      text-decoration: none;
+      padding: 0.75rem 1.25rem;
+      font-size: 0.85rem;
+      font-weight: 700;
+      border-radius: 10px;
+      border: 1px solid #cbd5e1;
+      width: 100%;
+      transition: all 0.2s ease;
+    }
+    .btn-view-records:hover {
+      background: #f8fafc;
+      border-color: #94a3b8;
+    }
+
+    /* Doctor Card Grid */
     .vc-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
@@ -370,49 +511,49 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo);
 </head>
 <body>
 
-  <!-- Shared Canonical Patient Sidebar -->
+  <!-- Shared Canonical Patient Sidebar Partial -->
   <?php require_once __DIR__ . '/includes/sidebar.php'; ?>
 
   <!-- Main Viewport -->
   <main class="viewport">
     
-    <!-- Hero Banner -->
+    <!-- Top Hero Banner -->
     <div class="vc-hero-banner">
       <div style="position: relative; z-index: 1;">
         <div class="vc-status-pill">
           <span class="tele-pulse-dot"></span>
-          24/7 VIRTUAL CARE SUITE &bull; ZERO-RELOAD SYNC
+          24/7 VIRTUAL CARE SUITE &bull; MULTI-BRANCH NETWORK
         </div>
         <h1 style="font-size: 1.85rem; font-weight: 800; margin: 0 0 0.5rem; letter-spacing: -0.02em;">
           Virtual Care Suite
         </h1>
-        <p style="font-size: 0.95rem; margin: 0; opacity: 0.9; max-width: 660px; line-height: 1.5;">
-          Direct clinical video bridge with 24/7 on-call hospital specialists. Dynamic token queue with real-time zero-reload sync and encrypted privacy-locked Zoom HD launch.
+        <p style="font-size: 0.95rem; margin: 0; opacity: 0.9; max-width: 680px; line-height: 1.5;">
+          Direct clinical video bridge with accredited 24/7 on-duty emergency hospital specialists across MedPulse network facilities. Sequential token queue with real-time zero-reload sync.
         </p>
 
         <!-- Technical Telemetry Strip -->
         <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 1.5rem;">
           <div style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.15); border-radius: 12px; padding: 0.6rem 1rem; display: flex; align-items: center; gap: 8px;">
-            <svg style="width: 18px; height: 18px; stroke: #38bdf8;" fill="none" viewBox="0 0 24 24"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+            <svg style="width: 18px; height: 18px; stroke: #38bdf8;" fill="none" viewBox="0 0 24 24"><path d="M3 21h18M9 8h1M9 12h1M9 16h1M14 8h1M14 12h1M14 16h1M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16"/></svg>
             <div>
-              <span style="font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.8; display: block;">Video Protocol</span>
-              <strong style="font-size: 0.82rem;">1080p HD &bull; Zoom Pro</strong>
+              <span style="font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.8; display: block;">Network Topology</span>
+              <strong style="font-size: 0.82rem;"><?= count($networkHospitals) ?> Hospital Branches</strong>
             </div>
           </div>
 
           <div style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.15); border-radius: 12px; padding: 0.6rem 1rem; display: flex; align-items: center; gap: 8px;">
-            <svg style="width: 18px; height: 18px; stroke: #34d399;" fill="none" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+            <svg style="width: 18px; height: 18px; stroke: #34d399;" fill="none" viewBox="0 0 24 24"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
             <div>
-              <span style="font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.8; display: block;">Privacy Lock</span>
-              <strong style="font-size: 0.82rem;">Turn-Gated Video Gate</strong>
+              <span style="font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.8; display: block;">Video Security</span>
+              <strong style="font-size: 0.82rem;">Turn-Gated Zoom HD</strong>
             </div>
           </div>
 
           <div style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.15); border-radius: 12px; padding: 0.6rem 1rem; display: flex; align-items: center; gap: 8px;">
             <svg style="width: 18px; height: 18px; stroke: #fcd34d;" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
             <div>
-              <span style="font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.8; display: block;">Sync Engine</span>
-              <strong style="font-size: 0.82rem;" id="heroSyncText">Live (Polling 3.5s)</strong>
+              <span style="font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.8; display: block;">Queue Model</span>
+              <strong style="font-size: 0.82rem;">Real Sequential Tokens</strong>
             </div>
           </div>
         </div>
@@ -425,12 +566,17 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo);
         <span class="vc-sync-ping"></span>
         <span id="syncStatusLabel">Real-Time Zero-Reload Synchronizer: Connected to Room Host</span>
       </div>
-      <div style="color: #64748b; font-size: 0.76rem;" id="syncClock">
-        Last Synced: Just now
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <span style="font-size: 0.76rem; color: #0284c7; font-weight: 700;" id="activeFacilityIndicator">
+          Facility: MedPulse Hospital (Dhanmondi)
+        </span>
+        <span style="color: #64748b; font-size: 0.76rem;" id="syncClock">
+          Last Synced: Just now
+        </span>
       </div>
     </div>
 
-    <!-- Dynamic Container: Flips between Waiting Room & Doctor Selection without page reload -->
+    <!-- Dynamic Container: Swaps between Waiting Room & Doctor Selection without page reload -->
     <div id="vcMainContainer">
       
       <!-- ===================================================================== -->
@@ -459,7 +605,7 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo);
           <!-- Column 1: Attending Specialist & Token Telemetry Dossier -->
           <div class="vc-card">
             <div>
-              <!-- Hospital Badge -->
+              <!-- Hospital Branch Badge -->
               <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem;">
                 <span style="font-size: 0.72rem; font-weight: 700; color: #0284c7; background: rgba(2, 132, 199, 0.08); border: 1px solid rgba(2, 132, 199, 0.2); padding: 3px 8px; border-radius: 6px;">
                   <span id="cardHospitalName"><?= htmlspecialchars($currentSession['hospital_name'] ?? 'MedPulse Hospital') ?></span>
@@ -503,14 +649,14 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo);
                 </div>
               </div>
 
-              <!-- Live Queue Metrics -->
+              <!-- Live Queue Metrics (ZERO FAKE TIMERS) -->
               <div class="queue-telemetry-row">
                 <div class="queue-tile">
                   <span class="queue-tile-label">Doctor Currently Seeing</span>
                   <div class="queue-tile-val" style="color: #2563eb;" id="cardCurrentServing">
                     <?php 
                       $cs = (int)($currentSession['current_serving_token'] ?? 0);
-                      echo ($cs > 0) ? "Token #" . str_pad((string)$cs, 2, '0', STR_PAD_LEFT) : 'Starting Next';
+                      echo ($cs > 0) ? "Token #" . str_pad((string)$cs, 2, '0', STR_PAD_LEFT) : 'Starting Session';
                     ?>
                   </div>
                 </div>
@@ -518,28 +664,21 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo);
                 <div class="queue-tile">
                   <span class="queue-tile-label">Your Queue Position</span>
                   <div class="queue-tile-val" id="cardQueuePosition">
-                    <?php 
-                      if (!empty($currentSession['is_called'])) {
-                        echo '<span style="color:#059669;">Your Turn Now</span>';
-                      } else {
-                        $ahead = (int)($currentSession['people_ahead'] ?? 0);
-                        echo ($ahead === 0) ? '<span style="color:#d97706;">Next in Line</span>' : "{$ahead} Ahead";
-                      }
-                    ?>
+                    <?= htmlspecialchars($currentSession['position_label'] ?? 'In Queue') ?>
                   </div>
                 </div>
 
                 <div class="queue-tile">
-                  <span class="queue-tile-label">Est. Wait Time</span>
-                  <div class="queue-tile-val" id="cardEstWait">
-                    <?= !empty($currentSession['is_called']) ? '0 Mins (Ready)' : '~' . ($currentSession['estimated_wait_mins'] ?? 8) . ' Mins' ?>
+                  <span class="queue-tile-label">Branch Facility</span>
+                  <div class="queue-tile-val" style="font-size: 0.85rem;" id="cardFacilityName">
+                    <?= htmlspecialchars($currentSession['hospital_name'] ?? 'MedPulse Central') ?>
                   </div>
                 </div>
 
                 <div class="queue-tile">
-                  <span class="queue-tile-label">Session Protocol</span>
-                  <div class="queue-tile-val" style="font-size: 0.9rem; color: #059669;">
-                    24/7 Live Care
+                  <span class="queue-tile-label">Progression Mode</span>
+                  <div class="queue-tile-val" style="font-size: 0.85rem; color: #059669;">
+                    Sequential Tokens
                   </div>
                 </div>
               </div>
@@ -547,7 +686,7 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo);
 
             <!-- Cancel / Exit Queue Option -->
             <div style="margin-top: 1.5rem; pt: 1rem; border-top: 1px dashed #e2e8f0; display: flex; align-items: center; justify-content: space-between;">
-              <span style="font-size: 0.74rem; color: #64748b;">Need to leave?</span>
+              <span style="font-size: 0.74rem; color: #64748b;">Need to step out?</span>
               <button type="button" class="btn-cancel-request" onclick="cancelActiveQueue(<?= (int)($currentSession['appointment_id'] ?? 0) ?>);">
                 <svg style="width: 14px; height: 14px; stroke: currentColor;" fill="none" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                 <span>Cancel Queue Request</span>
@@ -615,6 +754,50 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo);
                 </div>
               </div>
 
+            <?php elseif (($currentSession['state'] ?? '') === 'completed'): ?>
+              <!-- STATE C: CONSULTATION COMPLETED STATE -->
+              <div class="vc-bridge-completed" id="bridgeCompletedView">
+                <div style="width: 72px; height: 72px; border-radius: 50%; background: #ecfdf5; border: 2px solid #a7f3d0; color: #059669; display: flex; align-items: center; justify-content: center; margin: 0 auto 1.25rem;">
+                  <svg style="width: 38px; height: 38px; stroke: currentColor;" fill="none" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                </div>
+
+                <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.72rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; background: #ecfdf5; color: #059669; padding: 4px 12px; border-radius: 999px; margin-bottom: 0.75rem;">
+                  SESSION CONCLUDED
+                </span>
+
+                <h2 style="font-size: 1.45rem; font-weight: 800; color: #0f172a; margin: 0 0 0.5rem;">
+                  Consultation Completed
+                </h2>
+                <p style="font-size: 0.88rem; color: #64748b; margin: 0 0 1.5rem; line-height: 1.5;">
+                  Your virtual consultation session has concluded. Your doctor has finalized this tele-health visit.
+                </p>
+
+                <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 0.85rem 1rem; margin-bottom: 1.5rem; text-align: left; font-size: 0.8rem;">
+                  <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                    <span style="color: #64748b;">Specialist:</span>
+                    <strong style="color: #0f172a;"><?= htmlspecialchars($currentSession['doctor_name'] ?? 'Doctor') ?></strong>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                    <span style="color: #64748b;">Facility:</span>
+                    <strong style="color: #0f172a;"><?= htmlspecialchars($currentSession['hospital_name'] ?? 'MedPulse') ?></strong>
+                  </div>
+                  <div style="display: flex; justify-content: space-between;">
+                    <span style="color: #64748b;">Status:</span>
+                    <strong style="color: #059669;">Completed &amp; Closed</strong>
+                  </div>
+                </div>
+
+                <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                  <button type="button" class="btn-return-directory" onclick="dismissSessionAndReturn();">
+                    <svg style="width: 16px; height: 16px; stroke: currentColor;" fill="none" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+                    <span>Request Another Consultation / Change Facility</span>
+                  </button>
+                  <a href="appointments.php" class="btn-view-records">
+                    <span>View My Appointments &amp; History</span>
+                  </a>
+                </div>
+              </div>
+
             <?php else: ?>
               <!-- STATE A: WAITING / PRIVACY LOCKED STATE -->
               <div class="vc-bridge-locked" id="bridgeLockedView">
@@ -633,7 +816,7 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo);
                   Consultation Bridge Locked
                 </h2>
                 <p style="font-size: 0.88rem; color: #64748b; margin: 0 0 1.5rem; line-height: 1.5;">
-                  To ensure clinical confidentiality and prevent overlapping patients, your Zoom link is locked while the doctor completes consultations with preceding tokens.
+                  To protect doctor-patient privacy and avoid session overlap, this video bridge is locked. The link will unlock automatically the second Doctor calls your token.
                 </p>
 
                 <!-- Informational Lock Callout -->
@@ -653,11 +836,11 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo);
                     <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
                     <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
                   </svg>
-                  <span>Video Call Locked (Waiting for Doctor)</span>
+                  <span>Video Call Locked (Waiting for Token #<span id="lockedBtnToken"><?= (int)($currentSession['my_token'] ?? 1) ?></span>)</span>
                 </div>
 
                 <div style="margin-top: 1.25rem; font-size: 0.74rem; color: #64748b; display: flex; align-items: center; justify-content: center; gap: 6px;">
-                  <span>🔊 Audio Chime Armed &bull; Keep tab open</span>
+                  <span>🔊 Audio Chime Armed &bull; Please keep this page open</span>
                 </div>
               </div>
             <?php endif; ?>
@@ -673,120 +856,176 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo);
       <!-- ===================================================================== -->
       <div id="viewDoctorSelection" style="display: <?= $currentSession ? 'none' : 'block' ?>;">
         
+        <!-- 1. Intuitive Facility Selector -->
+        <div class="facility-selector-container">
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.5rem;">
+            <div>
+              <div style="font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: #0284c7;">
+                Step 1: Select Facility
+              </div>
+              <h2 style="font-size: 1.25rem; font-weight: 800; color: #0f172a; margin: 2px 0 0;">
+                Hospital Branch &amp; Emergency Center
+              </h2>
+            </div>
+            <span style="font-size: 0.75rem; font-weight: 700; color: #64748b;">
+              Showing verified on-duty emergency doctors for selected branch
+            </span>
+          </div>
+
+          <!-- Facility Cards Selector -->
+          <div class="facility-grid" id="facilityCardsGrid">
+            <?php foreach ($networkHospitals as $hosp): 
+              $hId = (int)$hosp['hospital_id'];
+              $isActiveHosp = ($hId === $initialHospitalId);
+            ?>
+              <div class="facility-card <?= $isActiveHosp ? 'is-active' : '' ?>" 
+                   onclick="selectHospitalBranch(<?= $hId ?>);"
+                   id="facCard_<?= $hId ?>">
+                <div>
+                  <div class="facility-card-name"><?= htmlspecialchars($hosp['name']) ?></div>
+                  <div class="facility-card-location">
+                    <svg style="width: 12px; height: 12px; stroke: currentColor;" fill="none" viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+                    <span><?= htmlspecialchars($hosp['city']) ?> &bull; <?= htmlspecialchars($hosp['code']) ?></span>
+                  </div>
+                </div>
+                <div>
+                  <span class="facility-doctor-pill">
+                    <span class="tele-pulse-dot"></span>
+                    <span id="facDocCount_<?= $hId ?>"><?= (int)$hosp['doctor_count'] ?></span> On-Duty
+                  </span>
+                </div>
+              </div>
+            <?php endforeach; ?>
+          </div>
+        </div>
+
+        <!-- 2. On-Duty Doctors Section Header -->
         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem;">
           <div>
-            <h2 style="font-size: 1.35rem; font-weight: 800; color: var(--text-heading); margin: 0;">
-              24/7 On-Call Duty Specialists
+            <div style="font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: #0284c7;">
+              Step 2: Choose Specialist
+            </div>
+            <h2 style="font-size: 1.35rem; font-weight: 800; color: var(--text-heading); margin: 2px 0 0;" id="branchDoctorsHeading">
+              24/7 On-Duty Emergency Specialists
             </h2>
-            <p style="font-size: 0.85rem; color: var(--text-muted); margin: 3px 0 0;">
-              Actively hosting virtual chamber rooms. Select a specialist to request an immediate live consultation session.
+            <p style="font-size: 0.85rem; color: var(--text-muted); margin: 3px 0 0;" id="branchDoctorsSubheading">
+              Select an on-duty specialist to receive your dynamic sequential queue token.
             </p>
           </div>
-          <span style="font-size: 0.75rem; font-weight: 800; background: #ecfdf5; color: #059669; padding: 4px 10px; border-radius: 999px;">
-            <?= count($onCallDoctors) ?> Specialists On-Call
+          <span style="font-size: 0.75rem; font-weight: 800; background: #ecfdf5; color: #059669; padding: 4px 10px; border-radius: 999px;" id="doctorCountBadge">
+            <?= count($onCallDoctors) ?> Doctors Available
           </span>
         </div>
 
+        <!-- Doctors Cards Grid (Updated dynamically based on selected branch) -->
         <div class="vc-grid" id="onCallDoctorsGrid">
-          <?php foreach ($onCallDoctors as $doc): 
-            $docId = (int)$doc['user_id'];
-            $names = explode(' ', trim($doc['full_name']));
-            $initials = '';
-            foreach ($names as $n) {
-              if (!empty($n) && strtolower($n) !== 'dr.') {
-                $initials .= strtoupper($n[0]);
+          <?php if (empty($onCallDoctors)): ?>
+            <div style="grid-column: 1 / -1; background: #fff; border: 1px solid var(--surface-border); border-radius: 16px; padding: 3rem 2rem; text-align: center; color: #64748b;">
+              <div style="font-size: 2rem; margin-bottom: 0.5rem;">🏥</div>
+              <h3 style="font-size: 1.15rem; font-weight: 800; color: #0f172a; margin: 0 0 0.25rem;">No On-Duty Doctors Currently Live at This Facility</h3>
+              <p style="font-size: 0.85rem; margin: 0;">Please select another MedPulse hospital branch from the facility selector above.</p>
+            </div>
+          <?php else: ?>
+            <?php foreach ($onCallDoctors as $doc): 
+              $docId = (int)$doc['user_id'];
+              $names = explode(' ', trim($doc['full_name']));
+              $initials = '';
+              foreach ($names as $n) {
+                if (!empty($n) && strtolower($n) !== 'dr.') {
+                  $initials .= strtoupper($n[0]);
+                }
               }
-            }
-            if (empty($initials)) $initials = 'DR';
-            $initials = substr($initials, 0, 2);
+              if (empty($initials)) $initials = 'DR';
+              $initials = substr($initials, 0, 2);
 
-            $servingToken = (int)$doc['current_serving_token'];
-            $waitingCount = (int)$doc['waiting_count'];
-          ?>
-            <div class="doc-card" id="docCard_<?= $docId ?>">
-              <div>
-                <!-- Top Status Badge Strip -->
-                <div style="display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 1rem;">
-                  <span style="font-size: 0.7rem; font-weight: 700; color: #0284c7; background: rgba(2, 132, 199, 0.08); border: 1px solid rgba(2, 132, 199, 0.2); padding: 3px 8px; border-radius: 6px;">
-                    <?= htmlspecialchars($doc['hospital_name']) ?>
-                  </span>
+              $servingToken = (int)$doc['current_serving_token'];
+              $waitingCount = (int)$doc['waiting_count'];
+            ?>
+              <div class="doc-card" id="docCard_<?= $docId ?>">
+                <div>
+                  <!-- Top Status Badge Strip -->
+                  <div style="display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 1rem;">
+                    <span style="font-size: 0.7rem; font-weight: 700; color: #0284c7; background: rgba(2, 132, 199, 0.08); border: 1px solid rgba(2, 132, 199, 0.2); padding: 3px 8px; border-radius: 6px;">
+                      <?= htmlspecialchars($doc['hospital_name']) ?>
+                    </span>
 
-                  <span style="font-size: 0.68rem; font-weight: 800; padding: 3px 8px; border-radius: 999px; background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; display: inline-flex; align-items: center; gap: 4px;">
-                    <span class="tele-pulse-dot"></span> 24/7 ON-CALL
-                  </span>
-                </div>
-
-                <!-- Doctor Identity -->
-                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 1.15rem;">
-                  <div class="doc-avatar-pill">
-                    <?= htmlspecialchars($initials) ?>
-                  </div>
-                  <div>
-                    <h3 style="font-size: 1.1rem; font-weight: 800; color: var(--text-heading); margin: 0 0 2px;">
-                      <?= htmlspecialchars($doc['full_name']) ?>
-                    </h3>
-                    <p style="font-size: 0.8rem; font-weight: 600; color: #0284c7; margin: 0;">
-                      <?= htmlspecialchars($doc['specialty']) ?>
-                    </p>
-                    <span style="font-size: 0.72rem; color: var(--text-muted); display: block; margin-top: 2px;">
-                      Room: <?= htmlspecialchars($doc['teleconsult_room_code']) ?> &bull; <?= htmlspecialchars($doc['bmdc_license_number'] ?? 'BMDC-VERIFIED') ?>
+                    <span style="font-size: 0.68rem; font-weight: 800; padding: 3px 8px; border-radius: 999px; background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; display: inline-flex; align-items: center; gap: 4px;">
+                      <span class="tele-pulse-dot"></span> 24/7 ON-DUTY
                     </span>
                   </div>
+
+                  <!-- Doctor Identity -->
+                  <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 1.15rem;">
+                    <div class="doc-avatar-pill">
+                      <?= htmlspecialchars($initials) ?>
+                    </div>
+                    <div>
+                      <h3 style="font-size: 1.1rem; font-weight: 800; color: var(--text-heading); margin: 0 0 2px;">
+                        <?= htmlspecialchars($doc['full_name']) ?>
+                      </h3>
+                      <p style="font-size: 0.8rem; font-weight: 600; color: #0284c7; margin: 0;">
+                        <?= htmlspecialchars($doc['specialty']) ?>
+                      </p>
+                      <span style="font-size: 0.72rem; color: var(--text-muted); display: block; margin-top: 2px;">
+                        Room: <?= htmlspecialchars($doc['teleconsult_room_code']) ?> &bull; <?= htmlspecialchars($doc['bmdc_license_number'] ?? 'BMDC-VERIFIED') ?>
+                      </span>
+                    </div>
+                  </div>
+
+                  <!-- Real Database Queue Load (NO fake minute timers) -->
+                  <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 0.85rem; margin-bottom: 1.15rem; font-size: 0.82rem;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+                      <span style="color: #64748b; font-weight: 600;">Currently Consulting:</span>
+                      <strong style="color: #2563eb;" id="docServing_<?= $docId ?>">
+                        <?= ($servingToken > 0) ? "Token #" . str_pad((string)$servingToken, 2, '0', STR_PAD_LEFT) : 'Chamber Ready' ?>
+                      </strong>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+                      <span style="color: #64748b; font-weight: 600;">Waiting Queue Load:</span>
+                      <strong style="color: #0f172a;" id="docWaiting_<?= $docId ?>">
+                        <?= htmlspecialchars($doc['queue_load_label']) ?>
+                      </strong>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
+                      <span style="color: #64748b; font-weight: 600;">Sequential Token Mode:</span>
+                      <strong style="color: #059669;">
+                        Token Progression
+                      </strong>
+                    </div>
+                  </div>
+
+                  <!-- Quick Complaint / Symptoms Field -->
+                  <div style="margin-bottom: 1rem;">
+                    <label style="display: block; font-size: 0.72rem; font-weight: 700; color: #475569; margin-bottom: 4px;">
+                      Chief Complaint / Symptoms (Optional)
+                    </label>
+                    <input type="text" 
+                           id="inputReason_<?= $docId ?>" 
+                           placeholder="E.g. Chest pain, high fever, post-op consultation" 
+                           style="width: 100%; padding: 0.55rem 0.75rem; font-size: 0.82rem; border: 1px solid #cbd5e1; border-radius: 8px; outline: none; font-family: inherit;">
+                  </div>
                 </div>
 
-                <!-- Real-Time Chamber Telemetry Box -->
-                <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 0.85rem; margin-bottom: 1.15rem; font-size: 0.82rem;">
-                  <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-                    <span style="color: #64748b; font-weight: 600;">Currently Consulting:</span>
-                    <strong style="color: #2563eb;" id="docServing_<?= $docId ?>">
-                      <?= ($servingToken > 0) ? "Token #" . str_pad((string)$servingToken, 2, '0', STR_PAD_LEFT) : 'Chamber Ready' ?>
-                    </strong>
-                  </div>
-                  <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-                    <span style="color: #64748b; font-weight: 600;">Waiting Queue:</span>
-                    <strong style="color: #0f172a;" id="docWaiting_<?= $docId ?>">
-                      <?= ($waitingCount > 0) ? "{$waitingCount} Patients in Line" : 'No Wait &bull; Immediate' ?>
-                    </strong>
-                  </div>
-                  <div style="display: flex; justify-content: space-between;">
-                    <span style="color: #64748b; font-weight: 600;">Estimated Wait:</span>
-                    <strong style="color: #059669;" id="docWaitTime_<?= $docId ?>">
-                      <?= ($waitingCount > 0) ? "~" . ($waitingCount * 8) . " mins" : '~0 mins' ?>
-                    </strong>
-                  </div>
-                </div>
-
-                <!-- Quick Complaint / Symptoms Field -->
-                <div style="margin-bottom: 1rem;">
-                  <label style="display: block; font-size: 0.72rem; font-weight: 700; color: #475569; margin-bottom: 4px;">
-                    Chief Complaint / Symptoms (Optional)
-                  </label>
-                  <input type="text" 
-                         id="inputReason_<?= $docId ?>" 
-                         placeholder="E.g. Fever, headache, follow-up inquiry" 
-                         style="width: 100%; padding: 0.55rem 0.75rem; font-size: 0.82rem; border: 1px solid #cbd5e1; border-radius: 8px; outline: none; font-family: inherit;">
+                <!-- Action: Request Virtual Consultation -->
+                <div>
+                  <button type="button" 
+                          class="btn-request-session" 
+                          id="btnReqDoc_<?= $docId ?>"
+                          onclick="requestLiveSession(<?= $docId ?>, <?= (int)$doc['hospital_id'] ?>);">
+                    <svg style="width: 16px; height: 16px; stroke: #fff; fill: currentColor;" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+                    <span>Request Virtual Consultation</span>
+                  </button>
                 </div>
               </div>
-
-              <!-- Action: Request Live Consultation Session -->
-              <div>
-                <button type="button" 
-                        class="btn-request-session" 
-                        id="btnReqDoc_<?= $docId ?>"
-                        onclick="requestLiveSession(<?= $docId ?>);">
-                  <svg style="width: 16px; height: 16px; stroke: #fff; fill: currentColor;" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
-                  <span>Request Live Consultation Session</span>
-                </button>
-              </div>
-            </div>
-          <?php endforeach; ?>
+            <?php endforeach; ?>
+          <?php endif; ?>
         </div>
 
       </div>
 
     </div>
 
-    <!-- Technical Guide & Patient Guidance Strip -->
+    <!-- Technical Guide Strip -->
     <div style="background: #ffffff; border: 1px solid var(--surface-border); border-radius: 16px; padding: 1.5rem; margin-top: 1.5rem;">
       <h4 style="font-size: 0.95rem; font-weight: 800; color: var(--text-heading); margin: 0 0 0.5rem; display: flex; align-items: center; gap: 6px;">
         <svg style="width: 16px; height: 16px; stroke: #0284c7;" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
@@ -794,16 +1033,16 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo);
       </h4>
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; font-size: 0.82rem; color: #475569; margin-top: 0.85rem;">
         <div style="background: #f8fafc; padding: 0.85rem; border-radius: 10px; border: 1px solid #f1f5f9;">
-          <strong style="color: #0f172a; display: block; margin-bottom: 3px;">1. Dynamic Sequential Token</strong>
-          Upon requesting a session, you receive a dynamic serial. Attending specialists consult patients strictly in token order to avoid chamber congestion.
+          <strong style="color: #0f172a; display: block; margin-bottom: 3px;">1. Multi-Branch Isolation</strong>
+          Selecting a hospital branch queries verified 24/7 on-duty emergency physicians belonging strictly to that facility.
         </div>
         <div style="background: #f8fafc; padding: 0.85rem; border-radius: 10px; border: 1px solid #f1f5f9;">
-          <strong style="color: #0f172a; display: block; margin-bottom: 3px;">2. Privacy-Locked Video Gate</strong>
-          The Zoom meeting bridge is locked while waiting. The moment your doctor advances the queue and calls your token, your "Join Video Call Now" button automatically unlocks.
+          <strong style="color: #0f172a; display: block; margin-bottom: 3px;">2. Real Sequential Token Order</strong>
+          Progression is strictly driven by sequential token numbers in the database. The video bridge is locked until your exact token is called.
         </div>
         <div style="background: #f8fafc; padding: 0.85rem; border-radius: 10px; border: 1px solid #f1f5f9;">
-          <strong style="color: #0f172a; display: block; margin-bottom: 3px;">3. Zero-Reload Automatic Sync</strong>
-          No manual page refresh is needed! Our real-time synchronizer polls every 3.5 seconds and triggers an audio chime when your turn arrives.
+          <strong style="color: #0f172a; display: block; margin-bottom: 3px;">3. Instant Zero-Reload Unlock</strong>
+          When your doctor clicks "Call Next Patient", your screen unlocks the active "Join Video Call Now" button in real-time with an alert chime.
         </div>
       </div>
     </div>
@@ -820,6 +1059,7 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo);
     (function() {
       let pollInterval = 3500; // 3.5 seconds lightweight polling
       let pollTimer = null;
+      let selectedHospitalId = <?= $initialHospitalId ?>;
       let currentState = <?= json_encode($currentSession['state'] ?? 'none') ?>;
       let activeAppointmentId = <?= (int)($currentSession['appointment_id'] ?? 0) ?>;
       let myTokenNumber = <?= (int)($currentSession['my_token'] ?? 0) ?>;
@@ -881,10 +1121,25 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo);
         }
       }
 
-      // Core Polling Handler
+      // Hospital Branch Selection Switcher (Zero Page Reload)
+      window.selectHospitalBranch = async function(hospitalId) {
+        selectedHospitalId = hospitalId;
+
+        // Update card active classes
+        document.querySelectorAll('.facility-card').forEach(card => {
+          card.classList.remove('is-active');
+        });
+        const activeCard = document.getElementById(`facCard_${hospitalId}`);
+        if (activeCard) activeCard.classList.add('is-active');
+
+        // Immediately trigger sync for this hospital
+        await executeZeroReloadSync();
+      };
+
+      // Core Background Polling Handler
       async function executeZeroReloadSync() {
         try {
-          const resp = await fetch('api/live_telemedicine_sync.php', {
+          const resp = await fetch(`api/live_telemedicine_sync.php?hospital_id=${selectedHospitalId}`, {
             method: 'GET',
             headers: { 'Accept': 'application/json' }
           });
@@ -898,12 +1153,19 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo);
           const syncClock = document.getElementById('syncClock');
           if (syncClock) syncClock.textContent = 'Last Synced: ' + nowStr;
 
+          // Update Active Facility Indicator
+          const facInd = document.getElementById('activeFacilityIndicator');
+          if (facInd && data.hospitals) {
+            const hObj = data.hospitals.find(h => Number(h.hospital_id) === Number(data.selected_hospital_id));
+            if (hObj) facInd.textContent = `Facility: ${hObj.name} (${hObj.city})`;
+          }
+
           // Branch A: Patient has an active session
           if (data.has_active_session && data.session) {
             handleActiveSessionTelemetry(data.session);
           } else {
             // Branch B: No active session
-            handleNoActiveSession(data.on_call_doctors || []);
+            handleNoActiveSession(data.on_call_doctors || [], data.hospitals || []);
           }
 
         } catch (err) {
@@ -932,23 +1194,12 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo);
         if (curServing) {
           curServing.textContent = (session.current_serving_token > 0)
             ? 'Token #' + String(session.current_serving_token).padStart(2, '0')
-            : 'Starting Next';
+            : 'Starting Session';
         }
 
         const queuePos = document.getElementById('cardQueuePosition');
         if (queuePos) {
-          if (session.is_called) {
-            queuePos.innerHTML = '<span style="color:#059669;">Your Turn Now</span>';
-          } else if (session.people_ahead === 0) {
-            queuePos.innerHTML = '<span style="color:#d97706;">Next in Line</span>';
-          } else {
-            queuePos.textContent = session.people_ahead + ' Ahead';
-          }
-        }
-
-        const estWait = document.getElementById('cardEstWait');
-        if (estWait) {
-          estWait.textContent = session.is_called ? '0 Mins (Ready)' : '~' + session.estimated_wait_mins + ' Mins';
+          queuePos.textContent = session.position_label || 'In Queue';
         }
 
         const docNameEl = document.getElementById('cardDoctorName');
@@ -960,10 +1211,17 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo);
         const hospNameEl = document.getElementById('cardHospitalName');
         if (hospNameEl) hospNameEl.textContent = session.hospital_name;
 
-        // 2. VIDEO BRIDGE TRANSITION: WAITING -> CALLED
+        const cardFacName = document.getElementById('cardFacilityName');
+        if (cardFacName) cardFacName.textContent = session.hospital_name;
+
+        // 2. VIDEO BRIDGE TRANSITION: WAITING -> CALLED -> COMPLETED
         const isCalledNow = (session.state === 'called' || session.is_called);
 
-        if (isCalledNow) {
+        if (session.state === 'completed') {
+          hasChimedForCurrentTurn = false;
+          stopTitleFlash();
+          renderCompletedBridge(session);
+        } else if (isCalledNow) {
           // Play pleasant chime and trigger title flash once when turn transitions
           if (!hasChimedForCurrentTurn) {
             playTurnChime();
@@ -1061,7 +1319,7 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo);
         `;
       }
 
-      // Render Locked Bridge (When Still in Queue)
+      // Render Locked Bridge (When Still Waiting in Queue)
       function renderLockedBridge(session) {
         const bridgeContainer = document.getElementById('videoBridgeContainer');
         const alertBanner = document.getElementById('turnAlertBanner');
@@ -1073,7 +1331,13 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo);
         if (!bridgeContainer) return;
 
         // If locked view is already mounted, return
-        if (document.getElementById('bridgeLockedView')) return;
+        if (document.getElementById('bridgeLockedView')) {
+          const lToken = document.getElementById('lockedWaitTokenDisplay');
+          if (lToken) lToken.textContent = session.my_token || 1;
+          const bToken = document.getElementById('lockedBtnToken');
+          if (bToken) bToken.textContent = session.my_token || 1;
+          return;
+        }
 
         bridgeContainer.innerHTML = `
           <div class="vc-bridge-locked" id="bridgeLockedView">
@@ -1092,7 +1356,7 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo);
               Consultation Bridge Locked
             </h2>
             <p style="font-size: 0.88rem; color: #64748b; margin: 0 0 1.5rem; line-height: 1.5;">
-              To ensure clinical confidentiality and prevent overlapping patients, your Zoom link is locked while the doctor completes consultations with preceding tokens.
+              To protect doctor-patient privacy and avoid session overlap, this video bridge is locked. The link will unlock automatically the second Doctor calls your token.
             </p>
 
             <div style="background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 12px; padding: 1rem; margin-bottom: 1.5rem; text-align: left; font-size: 0.8rem; color: #475569;">
@@ -1110,18 +1374,99 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo);
                 <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
                 <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
               </svg>
-              <span>Video Call Locked (Waiting for Doctor)</span>
+              <span>Video Call Locked (Waiting for Token #<span id="lockedBtnToken">${session.my_token || 1}</span>)</span>
             </div>
 
             <div style="margin-top: 1.25rem; font-size: 0.74rem; color: #64748b; display: flex; align-items: center; justify-content: center; gap: 6px;">
-              <span>🔊 Audio Chime Armed &bull; Keep tab open</span>
+              <span>🔊 Audio Chime Armed &bull; Please keep this page open</span>
             </div>
           </div>
         `;
       }
 
+      // Render Consultation Completed Bridge
+      function renderCompletedBridge(session) {
+        const bridgeContainer = document.getElementById('videoBridgeContainer');
+        const alertBanner = document.getElementById('turnAlertBanner');
+        const tokenLine = document.getElementById('cardTokenStatusLine');
+
+        if (alertBanner) alertBanner.style.display = 'none';
+        if (tokenLine) tokenLine.textContent = 'Consultation session concluded.';
+
+        if (!bridgeContainer) return;
+        if (document.getElementById('bridgeCompletedView')) return;
+
+        bridgeContainer.innerHTML = `
+          <div class="vc-bridge-completed" id="bridgeCompletedView">
+            <div style="width: 72px; height: 72px; border-radius: 50%; background: #ecfdf5; border: 2px solid #a7f3d0; color: #059669; display: flex; align-items: center; justify-content: center; margin: 0 auto 1.25rem;">
+              <svg style="width: 38px; height: 38px; stroke: currentColor;" fill="none" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+            </div>
+
+            <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.72rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; background: #ecfdf5; color: #059669; padding: 4px 12px; border-radius: 999px; margin-bottom: 0.75rem;">
+              SESSION CONCLUDED
+            </span>
+
+            <h2 style="font-size: 1.45rem; font-weight: 800; color: #0f172a; margin: 0 0 0.5rem;">
+              Consultation Completed
+            </h2>
+            <p style="font-size: 0.88rem; color: #64748b; margin: 0 0 1.5rem; line-height: 1.5;">
+              Your virtual consultation session has concluded. Your doctor has finalized this tele-health visit.
+            </p>
+
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 0.85rem 1rem; margin-bottom: 1.5rem; text-align: left; font-size: 0.8rem;">
+              <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                <span style="color: #64748b;">Specialist:</span>
+                <strong style="color: #0f172a;">${escapeHtml(session.doctor_name || 'Doctor')}</strong>
+              </div>
+              <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                <span style="color: #64748b;">Facility:</span>
+                <strong style="color: #0f172a;">${escapeHtml(session.hospital_name || 'MedPulse')}</strong>
+              </div>
+              <div style="display: flex; justify-content: space-between;">
+                <span style="color: #64748b;">Status:</span>
+                <strong style="color: #059669;">Completed &amp; Closed</strong>
+              </div>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+              <button type="button" class="btn-return-directory" onclick="dismissSessionAndReturn();">
+                <svg style="width: 16px; height: 16px; stroke: currentColor;" fill="none" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+                <span>Request Another Consultation / Change Facility</span>
+              </button>
+              <a href="appointments.php" class="btn-view-records">
+                <span>View My Appointments &amp; History</span>
+              </a>
+            </div>
+          </div>
+        `;
+      }
+
+      // Dismiss completed session and return to facility / doctor selector
+      window.dismissSessionAndReturn = async function() {
+        const csrfToken = document.getElementById('pageCsrfToken').value;
+        try {
+          const formData = new FormData();
+          formData.append('appointment_id', activeAppointmentId);
+          formData.append('csrf_token', csrfToken);
+          await fetch('api/dismiss_teleconsult.php', { method: 'POST', body: formData });
+        } catch (e) {
+          console.warn('Dismiss notice:', e);
+        }
+
+        activeAppointmentId = 0;
+        myTokenNumber = 0;
+        currentState = 'none';
+
+        const waitingView = document.getElementById('viewWaitingRoom');
+        const selectionView = document.getElementById('viewDoctorSelection');
+        if (waitingView) waitingView.style.display = 'none';
+        if (selectionView) selectionView.style.display = 'block';
+
+        await executeZeroReloadSync();
+      };
+
       // Handle when patient has no active queue token
-      function handleNoActiveSession(doctors) {
+      function handleNoActiveSession(doctors, hospitals) {
         stopTitleFlash();
         hasChimedForCurrentTurn = false;
 
@@ -1133,31 +1478,127 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo);
           if (selectionView) selectionView.style.display = 'block';
         }
 
-        // Live update on-call doctors telemetry in the cards
-        doctors.forEach(doc => {
-          const sEl = document.getElementById(`docServing_${doc.user_id}`);
-          if (sEl) {
-            sEl.textContent = (doc.current_serving_token > 0)
-              ? 'Token #' + String(doc.current_serving_token).padStart(2, '0')
-              : 'Chamber Ready';
-          }
-          const wEl = document.getElementById(`docWaiting_${doc.user_id}`);
-          if (wEl) {
-            wEl.textContent = (doc.waiting_count > 0)
-              ? doc.waiting_count + ' Patients in Line'
-              : 'No Wait • Immediate';
-          }
-          const tEl = document.getElementById(`docWaitTime_${doc.user_id}`);
-          if (tEl) {
-            tEl.textContent = (doc.waiting_count > 0)
-              ? '~' + (doc.waiting_count * 8) + ' mins'
-              : '~0 mins';
-          }
-        });
+        // Update Doctor Count Badge
+        const docBadge = document.getElementById('doctorCountBadge');
+        if (docBadge) docBadge.textContent = `${doctors.length} Doctors Available`;
+
+        // Update Doctor Counts on Facility Cards
+        if (hospitals) {
+          hospitals.forEach(h => {
+            const fc = document.getElementById(`facDocCount_${h.hospital_id}`);
+            if (fc) fc.textContent = h.doctor_count;
+          });
+        }
+
+        // Re-render Doctors Grid for Selected Branch
+        renderDoctorsGrid(doctors);
       }
 
-      // Global Action: Request Live Session with an On-Call Doctor
-      window.requestLiveSession = async function(doctorId) {
+      function renderDoctorsGrid(doctors) {
+        const grid = document.getElementById('onCallDoctorsGrid');
+        if (!grid) return;
+
+        if (!doctors || doctors.length === 0) {
+          grid.innerHTML = `
+            <div style="grid-column: 1 / -1; background: #fff; border: 1px solid var(--surface-border); border-radius: 16px; padding: 3rem 2rem; text-align: center; color: #64748b;">
+              <div style="font-size: 2rem; margin-bottom: 0.5rem;">🏥</div>
+              <h3 style="font-size: 1.15rem; font-weight: 800; color: #0f172a; margin: 0 0 0.25rem;">No On-Duty Doctors Currently Live at This Facility</h3>
+              <p style="font-size: 0.85rem; margin: 0;">Please select another MedPulse hospital branch from the facility selector above.</p>
+            </div>
+          `;
+          return;
+        }
+
+        grid.innerHTML = doctors.map(doc => {
+          const names = (doc.full_name || '').split(' ');
+          let initials = '';
+          names.forEach(n => {
+            if (n && n.toLowerCase() !== 'dr.') initials += n[0].toUpperCase();
+          });
+          if (!initials) initials = 'DR';
+          initials = initials.substring(0, 2);
+
+          const servingText = (doc.current_serving_token > 0)
+            ? 'Token #' + String(doc.current_serving_token).padStart(2, '0')
+            : 'Chamber Ready';
+
+          return `
+            <div class="doc-card" id="docCard_${doc.user_id}">
+              <div>
+                <div style="display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 1rem;">
+                  <span style="font-size: 0.7rem; font-weight: 700; color: #0284c7; background: rgba(2, 132, 199, 0.08); border: 1px solid rgba(2, 132, 199, 0.2); padding: 3px 8px; border-radius: 6px;">
+                    ${escapeHtml(doc.hospital_name)}
+                  </span>
+                  <span style="font-size: 0.68rem; font-weight: 800; padding: 3px 8px; border-radius: 999px; background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; display: inline-flex; align-items: center; gap: 4px;">
+                    <span class="tele-pulse-dot"></span> 24/7 ON-DUTY
+                  </span>
+                </div>
+
+                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 1.15rem;">
+                  <div class="doc-avatar-pill">
+                    ${escapeHtml(initials)}
+                  </div>
+                  <div>
+                    <h3 style="font-size: 1.1rem; font-weight: 800; color: var(--text-heading); margin: 0 0 2px;">
+                      ${escapeHtml(doc.full_name)}
+                    </h3>
+                    <p style="font-size: 0.8rem; font-weight: 600; color: #0284c7; margin: 0;">
+                      ${escapeHtml(doc.specialty)}
+                    </p>
+                    <span style="font-size: 0.72rem; color: var(--text-muted); display: block; margin-top: 2px;">
+                      Room: ${escapeHtml(doc.room_code || 'Chamber')} &bull; ${escapeHtml(doc.designation || 'Specialist')}
+                    </span>
+                  </div>
+                </div>
+
+                <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 0.85rem; margin-bottom: 1.15rem; font-size: 0.82rem;">
+                  <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+                    <span style="color: #64748b; font-weight: 600;">Currently Consulting:</span>
+                    <strong style="color: #2563eb;" id="docServing_${doc.user_id}">
+                      ${servingText}
+                    </strong>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+                    <span style="color: #64748b; font-weight: 600;">Waiting Queue Load:</span>
+                    <strong style="color: #0f172a;" id="docWaiting_${doc.user_id}">
+                      ${escapeHtml(doc.queue_load_label || 'Chamber Ready')}
+                    </strong>
+                  </div>
+                  <div style="display: flex; justify-content: space-between;">
+                    <span style="color: #64748b; font-weight: 600;">Sequential Token Mode:</span>
+                    <strong style="color: #059669;">
+                      Token Progression
+                    </strong>
+                  </div>
+                </div>
+
+                <div style="margin-bottom: 1rem;">
+                  <label style="display: block; font-size: 0.72rem; font-weight: 700; color: #475569; margin-bottom: 4px;">
+                    Chief Complaint / Symptoms (Optional)
+                  </label>
+                  <input type="text" 
+                         id="inputReason_${doc.user_id}" 
+                         placeholder="E.g. Chest pain, high fever, post-op consultation" 
+                         style="width: 100%; padding: 0.55rem 0.75rem; font-size: 0.82rem; border: 1px solid #cbd5e1; border-radius: 8px; outline: none; font-family: inherit;">
+                </div>
+              </div>
+
+              <div>
+                <button type="button" 
+                        class="btn-request-session" 
+                        id="btnReqDoc_${doc.user_id}"
+                        onclick="requestLiveSession(${doc.user_id}, ${doc.hospital_id});">
+                  <svg style="width: 16px; height: 16px; stroke: #fff; fill: currentColor;" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+                  <span>Request Virtual Consultation</span>
+                </button>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+
+      // Global Action: Request Virtual Consultation
+      window.requestLiveSession = async function(doctorId, hospitalId) {
         const btn = document.getElementById(`btnReqDoc_${doctorId}`);
         const inputReason = document.getElementById(`inputReason_${doctorId}`);
         const reason = inputReason ? inputReason.value.trim() : '';
@@ -1172,6 +1613,7 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo);
         try {
           const formData = new FormData();
           formData.append('doctor_id', doctorId);
+          formData.append('hospital_id', hospitalId || selectedHospitalId);
           formData.append('reason', reason);
           formData.append('csrf_token', csrfToken);
 
@@ -1202,7 +1644,7 @@ $onCallDoctors = TelemedicineController::getOnCallDutyDoctors($pdo);
             btn.style.opacity = '1';
             btn.innerHTML = `
               <svg style="width: 16px; height: 16px; stroke: #fff; fill: currentColor;" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
-              <span>Request Live Consultation Session</span>
+              <span>Request Virtual Consultation</span>
             `;
           }
         }
