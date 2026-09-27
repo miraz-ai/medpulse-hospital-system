@@ -11,34 +11,96 @@ $isSuperAdmin = TenantScope::isSuperAdmin();
 $adminHospitalId = (int)($_SESSION['hospital_id'] ?? 1);
 
 try {
-    // Fetch active and suspended doctors scoped strictly to the authenticated hospital
+    // 1. Accurate Counts & Metrics: scoped COUNT(DISTINCT doctor_id) queries preventing duplication
+    if ($isSuperAdmin) {
+        $countStmt = $pdo->query("
+            SELECT 
+                COUNT(DISTINCT COALESCE(dp.doctor_id, d.doctor_id, u.user_id)) AS total_physicians,
+                COUNT(DISTINCT CASE WHEN u.status = 'active' THEN COALESCE(dp.doctor_id, d.doctor_id, u.user_id) END) AS active_on_duty,
+                COUNT(DISTINCT CASE WHEN u.status = 'suspended' THEN COALESCE(dp.doctor_id, d.doctor_id, u.user_id) END) AS suspended_accounts
+            FROM users u
+            LEFT JOIN doctor_profiles dp ON u.user_id = dp.user_id
+            LEFT JOIN doctors d ON (u.user_id = d.user_id AND (dp.hospital_id IS NULL OR d.hospital_id = dp.hospital_id))
+            LEFT JOIN hospitals h ON h.hospital_id = COALESCE(dp.hospital_id, d.hospital_id, u.hospital_id)
+            WHERE u.role = 'Doctor' AND u.status IN ('active', 'suspended')
+        ");
+        $counts = $countStmt->fetch(PDO::FETCH_ASSOC);
+    } else {
+        $countStmt = $pdo->prepare("
+            SELECT 
+                COUNT(DISTINCT COALESCE(dp.doctor_id, d.doctor_id, u.user_id)) AS total_physicians,
+                COUNT(DISTINCT CASE WHEN u.status = 'active' THEN COALESCE(dp.doctor_id, d.doctor_id, u.user_id) END) AS active_on_duty,
+                COUNT(DISTINCT CASE WHEN u.status = 'suspended' THEN COALESCE(dp.doctor_id, d.doctor_id, u.user_id) END) AS suspended_accounts
+            FROM users u
+            LEFT JOIN doctor_profiles dp ON u.user_id = dp.user_id
+            LEFT JOIN doctors d ON (u.user_id = d.user_id AND (dp.hospital_id IS NULL OR d.hospital_id = dp.hospital_id))
+            LEFT JOIN hospitals h ON h.hospital_id = COALESCE(dp.hospital_id, d.hospital_id, u.hospital_id)
+            WHERE u.role = 'Doctor' AND u.status IN ('active', 'suspended')
+              AND COALESCE(dp.hospital_id, d.hospital_id, u.hospital_id) = :hosp_id
+        ");
+        $countStmt->execute([':hosp_id' => $adminHospitalId]);
+        $counts = $countStmt->fetch(PDO::FETCH_ASSOC);
+    }
+
+    $totalDoctors     = (int)($counts['total_physicians'] ?? 0);
+    $activeDoctors    = (int)($counts['active_on_duty'] ?? 0);
+    $suspendedDoctors = (int)($counts['suspended_accounts'] ?? 0);
+
+    // 2. Fetch active and suspended doctors scoped strictly to the authenticated hospital
+    // Ensure all table JOINs have explicit, strict ON clauses and GROUP BY u.user_id to guarantee each doctor record is returned exactly once
     if ($isSuperAdmin) {
         $doctorsStmt = $pdo->prepare("
-            SELECT u.user_id, u.full_name, u.email, u.phone, u.gender, u.role, u.status, u.license_id, u.department, u.created_at,
-                   COALESCE(d.hospital_id, u.hospital_id) AS hospital_id
+            SELECT 
+                u.user_id,
+                COALESCE(dp.doctor_id, MIN(d.doctor_id), u.user_id) AS doctor_id,
+                u.full_name,
+                u.email,
+                u.phone,
+                u.gender,
+                u.role,
+                u.status,
+                COALESCE(dp.bmdc_license_number, dp.bmdc_reg_number, MIN(d.bmdc_reg_no), u.license_id, 'BMDC-PENDING') AS license_id,
+                COALESCE(dp.specialty, MIN(d.specialty), u.department, 'General Clinical Practice') AS department,
+                u.created_at,
+                COALESCE(dp.hospital_id, MIN(d.hospital_id), u.hospital_id) AS hospital_id,
+                MIN(h.name) AS hospital_name
             FROM users u
-            LEFT JOIN doctors d ON u.user_id = d.user_id
-            WHERE u.role = 'Doctor' AND u.status IN ('active', 'suspended') 
+            LEFT JOIN doctor_profiles dp ON u.user_id = dp.user_id
+            LEFT JOIN doctors d ON (u.user_id = d.user_id AND (dp.hospital_id IS NULL OR d.hospital_id = dp.hospital_id))
+            LEFT JOIN hospitals h ON h.hospital_id = COALESCE(dp.hospital_id, d.hospital_id, u.hospital_id)
+            WHERE u.role = 'Doctor' AND u.status IN ('active', 'suspended')
+            GROUP BY u.user_id
             ORDER BY u.status ASC, u.full_name ASC
         ");
         $doctorsStmt->execute();
     } else {
         $doctorsStmt = $pdo->prepare("
-            SELECT u.user_id, u.full_name, u.email, u.phone, u.gender, u.role, u.status, u.license_id, u.department, u.created_at,
-                   COALESCE(d.hospital_id, u.hospital_id) AS hospital_id
+            SELECT 
+                u.user_id,
+                COALESCE(dp.doctor_id, MIN(d.doctor_id), u.user_id) AS doctor_id,
+                u.full_name,
+                u.email,
+                u.phone,
+                u.gender,
+                u.role,
+                u.status,
+                COALESCE(dp.bmdc_license_number, dp.bmdc_reg_number, MIN(d.bmdc_reg_no), u.license_id, 'BMDC-PENDING') AS license_id,
+                COALESCE(dp.specialty, MIN(d.specialty), u.department, 'General Clinical Practice') AS department,
+                u.created_at,
+                COALESCE(dp.hospital_id, MIN(d.hospital_id), u.hospital_id) AS hospital_id,
+                MIN(h.name) AS hospital_name
             FROM users u
-            LEFT JOIN doctors d ON u.user_id = d.user_id
-            WHERE u.role = 'Doctor' AND u.status IN ('active', 'suspended') 
-              AND COALESCE(d.hospital_id, u.hospital_id) = :hosp_id
+            LEFT JOIN doctor_profiles dp ON u.user_id = dp.user_id
+            LEFT JOIN doctors d ON (u.user_id = d.user_id AND (dp.hospital_id IS NULL OR d.hospital_id = dp.hospital_id))
+            LEFT JOIN hospitals h ON h.hospital_id = COALESCE(dp.hospital_id, d.hospital_id, u.hospital_id)
+            WHERE u.role = 'Doctor' AND u.status IN ('active', 'suspended')
+              AND COALESCE(dp.hospital_id, d.hospital_id, u.hospital_id) = :hosp_id
+            GROUP BY u.user_id
             ORDER BY u.status ASC, u.full_name ASC
         ");
         $doctorsStmt->execute([':hosp_id' => $adminHospitalId]);
     }
     $doctorsRoster = $doctorsStmt->fetchAll(PDO::FETCH_ASSOC);
-
-    $totalDoctors     = count($doctorsRoster);
-    $activeDoctors    = count(array_filter($doctorsRoster, fn($d) => $d['status'] === 'active'));
-    $suspendedDoctors = count(array_filter($doctorsRoster, fn($d) => $d['status'] === 'suspended'));
 
 } catch (PDOException $e) {
     error_log("Manage Doctors DB error: " . $e->getMessage());

@@ -43,7 +43,14 @@ try {
     $pendingCount = count($pendingUsers);
 
     // 2. Departmental Hub Counters (Scoped strictly to branch hospital)
-    $docCountStmt = $pdo->prepare("SELECT COUNT(*) FROM doctors WHERE hospital_id = ? AND status IN ('active', 'approved')");
+    $docCountStmt = $pdo->prepare("
+        SELECT COUNT(DISTINCT COALESCE(dp.doctor_id, d.doctor_id, u.user_id))
+        FROM users u
+        LEFT JOIN doctor_profiles dp ON u.user_id = dp.user_id
+        LEFT JOIN doctors d ON (u.user_id = d.user_id AND (dp.hospital_id IS NULL OR d.hospital_id = dp.hospital_id))
+        WHERE u.role = 'Doctor' AND u.status = 'active'
+          AND COALESCE(dp.hospital_id, d.hospital_id, u.hospital_id) = ?
+    ");
     $docCountStmt->execute([$adminHospitalId]);
     $total_doctors = (int)$docCountStmt->fetchColumn();
 

@@ -83,7 +83,10 @@ class TelemedicineController {
                 UPDATE `doctor_profiles` SET `hospital_id` = 5 WHERE `user_id` = 14;
             ");
 
-            // 5. Ensure doctors table has affiliations
+            // 5. Ensure doctors table has affiliations (strictly guarded against Cartesian duplicate rows)
+            $pdo->exec("
+                CREATE UNIQUE INDEX IF NOT EXISTS `uq_doctors_user_hospital` ON `doctors` (`user_id`, `hospital_id`);
+            ");
             $pdo->exec("
                 INSERT INTO `doctors` (`user_id`, `hospital_id`, `status`)
                 VALUES 
