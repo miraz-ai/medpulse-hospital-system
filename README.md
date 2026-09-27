@@ -1,4 +1,3 @@
-# medpulse-hospital-system
 # 🏥 MedPulse — Smart Hospital & Clinical Management Ecosystem
 
 **MedPulse** is an enterprise-grade hospital management and real-time clinical operations ecosystem. Built to eliminate administrative bottlenecks, the platform streamlines outpatient departments (OPD), automates turn-gated virtual consultations, optimizes inpatient bed census logistics, and provides multi-tier governance aligned with national healthcare standards.
