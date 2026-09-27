@@ -898,7 +898,7 @@ if ($hour >= 5 && $hour < 12) {
     <div class="welcome-banner">
       <div class="welcome-text">
         <h1>
-          <?= htmlspecialchars($greeting, ENT_QUOTES, 'UTF-8') ?>, <?= htmlspecialchars($patientName, ENT_QUOTES, 'UTF-8') ?>! 
+          <?= htmlspecialchars($greeting, ENT_QUOTES, 'UTF-8') ?>, <?= htmlspecialchars($patientName, ENT_QUOTES, 'UTF-8') ?>
           <svg class="ui-ico" style="stroke: var(--brand-teal); width: 24px; height: 24px;" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
         </h1>
         <p>Your electronic medical record, consultations, and diagnostic tests are fully synced.</p>
@@ -1615,6 +1615,12 @@ if ($hour >= 5 && $hour < 12) {
         <span style="font-family: monospace; font-size: 0.76rem; font-weight: 800; color: var(--brand-primary); background: rgba(14,165,233,0.12); padding: 2px 8px; border-radius: 6px; letter-spacing: 0.04em;">
           <?= htmlspecialchars($patientUid, ENT_QUOTES, 'UTF-8') ?>
         </span>
+      </div>
+      <div style="margin: 6px 0 10px;">
+        <a href="profile.php" style="display: inline-flex; align-items: center; gap: 5px; font-size: 0.76rem; font-weight: 700; color: #0284c7; background: #e0f2fe; padding: 4px 10px; border-radius: 6px; text-decoration: none; transition: all 0.15s ease;">
+          <svg style="width: 12px; height: 12px; stroke: currentColor;" fill="none" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+          Edit Profile
+        </a>
       </div>
       <p style="font-size: 0.8rem; color: var(--text-muted);"><?= htmlspecialchars($patientEmail, ENT_QUOTES, 'UTF-8') ?></p>
       <?php if (!empty($dobFormatted)): ?>

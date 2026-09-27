@@ -73,14 +73,14 @@ class TelemedicineController {
                 ON DUPLICATE KEY UPDATE `operational_status` = 'Active'
             ");
 
-            // 4. Align multi-branch facility doctors
+            // 4. Align multi-branch facility doctors (strictly verified clinical doctors)
             $pdo->exec("
-                UPDATE `doctor_profiles` SET `hospital_id` = 1 WHERE `user_id` = 8;
-                UPDATE `doctor_profiles` SET `hospital_id` = 1 WHERE `user_id` = 29;
-                UPDATE `doctor_profiles` SET `hospital_id` = 2 WHERE `user_id` = 20;
+                UPDATE `doctor_profiles` SET `hospital_id` = 1 WHERE `user_id` IN (8, 29, 48, 104);
+                UPDATE `doctor_profiles` SET `hospital_id` = 2 WHERE `user_id` IN (33, 112);
                 UPDATE `doctor_profiles` SET `hospital_id` = 3 WHERE `user_id` = 21;
                 UPDATE `doctor_profiles` SET `hospital_id` = 4 WHERE `user_id` = 13;
                 UPDATE `doctor_profiles` SET `hospital_id` = 5 WHERE `user_id` = 14;
+                UPDATE `doctor_profiles` SET `hospital_id` = 6 WHERE `user_id` = 11;
             ");
 
             // 5. Ensure doctors table has affiliations (strictly guarded against Cartesian duplicate rows)
@@ -90,13 +90,16 @@ class TelemedicineController {
             $pdo->exec("
                 INSERT INTO `doctors` (`user_id`, `hospital_id`, `status`)
                 VALUES 
-                  (8,  1, 'approved'),
-                  (29, 1, 'approved'),
-                  (20, 2, 'approved'),
-                  (21, 3, 'approved'),
-                  (13, 4, 'approved'),
-                  (14, 5, 'approved'),
-                  (20, 6, 'approved')
+                  (8,   1, 'approved'),
+                  (29,  1, 'approved'),
+                  (48,  1, 'approved'),
+                  (104, 1, 'approved'),
+                  (33,  2, 'approved'),
+                  (112, 2, 'approved'),
+                  (21,  3, 'approved'),
+                  (13,  4, 'approved'),
+                  (14,  5, 'approved'),
+                  (11,  6, 'approved')
                 ON DUPLICATE KEY UPDATE `status` = 'approved'
             ");
 
@@ -148,8 +151,14 @@ class TelemedicineController {
                     COALESCE(h.emergency_status, 'Operational') AS emergency_status,
                     COUNT(DISTINCT u.user_id) AS doctor_count
                 FROM hospitals h
-                LEFT JOIN doctors d ON h.hospital_id = d.hospital_id AND d.status IN ('active', 'approved')
-                LEFT JOIN users u ON d.user_id = u.user_id AND u.role = 'Doctor' AND u.status = 'active'
+                LEFT JOIN doctor_profiles dp ON h.hospital_id = dp.hospital_id
+                LEFT JOIN users u ON dp.user_id = u.user_id 
+                    AND u.role = 'Doctor' 
+                    AND u.status = 'active'
+                    AND (u.full_name LIKE 'Dr.%' OR u.full_name LIKE 'Dr %')
+                    AND dp.bmdc_license_number IS NOT NULL
+                    AND dp.bmdc_license_number != ''
+                    AND dp.bmdc_license_number != 'BMDC-PENDING'
                 WHERE h.operational_status = 'Active' OR h.operational_status IS NULL
                 GROUP BY h.hospital_id, h.name, h.code, h.city, h.address, h.contact_number, h.emergency_status
                 ORDER BY h.hospital_id ASC
@@ -163,14 +172,14 @@ class TelemedicineController {
 
     /**
      * Fetch verified 24/7 on-duty emergency doctors strictly filtered by hospital branch.
-     * Enforces strict multi-tenant facility isolation.
+     * Enforces strict multi-tenant facility isolation and clinical Dr. sanitization.
      */
     public static function getOnCallDutyDoctors(PDO $pdo, ?int $hospitalId = null): array {
         self::ensureSchema($pdo);
 
         try {
             $sql = "
-                SELECT DISTINCT
+                SELECT 
                     u.user_id, u.full_name, u.email, u.phone, u.gender,
                     dp.specialty, dp.designation, dp.bmdc_license_number,
                     dp.room_number, dp.consultation_fee,
@@ -180,13 +189,13 @@ class TelemedicineController {
                     h.hospital_id, h.name AS hospital_name, h.city AS hospital_city, h.address AS hospital_address
                 FROM users u
                 JOIN doctor_profiles dp ON u.user_id = dp.user_id
-                LEFT JOIN doctors d ON u.user_id = d.user_id
-                JOIN hospitals h ON (
-                    (d.hospital_id = h.hospital_id OR dp.hospital_id = h.hospital_id OR u.hospital_id = h.hospital_id)
-                )
+                JOIN hospitals h ON h.hospital_id = dp.hospital_id
                 WHERE u.role = 'Doctor'
                   AND u.status = 'active'
-                  AND (d.status IS NULL OR d.status IN ('active', 'approved'))
+                  AND (u.full_name LIKE 'Dr.%' OR u.full_name LIKE 'Dr %')
+                  AND dp.bmdc_license_number IS NOT NULL
+                  AND dp.bmdc_license_number != ''
+                  AND dp.bmdc_license_number != 'BMDC-PENDING'
                   AND (dp.is_teleconsult_duty = 1 OR dp.is_teleconsult_duty IS NULL)
             ";
 
@@ -196,7 +205,7 @@ class TelemedicineController {
                 $params[':hosp_id'] = $hospitalId;
             }
 
-            $sql .= " ORDER BY CASE WHEN dp.session_status = 'live' THEN 1 ELSE 2 END ASC, u.full_name ASC";
+            $sql .= " GROUP BY u.user_id ORDER BY CASE WHEN dp.session_status = 'live' THEN 1 ELSE 2 END ASC, u.full_name ASC";
 
             $stmt = $pdo->prepare($sql);
             $stmt->execute($params);

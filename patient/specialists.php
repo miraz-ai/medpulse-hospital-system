@@ -52,23 +52,26 @@ try {
     $docQuery = $pdo->prepare("
         SELECT 
             u.user_id, u.full_name, u.email,
-            COALESCE(dp.specialty, d.specialty, 'General Medicine') AS specialty,
+            COALESCE(dp.specialty, 'General Medicine') AS specialty,
             COALESCE(dp.designation, 'Consultant Specialist') AS designation,
             COALESCE(dp.qualifications, 'MBBS') AS qualifications,
             COALESCE(dp.consultation_fee, 1000.00) AS consultation_fee,
-            COALESCE(dp.room_number, d.chamber_room_no, 'Room 101') AS room_number,
+            COALESCE(dp.room_number, 'Room 101') AS room_number,
             COALESCE(dp.available_days, 'Daily (Mon - Fri)') AS available_days,
             COALESCE(dp.shift_start_time, '09:00:00') AS shift_start_time,
             COALESCE(dp.shift_end_time, '17:00:00') AS shift_end_time,
-            COALESCE(h.name, d.hospital_name, 'MedPulse Hospital & Specialty Care') AS hospital_name,
+            COALESCE(h.name, 'MedPulse Hospital & Specialty Care') AS hospital_name,
             COALESCE(h.city, 'Dhaka') AS hospital_city
         FROM users u
-        INNER JOIN doctors d ON (d.user_id = u.user_id OR d.id = u.user_id)
-        LEFT JOIN doctor_profiles dp ON u.user_id = dp.user_id
-        LEFT JOIN hospitals h ON COALESCE(d.hospital_id, dp.hospital_id) = h.hospital_id
+        JOIN doctor_profiles dp ON u.user_id = dp.user_id
+        LEFT JOIN hospitals h ON dp.hospital_id = h.hospital_id
         WHERE u.role = 'Doctor' 
           AND u.status = 'active'
-          AND (d.status IS NULL OR d.status IN ('active', 'approved'))
+          AND (u.full_name LIKE 'Dr.%' OR u.full_name LIKE 'Dr %')
+          AND dp.bmdc_license_number IS NOT NULL
+          AND dp.bmdc_license_number != ''
+          AND dp.bmdc_license_number != 'BMDC-PENDING'
+        GROUP BY u.user_id
         ORDER BY u.full_name ASC
     ");
     $docQuery->execute();

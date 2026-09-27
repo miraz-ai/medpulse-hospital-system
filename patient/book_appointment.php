@@ -66,15 +66,18 @@ try {
         SELECT u.user_id, u.full_name, dp.specialty, dp.designation, dp.qualifications,
                dp.consultation_fee, dp.room_number, dp.available_days,
                h.hospital_id, h.name AS hospital_name, h.city AS hospital_city
-        FROM doctors d
-        INNER JOIN users u ON (d.user_id = u.user_id OR d.id = u.user_id)
-        INNER JOIN doctor_profiles dp ON u.user_id = dp.user_id
-        LEFT JOIN hospitals h ON COALESCE(d.hospital_id, dp.hospital_id) = h.hospital_id
+        FROM users u
+        JOIN doctor_profiles dp ON u.user_id = dp.user_id
+        LEFT JOIN hospitals h ON dp.hospital_id = h.hospital_id
         WHERE u.role = 'Doctor' 
           AND u.status = 'active'
-          AND d.status IN ('active', 'approved')
           AND dp.approval_status = 'approved'
+          AND (u.full_name LIKE 'Dr.%' OR u.full_name LIKE 'Dr %')
+          AND dp.bmdc_license_number IS NOT NULL
+          AND dp.bmdc_license_number != ''
+          AND dp.bmdc_license_number != 'BMDC-PENDING'
           AND u.password_hash IS NOT NULL AND u.password_hash != ''
+        GROUP BY u.user_id
         ORDER BY h.hospital_id ASC, u.full_name ASC
     ");
     $docQuery->execute();

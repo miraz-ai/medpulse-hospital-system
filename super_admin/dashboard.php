@@ -1836,7 +1836,7 @@ if (!function_exists('getHospitalCrest')) {
           Super Administrator
         </div>
         <h1>
-          <?= htmlspecialchars($greeting, ENT_QUOTES, 'UTF-8') ?>, <?= htmlspecialchars($adminName, ENT_QUOTES, 'UTF-8') ?>!
+          <?= htmlspecialchars($greeting, ENT_QUOTES, 'UTF-8') ?>, <?= htmlspecialchars($adminName, ENT_QUOTES, 'UTF-8') ?>
           <svg class="ui-ico" style="stroke: var(--sa-accent); width: 24px; height: 24px;" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
         </h1>
         <p>Network Command Center: Real-time telemetry, cross-hospital bed monitor, and network governance synchronized across all facilities.</p>

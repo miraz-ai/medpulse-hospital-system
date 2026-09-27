@@ -49,6 +49,8 @@ try {
         LEFT JOIN doctor_profiles dp ON u.user_id = dp.user_id
         LEFT JOIN doctors d ON (u.user_id = d.user_id AND (dp.hospital_id IS NULL OR d.hospital_id = dp.hospital_id))
         WHERE u.role = 'Doctor' AND u.status = 'active'
+          AND (u.full_name LIKE 'Dr.%' OR u.full_name LIKE 'Dr %')
+          AND dp.bmdc_license_number IS NOT NULL AND dp.bmdc_license_number != '' AND dp.bmdc_license_number != 'BMDC-PENDING'
           AND COALESCE(dp.hospital_id, d.hospital_id, u.hospital_id) = ?
     ");
     $docCountStmt->execute([$adminHospitalId]);
@@ -605,7 +607,7 @@ try {
     <div class="welcome-banner">
       <div class="welcome-text">
         <h1>
-          <?= htmlspecialchars($greeting, ENT_QUOTES, 'UTF-8') ?>, <?= htmlspecialchars($adminName, ENT_QUOTES, 'UTF-8') ?>!
+          <?= htmlspecialchars($greeting, ENT_QUOTES, 'UTF-8') ?>, <?= htmlspecialchars($adminName, ENT_QUOTES, 'UTF-8') ?>
           <svg class="ui-ico" style="stroke: var(--brand-teal); width: 24px; height: 24px;" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
         </h1>
         <p>Enterprise Operations Console: Real-time clinical telemetry, personnel security, and role-based registries are synchronized.</p>

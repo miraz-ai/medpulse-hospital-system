@@ -127,6 +127,17 @@ if (isset($pdo) && !empty($_SESSION['user_id'])) {
         </div>
       </a>
     </li>
+
+    <!-- My Profile -->
+    <li class="nav-item <?= ($currentRoute === 'profile.php') ? 'active' : '' ?>">
+      <a href="profile.php">
+        <div class="nav-item-inner">
+          <svg class="ui-ico" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+          My Profile
+        </div>
+        <span style="font-size: 0.65rem; font-weight: 800; padding: 2px 6px; border-radius: 999px; background: rgba(2, 132, 199, 0.12); color: #0284c7; border: 1px solid rgba(2, 132, 199, 0.25);">EHR</span>
+      </a>
+    </li>
   </ul>
 
   <div class="nav-label">Emergency &amp; Support</div>

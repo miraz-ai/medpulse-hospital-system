@@ -23,6 +23,8 @@ try {
             LEFT JOIN doctors d ON (u.user_id = d.user_id AND (dp.hospital_id IS NULL OR d.hospital_id = dp.hospital_id))
             LEFT JOIN hospitals h ON h.hospital_id = COALESCE(dp.hospital_id, d.hospital_id, u.hospital_id)
             WHERE u.role = 'Doctor' AND u.status IN ('active', 'suspended')
+              AND (u.full_name LIKE 'Dr.%' OR u.full_name LIKE 'Dr %')
+              AND dp.bmdc_license_number IS NOT NULL AND dp.bmdc_license_number != '' AND dp.bmdc_license_number != 'BMDC-PENDING'
         ");
         $counts = $countStmt->fetch(PDO::FETCH_ASSOC);
     } else {
@@ -36,6 +38,8 @@ try {
             LEFT JOIN doctors d ON (u.user_id = d.user_id AND (dp.hospital_id IS NULL OR d.hospital_id = dp.hospital_id))
             LEFT JOIN hospitals h ON h.hospital_id = COALESCE(dp.hospital_id, d.hospital_id, u.hospital_id)
             WHERE u.role = 'Doctor' AND u.status IN ('active', 'suspended')
+              AND (u.full_name LIKE 'Dr.%' OR u.full_name LIKE 'Dr %')
+              AND dp.bmdc_license_number IS NOT NULL AND dp.bmdc_license_number != '' AND dp.bmdc_license_number != 'BMDC-PENDING'
               AND COALESCE(dp.hospital_id, d.hospital_id, u.hospital_id) = :hosp_id
         ");
         $countStmt->execute([':hosp_id' => $adminHospitalId]);
@@ -69,6 +73,8 @@ try {
             LEFT JOIN doctors d ON (u.user_id = d.user_id AND (dp.hospital_id IS NULL OR d.hospital_id = dp.hospital_id))
             LEFT JOIN hospitals h ON h.hospital_id = COALESCE(dp.hospital_id, d.hospital_id, u.hospital_id)
             WHERE u.role = 'Doctor' AND u.status IN ('active', 'suspended')
+              AND (u.full_name LIKE 'Dr.%' OR u.full_name LIKE 'Dr %')
+              AND dp.bmdc_license_number IS NOT NULL AND dp.bmdc_license_number != '' AND dp.bmdc_license_number != 'BMDC-PENDING'
             GROUP BY u.user_id
             ORDER BY u.status ASC, u.full_name ASC
         ");
@@ -94,6 +100,8 @@ try {
             LEFT JOIN doctors d ON (u.user_id = d.user_id AND (dp.hospital_id IS NULL OR d.hospital_id = dp.hospital_id))
             LEFT JOIN hospitals h ON h.hospital_id = COALESCE(dp.hospital_id, d.hospital_id, u.hospital_id)
             WHERE u.role = 'Doctor' AND u.status IN ('active', 'suspended')
+              AND (u.full_name LIKE 'Dr.%' OR u.full_name LIKE 'Dr %')
+              AND dp.bmdc_license_number IS NOT NULL AND dp.bmdc_license_number != '' AND dp.bmdc_license_number != 'BMDC-PENDING'
               AND COALESCE(dp.hospital_id, d.hospital_id, u.hospital_id) = :hosp_id
             GROUP BY u.user_id
             ORDER BY u.status ASC, u.full_name ASC
